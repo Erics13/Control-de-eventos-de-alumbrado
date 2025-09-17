@@ -1,0 +1,5 @@
+{
+  "name": "Control de Alumbrado Público",
+  "description": "Una interfaz para cargar datos de eventos de luminarias desde archivos CSV, construir una base de datos y analizar fallas por fecha, categoría y zona.",
+  "requestFramePermissions": []
+}

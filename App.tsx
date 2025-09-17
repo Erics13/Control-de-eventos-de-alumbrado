@@ -1,0 +1,289 @@
+
+import React, { useState, useMemo, useCallback } from 'react';
+// FIX: Changed date-fns submodule imports from default to named. This resolves the "not callable"
+// error, likely caused by an upgrade to date-fns v3+ which uses named exports for submodules.
+import { subDays } from 'date-fns/subDays';
+import { startOfMonth } from 'date-fns/startOfMonth';
+import { startOfYear } from 'date-fns/startOfYear';
+import { isWithinInterval } from 'date-fns/isWithinInterval';
+import { parseISO } from 'date-fns/parseISO';
+import { useLuminaireData } from './hooks/useLuminaireData';
+import type { LuminaireEvent } from './types';
+import { ALL_ZONES } from './constants';
+import Header from './components/Header';
+import FileUpload from './components/FileUpload';
+import DashboardCard from './components/DashboardCard';
+import FilterControls from './components/FilterControls';
+import FailureByCategoryChart from './components/FailureByCategoryChart';
+import FailureByZoneChart from './components/FailureByZoneChart';
+import EventTable from './components/EventTable';
+import OldestEventsByZone from './components/OldestEventsByZone';
+
+const ERROR_DESC_LOW_CURRENT = "La corriente medida es menor que lo esperado o no hay corriente que fluya a través de la combinación de driver y lámpara.";
+const ERROR_DESC_HIGH_CURRENT = "La corriente medida para la combinación de driver y lámpara es mayor que la esperada.";
+const ERROR_DESC_VOLTAGE = "El voltaje de la red eléctrica de entrada detectado del sistema es muy bajo o muy alto. Esto podría llevar a fallas del sistema.";
+
+const App: React.FC = () => {
+    const { allEvents, uploadedFileNames, addEventsFromCSV, addEventsFromJSON, downloadDataAsJSON, clearAllData, loading, error } = useLuminaireData();
+    const [dateRange, setDateRange] = useState<{ start: Date | null; end: Date | null }>({ start: null, end: null });
+    const [selectedZone, setSelectedZone] = useState<string>('all');
+    const [selectedCategory, setSelectedCategory] = useState<string>('all');
+    const [cardFilter, setCardFilter] = useState<string | null>(null);
+    const [isFilelistVisible, setIsFilelistVisible] = useState(true);
+
+    const handleCardClick = useCallback((filterType: string) => {
+        setCardFilter(prevFilter => (prevFilter === filterType ? null : filterType));
+    }, []);
+
+    const handleSetDatePreset = useCallback((preset: 'week' | 'month' | 'year') => {
+        const end = new Date();
+        let start;
+        switch (preset) {
+            case 'week':
+                start = subDays(end, 7);
+                break;
+            case 'month':
+                start = startOfMonth(end);
+                break;
+            case 'year':
+                start = startOfYear(end);
+                break;
+        }
+        setDateRange({ start, end });
+    }, []);
+    
+     const handleJsonFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (file) {
+            addEventsFromJSON(file);
+            event.target.value = ''; // Reset input to allow re-uploading the same file
+        }
+    };
+
+    const baseFilteredEvents = useMemo(() => {
+        return allEvents.filter(event => {
+            const eventDate = typeof event.date === 'string' ? parseISO(event.date) : event.date;
+            const isDateInRange = !dateRange.start || !dateRange.end || isWithinInterval(eventDate, { start: dateRange.start, end: dateRange.end });
+            const isZoneMatch = selectedZone === 'all' || event.zone === selectedZone;
+            const isCategoryMatch = selectedCategory === 'all' || event.failureCategory === selectedCategory;
+            return isDateInRange && isZoneMatch && isCategoryMatch;
+        });
+    }, [allEvents, dateRange, selectedZone, selectedCategory]);
+
+    const displayEvents = useMemo(() => {
+        if (!cardFilter) {
+            return baseFilteredEvents;
+        }
+        switch (cardFilter) {
+            case 'totalFailures':
+                return baseFilteredEvents.filter(e => e.status === 'FAILURE');
+            case 'lowCurrent':
+                return baseFilteredEvents.filter(e => e.description.trim() === ERROR_DESC_LOW_CURRENT);
+            case 'highCurrent':
+                return baseFilteredEvents.filter(e => e.description.trim() === ERROR_DESC_HIGH_CURRENT);
+            case 'voltage':
+                return baseFilteredEvents.filter(e => e.description.trim() === ERROR_DESC_VOLTAGE);
+            default:
+                return baseFilteredEvents;
+        }
+    }, [baseFilteredEvents, cardFilter]);
+
+
+    const failureCategories = useMemo(() => {
+        const categories = new Set(allEvents
+            .map(e => e.failureCategory)
+            .filter((c): c is string => !!c)
+        );
+        return Array.from(categories).sort();
+    }, [allEvents]);
+
+    const zones = useMemo(() => {
+        const zoneSet = new Set(allEvents.map(e => e.zone));
+        return Array.from(zoneSet).sort();
+    }, [allEvents]);
+
+
+    const totalFailures = useMemo(() => baseFilteredEvents.filter(e => e.status === 'FAILURE').length, [baseFilteredEvents]);
+    const uniqueLuminaires = useMemo(() => new Set(baseFilteredEvents.map(e => e.id)).size, [baseFilteredEvents]);
+    const failureRate = useMemo(() => {
+         const totalLuminaires = new Set(allEvents.map(e => e.id)).size;
+         return totalLuminaires > 0 ? (totalFailures / totalLuminaires) * 100 : 0;
+    }, [totalFailures, allEvents]);
+
+    const lowCurrentFailures = useMemo(() => {
+        return baseFilteredEvents.filter(e => e.description.trim() === ERROR_DESC_LOW_CURRENT).length;
+    }, [baseFilteredEvents]);
+
+    const highCurrentFailures = useMemo(() => {
+        return baseFilteredEvents.filter(e => e.description.trim() === ERROR_DESC_HIGH_CURRENT).length;
+    }, [baseFilteredEvents]);
+
+    const voltageFailures = useMemo(() => {
+        return baseFilteredEvents.filter(e => e.description.trim() === ERROR_DESC_VOLTAGE).length;
+    }, [baseFilteredEvents]);
+
+    const oldestEventsByZone = useMemo(() => {
+        if (allEvents.length === 0) {
+            return [];
+        }
+        // `allEvents` is sorted by date descending. We iterate from the end to find the oldest events first.
+        const oldestEventsMap = new Map<string, LuminaireEvent>();
+        for (let i = allEvents.length - 1; i >= 0; i--) {
+            const event = allEvents[i];
+            if (!oldestEventsMap.has(event.zone)) {
+                oldestEventsMap.set(event.zone, event);
+            }
+        }
+        return Array.from(oldestEventsMap.values()).sort((a, b) =>
+            a.zone.localeCompare(b.zone)
+        );
+    }, [allEvents]);
+
+    return (
+        <div className="min-h-screen bg-gray-900 text-gray-200 font-sans">
+            <Header />
+            <main className="container mx-auto p-4 md:p-8">
+                <div className="bg-gray-800 shadow-lg rounded-xl p-6 mb-8">
+                    <h2 className="text-2xl font-bold text-cyan-400 mb-4">Gestión de Datos</h2>
+                    <p className="text-gray-400 mb-6">
+                        Carga nuevos datos desde un archivo CSV o gestiona respaldos de tu base de datos en formato JSON.
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <FileUpload onFileUpload={addEventsFromCSV} loading={loading} />
+                        <div>
+                            <input
+                                type="file"
+                                id="json-upload-input"
+                                accept=".json"
+                                onChange={handleJsonFileChange}
+                                className="hidden"
+                                disabled={loading}
+                            />
+                            <button
+                                onClick={() => document.getElementById('json-upload-input')?.click()}
+                                disabled={loading}
+                                className="w-full h-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-colors duration-300 flex items-center justify-center gap-3"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
+                                <span>Cargar Respaldo JSON</span>
+                            </button>
+                        </div>
+                        <button
+                            onClick={downloadDataAsJSON}
+                            disabled={loading || allEvents.length === 0}
+                            className="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-colors duration-300 flex items-center justify-center gap-2">
+                             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
+                            Descargar Respaldo JSON
+                        </button>
+                        <button
+                            onClick={clearAllData}
+                            disabled={loading || allEvents.length === 0}
+                            className="w-full bg-red-600 hover:bg-red-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-colors duration-300 flex items-center justify-center gap-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm4 0a1 1 0 012 0v6a1 1 0 11-2 0V8z" clipRule="evenodd" /></svg>
+                            Limpiar Datos
+                        </button>
+                    </div>
+                     {error && <p className="text-red-400 mt-4">{error}</p>}
+                     {uploadedFileNames.length > 0 && (
+                        <div className="mt-6 border-t border-gray-700 pt-4">
+                            <div className="flex justify-between items-center">
+                                <h3 className="text-lg font-semibold text-cyan-400">Planillas Cargadas ({uploadedFileNames.length})</h3>
+                                {uploadedFileNames.length > 1 && (
+                                     <button
+                                        onClick={() => setIsFilelistVisible(!isFilelistVisible)}
+                                        className="p-1 rounded-full hover:bg-gray-700 transition-colors focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                                        aria-expanded={isFilelistVisible}
+                                        aria-controls="file-list"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" className={`h-6 w-6 text-gray-400 transform transition-transform duration-300 ${ isFilelistVisible ? 'rotate-180' : '' }`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                        </svg>
+                                        <span className="sr-only">{isFilelistVisible ? 'Ocultar lista' : 'Mostrar lista'}</span>
+                                    </button>
+                                )}
+                            </div>
+                            {isFilelistVisible && (
+                                <ul id="file-list" className="list-disc list-inside text-gray-400 max-h-32 overflow-y-auto text-sm space-y-1 bg-gray-900/50 p-3 rounded-md mt-2">
+                                    {uploadedFileNames.map(name => <li key={name}>{name}</li>)}
+                                </ul>
+                            )}
+                        </div>
+                    )}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                    <DashboardCard title="Luminarias Monitoreadas" value={uniqueLuminaires.toString()} />
+                    <DashboardCard 
+                        title="Total de Fallas (en período)" 
+                        value={totalFailures.toString()} 
+                        onClick={() => handleCardClick('totalFailures')}
+                        isActive={cardFilter === 'totalFailures'}
+                    />
+                    <DashboardCard title="Tasa de Falla (histórica)" value={`${failureRate.toFixed(2)}%`} />
+                    <DashboardCard 
+                        title="Fallas por Bajo Consumo" 
+                        value={lowCurrentFailures.toString()} 
+                        onClick={() => handleCardClick('lowCurrent')}
+                        isActive={cardFilter === 'lowCurrent'}
+                    />
+                    <DashboardCard 
+                        title="Fallas por Alto Consumo" 
+                        value={highCurrentFailures.toString()} 
+                        onClick={() => handleCardClick('highCurrent')}
+                        isActive={cardFilter === 'highCurrent'}
+                    />
+                    <DashboardCard 
+                        title="Fallas de Voltaje" 
+                        value={voltageFailures.toString()} 
+                        onClick={() => handleCardClick('voltage')}
+                        isActive={cardFilter === 'voltage'}
+                    />
+                </div>
+
+                <div className="bg-gray-800 shadow-lg rounded-xl p-6 mb-8">
+                    <h2 className="text-2xl font-bold text-cyan-400 mb-4">Filtros y Análisis</h2>
+                    <FilterControls
+                        dateRange={dateRange}
+                        setDateRange={setDateRange}
+                        handleSetDatePreset={handleSetDatePreset}
+                        selectedZone={selectedZone}
+                        setSelectedZone={setSelectedZone}
+                        selectedCategory={selectedCategory}
+                        setSelectedCategory={setSelectedCategory}
+                        zones={zones.length > 0 ? zones : ALL_ZONES}
+                        failureCategories={failureCategories}
+                    />
+                </div>
+
+                {baseFilteredEvents.length > 0 ? (
+                    <>
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+                            <div className="bg-gray-800 shadow-lg rounded-xl p-6">
+                                <h3 className="text-xl font-semibold text-cyan-400 mb-4">Fallas por Categoría</h3>
+                                <FailureByCategoryChart data={displayEvents} />
+                            </div>
+                            <div className="bg-gray-800 shadow-lg rounded-xl p-6">
+                                <h3 className="text-xl font-semibold text-cyan-400 mb-4">Fallas por Zona</h3>
+                                <FailureByZoneChart data={displayEvents} />
+                            </div>
+                        </div>
+                        
+                        <OldestEventsByZone data={oldestEventsByZone} />
+
+                        <div className="bg-gray-800 shadow-lg rounded-xl p-6">
+                           <h3 className="text-xl font-semibold text-cyan-400 mb-4">Registro de Eventos</h3>
+                           <EventTable events={displayEvents} />
+                        </div>
+                    </>
+                ) : (
+                    <div className="text-center py-16 bg-gray-800 rounded-xl">
+                        <h2 className="text-2xl font-bold text-gray-400">No hay datos para mostrar</h2>
+                        <p className="text-gray-500 mt-2">Carga un archivo CSV o ajusta los filtros para comenzar.</p>
+                    </div>
+                )}
+            </main>
+        </div>
+    );
+};
+
+export default App;
