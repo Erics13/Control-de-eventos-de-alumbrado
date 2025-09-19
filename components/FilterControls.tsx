@@ -7,9 +7,12 @@ interface FilterControlsProps {
     handleSetDatePreset: (preset: 'week' | 'month' | 'year') => void;
     selectedZone: string;
     setSelectedZone: (zone: string) => void;
+    selectedMunicipio: string;
+    setSelectedMunicipio: (municipio: string) => void;
     selectedCategory: string;
     setSelectedCategory: (category: string) => void;
     zones: string[];
+    municipios: string[];
     failureCategories: string[];
 }
 
@@ -19,9 +22,12 @@ const FilterControls: React.FC<FilterControlsProps> = ({
     handleSetDatePreset,
     selectedZone,
     setSelectedZone,
+    selectedMunicipio,
+    setSelectedMunicipio,
     selectedCategory,
     setSelectedCategory,
     zones,
+    municipios,
     failureCategories
 }) => {
     const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>, part: 'start' | 'end') => {
@@ -40,7 +46,7 @@ const FilterControls: React.FC<FilterControlsProps> = ({
 
     return (
         <div className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
                 <div>
                     <label className="block text-sm font-medium text-gray-400 mb-1">Fecha Inicio</label>
                     <input
@@ -70,6 +76,17 @@ const FilterControls: React.FC<FilterControlsProps> = ({
                         {zones.map(zone => <option key={zone} value={zone}>{zone}</option>)}
                     </select>
                 </div>
+                 <div>
+                    <label className="block text-sm font-medium text-gray-400 mb-1">Municipio</label>
+                    <select
+                        value={selectedMunicipio}
+                        onChange={(e) => setSelectedMunicipio(e.target.value)}
+                        className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500"
+                    >
+                        <option value="all">Todos los Municipios</option>
+                        {municipios.map(muni => <option key={muni} value={muni}>{muni}</option>)}
+                    </select>
+                </div>
                 <div>
                     <label className="block text-sm font-medium text-gray-400 mb-1">Categoría de Falla</label>
                     <select
@@ -86,7 +103,7 @@ const FilterControls: React.FC<FilterControlsProps> = ({
                  <button onClick={() => handleSetDatePreset('week')} className="bg-gray-700 hover:bg-cyan-600 text-sm font-medium py-1 px-3 rounded-md transition-colors">Últimos 7 días</button>
                  <button onClick={() => handleSetDatePreset('month')} className="bg-gray-700 hover:bg-cyan-600 text-sm font-medium py-1 px-3 rounded-md transition-colors">Este Mes</button>
                  <button onClick={() => handleSetDatePreset('year')} className="bg-gray-700 hover:bg-cyan-600 text-sm font-medium py-1 px-3 rounded-md transition-colors">Este Año</button>
-                 <button onClick={() => {setDateRange({start: null, end: null}); setSelectedZone('all'); setSelectedCategory('all')}} className="bg-gray-700 hover:bg-red-600 text-sm font-medium py-1 px-3 rounded-md transition-colors">Limpiar Filtros</button>
+                 <button onClick={() => {setDateRange({start: null, end: null}); setSelectedZone('all'); setSelectedMunicipio('all'); setSelectedCategory('all')}} className="bg-gray-700 hover:bg-red-600 text-sm font-medium py-1 px-3 rounded-md transition-colors">Limpiar Filtros</button>
             </div>
         </div>
     );

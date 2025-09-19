@@ -16,6 +16,7 @@ import DashboardCard from './components/DashboardCard';
 import FilterControls from './components/FilterControls';
 import FailureByCategoryChart from './components/FailureByCategoryChart';
 import FailureByZoneChart from './components/FailureByZoneChart';
+import FailureByMunicipioChart from './components/FailureByMunicipioChart';
 import EventTable from './components/EventTable';
 import OldestEventsByZone from './components/OldestEventsByZone';
 
@@ -27,9 +28,11 @@ const App: React.FC = () => {
     const { allEvents, uploadedFileNames, addEventsFromCSV, addEventsFromJSON, downloadDataAsJSON, clearAllData, loading, error } = useLuminaireData();
     const [dateRange, setDateRange] = useState<{ start: Date | null; end: Date | null }>({ start: null, end: null });
     const [selectedZone, setSelectedZone] = useState<string>('all');
+    const [selectedMunicipio, setSelectedMunicipio] = useState<string>('all');
     const [selectedCategory, setSelectedCategory] = useState<string>('all');
     const [cardFilter, setCardFilter] = useState<string | null>(null);
     const [isFilelistVisible, setIsFilelistVisible] = useState(true);
+    const [isDataManagementVisible, setIsDataManagementVisible] = useState(false);
 
     const handleCardClick = useCallback((filterType: string) => {
         setCardFilter(prevFilter => (prevFilter === filterType ? null : filterType));
@@ -65,10 +68,11 @@ const App: React.FC = () => {
             const eventDate = typeof event.date === 'string' ? parseISO(event.date) : event.date;
             const isDateInRange = !dateRange.start || !dateRange.end || isWithinInterval(eventDate, { start: dateRange.start, end: dateRange.end });
             const isZoneMatch = selectedZone === 'all' || event.zone === selectedZone;
+            const isMunicipioMatch = selectedMunicipio === 'all' || event.municipio === selectedMunicipio;
             const isCategoryMatch = selectedCategory === 'all' || event.failureCategory === selectedCategory;
-            return isDateInRange && isZoneMatch && isCategoryMatch;
+            return isDateInRange && isZoneMatch && isMunicipioMatch && isCategoryMatch;
         });
-    }, [allEvents, dateRange, selectedZone, selectedCategory]);
+    }, [allEvents, dateRange, selectedZone, selectedMunicipio, selectedCategory]);
 
     const displayEvents = useMemo(() => {
         if (!cardFilter) {
@@ -100,6 +104,11 @@ const App: React.FC = () => {
     const zones = useMemo(() => {
         const zoneSet = new Set(allEvents.map(e => e.zone));
         return Array.from(zoneSet).sort();
+    }, [allEvents]);
+    
+    const municipios = useMemo(() => {
+        const municipioSet = new Set(allEvents.map(e => e.municipio));
+        return Array.from(municipioSet).sort();
     }, [allEvents]);
 
 
@@ -143,70 +152,93 @@ const App: React.FC = () => {
         <div className="min-h-screen bg-gray-900 text-gray-200 font-sans">
             <Header />
             <main className="container mx-auto p-4 md:p-8">
-                <div className="bg-gray-800 shadow-lg rounded-xl p-6 mb-8">
-                    <h2 className="text-2xl font-bold text-cyan-400 mb-4">Gestión de Datos</h2>
-                    <p className="text-gray-400 mb-6">
-                        Carga nuevos datos desde un archivo CSV o gestiona respaldos de tu base de datos en formato JSON.
-                    </p>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                        <FileUpload onFileUpload={addEventsFromCSV} loading={loading} />
-                        <div>
-                            <input
-                                type="file"
-                                id="json-upload-input"
-                                accept=".json"
-                                onChange={handleJsonFileChange}
-                                className="hidden"
-                                disabled={loading}
-                            />
-                            <button
-                                onClick={() => document.getElementById('json-upload-input')?.click()}
-                                disabled={loading}
-                                className="w-full h-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-colors duration-300 flex items-center justify-center gap-3"
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
-                                <span>Cargar Respaldo JSON</span>
-                            </button>
+                 <div className="bg-gray-800 shadow-lg rounded-xl mb-8">
+                    <div
+                        className={`p-6 flex justify-between items-center cursor-pointer hover:bg-gray-700/50 transition-colors ${!isDataManagementVisible ? 'rounded-xl' : 'rounded-t-xl'}`}
+                        onClick={() => setIsDataManagementVisible(!isDataManagementVisible)}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setIsDataManagementVisible(!isDataManagementVisible); } }}
+                        aria-expanded={isDataManagementVisible}
+                        aria-controls="data-management-panel"
+                    >
+                        <h2 className="text-2xl font-bold text-cyan-400">Gestión de Datos</h2>
+                        <div className="flex items-center gap-2">
+                             <span className="text-sm text-gray-400 sr-only md:not-sr-only">{isDataManagementVisible ? 'Ocultar' : 'Mostrar'}</span>
+                            <svg xmlns="http://www.w3.org/2000/svg" className={`h-6 w-6 text-gray-400 transform transition-transform duration-300 ${isDataManagementVisible ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                            </svg>
                         </div>
-                        <button
-                            onClick={downloadDataAsJSON}
-                            disabled={loading || allEvents.length === 0}
-                            className="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-colors duration-300 flex items-center justify-center gap-2">
-                             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
-                            Descargar Respaldo JSON
-                        </button>
-                        <button
-                            onClick={clearAllData}
-                            disabled={loading || allEvents.length === 0}
-                            className="w-full bg-red-600 hover:bg-red-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-colors duration-300 flex items-center justify-center gap-2">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm4 0a1 1 0 012 0v6a1 1 0 11-2 0V8z" clipRule="evenodd" /></svg>
-                            Limpiar Datos
-                        </button>
                     </div>
-                     {error && <p className="text-red-400 mt-4">{error}</p>}
-                     {uploadedFileNames.length > 0 && (
-                        <div className="mt-6 border-t border-gray-700 pt-4">
-                            <div className="flex justify-between items-center">
-                                <h3 className="text-lg font-semibold text-cyan-400">Planillas Cargadas ({uploadedFileNames.length})</h3>
-                                {uploadedFileNames.length > 1 && (
-                                     <button
-                                        onClick={() => setIsFilelistVisible(!isFilelistVisible)}
-                                        className="p-1 rounded-full hover:bg-gray-700 transition-colors focus:outline-none focus:ring-2 focus:ring-cyan-500"
-                                        aria-expanded={isFilelistVisible}
-                                        aria-controls="file-list"
-                                    >
-                                        <svg xmlns="http://www.w3.org/2000/svg" className={`h-6 w-6 text-gray-400 transform transition-transform duration-300 ${ isFilelistVisible ? 'rotate-180' : '' }`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                                        </svg>
-                                        <span className="sr-only">{isFilelistVisible ? 'Ocultar lista' : 'Mostrar lista'}</span>
+                    
+                    {isDataManagementVisible && (
+                        <div id="data-management-panel" className="px-6 pb-6">
+                           <div className="border-t border-gray-700 pt-6">
+                                <p className="text-gray-400 mb-6">
+                                    Carga nuevos datos desde un archivo CSV o gestiona respaldos de tu base de datos en formato JSON.
+                                </p>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                                    <FileUpload onFileUpload={addEventsFromCSV} loading={loading} />
+                                    <div>
+                                        <input
+                                            type="file"
+                                            id="json-upload-input"
+                                            accept=".json"
+                                            onChange={handleJsonFileChange}
+                                            className="hidden"
+                                            disabled={loading}
+                                        />
+                                        <button
+                                            onClick={() => document.getElementById('json-upload-input')?.click()}
+                                            disabled={loading}
+                                            className="w-full h-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-colors duration-300 flex items-center justify-center gap-3"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
+                                            <span>Cargar Respaldo JSON</span>
+                                        </button>
+                                    </div>
+                                    <button
+                                        onClick={downloadDataAsJSON}
+                                        disabled={loading || allEvents.length === 0}
+                                        className="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-colors duration-300 flex items-center justify-center gap-2">
+                                         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
+                                        Descargar Respaldo JSON
                                     </button>
+                                    <button
+                                        onClick={clearAllData}
+                                        disabled={loading || allEvents.length === 0}
+                                        className="w-full bg-red-600 hover:bg-red-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-colors duration-300 flex items-center justify-center gap-2">
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm4 0a1 1 0 012 0v6a1 1 0 11-2 0V8z" clipRule="evenodd" /></svg>
+                                        Limpiar Datos
+                                    </button>
+                                </div>
+                                 {error && <p className="text-red-400 mt-4">{error}</p>}
+                                 {uploadedFileNames.length > 0 && (
+                                    <div className="mt-6 border-t border-gray-700 pt-4">
+                                        <div className="flex justify-between items-center">
+                                            <h3 className="text-lg font-semibold text-cyan-400">Planillas Cargadas ({uploadedFileNames.length})</h3>
+                                            {uploadedFileNames.length > 1 && (
+                                                 <button
+                                                    onClick={() => setIsFilelistVisible(!isFilelistVisible)}
+                                                    className="p-1 rounded-full hover:bg-gray-700 transition-colors focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                                                    aria-expanded={isFilelistVisible}
+                                                    aria-controls="file-list"
+                                                >
+                                                    <svg xmlns="http://www.w3.org/2000/svg" className={`h-6 w-6 text-gray-400 transform transition-transform duration-300 ${ isFilelistVisible ? 'rotate-180' : '' }`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                                    </svg>
+                                                    <span className="sr-only">{isFilelistVisible ? 'Ocultar lista' : 'Mostrar lista'}</span>
+                                                </button>
+                                            )}
+                                        </div>
+                                        {isFilelistVisible && (
+                                            <ul id="file-list" className="list-disc list-inside text-gray-400 max-h-32 overflow-y-auto text-sm space-y-1 bg-gray-900/50 p-3 rounded-md mt-2">
+                                                {uploadedFileNames.map(name => <li key={name}>{name}</li>)}
+                                            </ul>
+                                        )}
+                                    </div>
                                 )}
                             </div>
-                            {isFilelistVisible && (
-                                <ul id="file-list" className="list-disc list-inside text-gray-400 max-h-32 overflow-y-auto text-sm space-y-1 bg-gray-900/50 p-3 rounded-md mt-2">
-                                    {uploadedFileNames.map(name => <li key={name}>{name}</li>)}
-                                </ul>
-                            )}
                         </div>
                     )}
                 </div>
@@ -248,6 +280,9 @@ const App: React.FC = () => {
                         handleSetDatePreset={handleSetDatePreset}
                         selectedZone={selectedZone}
                         setSelectedZone={setSelectedZone}
+                        selectedMunicipio={selectedMunicipio}
+                        setSelectedMunicipio={setSelectedMunicipio}
+                        municipios={municipios}
                         selectedCategory={selectedCategory}
                         setSelectedCategory={setSelectedCategory}
                         zones={zones.length > 0 ? zones : ALL_ZONES}
@@ -266,6 +301,11 @@ const App: React.FC = () => {
                                 <h3 className="text-xl font-semibold text-cyan-400 mb-4">Fallas por Zona</h3>
                                 <FailureByZoneChart data={displayEvents} />
                             </div>
+                        </div>
+                        
+                        <div className="bg-gray-800 shadow-lg rounded-xl p-6 mb-8">
+                            <h3 className="text-xl font-semibold text-cyan-400 mb-4">Fallas por Municipio</h3>
+                            <FailureByMunicipioChart data={displayEvents} />
                         </div>
                         
                         <OldestEventsByZone data={oldestEventsByZone} />
