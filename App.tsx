@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useCallback } from 'react';
 // FIX: Changed date-fns submodule imports from default to named. This resolves the "not callable"
 // error, likely caused by an upgrade to date-fns v3+ which uses named exports for submodules.
@@ -24,6 +23,13 @@ const ERROR_DESC_LOW_CURRENT = "La corriente medida es menor que lo esperado o n
 const ERROR_DESC_HIGH_CURRENT = "La corriente medida para la combinación de driver y lámpara es mayor que la esperada.";
 const ERROR_DESC_VOLTAGE = "El voltaje de la red eléctrica de entrada detectado del sistema es muy bajo o muy alto. Esto podría llevar a fallas del sistema.";
 
+declare global {
+    interface Window {
+        jspdf: any;
+        html2canvas: any;
+    }
+}
+
 const App: React.FC = () => {
     const { allEvents, uploadedFileNames, addEventsFromCSV, addEventsFromJSON, downloadDataAsJSON, clearAllData, loading, error } = useLuminaireData();
     const [dateRange, setDateRange] = useState<{ start: Date | null; end: Date | null }>({ start: null, end: null });
@@ -33,6 +39,7 @@ const App: React.FC = () => {
     const [cardFilter, setCardFilter] = useState<string | null>(null);
     const [isFilelistVisible, setIsFilelistVisible] = useState(true);
     const [isDataManagementVisible, setIsDataManagementVisible] = useState(false);
+    const [isExportingPdf, setIsExportingPdf] = useState(false);
 
     const handleCardClick = useCallback((filterType: string) => {
         setCardFilter(prevFilter => (prevFilter === filterType ? null : filterType));
@@ -166,6 +173,129 @@ const App: React.FC = () => {
         );
     }, [allEvents]);
 
+    const handleExportPDF = async () => {
+        if (baseFilteredEvents.length === 0) {
+            alert("No hay datos para exportar con los filtros actuales.");
+            return;
+        }
+    
+        setIsExportingPdf(true);
+        try {
+            const { jsPDF } = window.jspdf;
+            const html2canvas = window.html2canvas;
+            const doc = new jsPDF('p', 'mm', 'a4');
+    
+            let yPos = 20;
+            const pageMargin = 15;
+            const pageWidth = doc.internal.pageSize.getWidth();
+            const contentWidth = pageWidth - pageMargin * 2;
+            
+            doc.setFontSize(20);
+            doc.text("Reporte de Eventos de Alumbrado", pageWidth / 2, yPos, { align: 'center' });
+            yPos += 8;
+            doc.setFontSize(10);
+            doc.text(`Generado: ${new Date().toLocaleString()}`, pageWidth / 2, yPos, { align: 'center' });
+            yPos += 15;
+    
+            doc.setFontSize(14);
+            doc.text("Resumen de Métricas", pageMargin, yPos);
+            yPos += 6;
+            const metricsBody = [
+                ['Luminarias Monitoreadas', uniqueLuminaires.toString()],
+                ['Fallas por Bajo Consumo', lowCurrentFailures.toString()],
+                ['Fallas por Alto Consumo', highCurrentFailures.toString()],
+                ['Fallas de Voltaje', voltageFailures.toString()],
+                ['Columnas Caídas', columnaCaidaFailures.toString()],
+                ['Hurtos', hurtoFailures.toString()],
+                ['Vandalizados', vandalizadoFailures.toString()],
+            ];
+            (doc as any).autoTable({
+                head: [['Métrica', 'Valor']],
+                body: metricsBody,
+                startY: yPos,
+                theme: 'grid',
+                headStyles: { fillColor: [44, 62, 80] },
+                margin: { left: pageMargin }
+            });
+            yPos = (doc as any).autoTable.previous.finalY + 15;
+            
+            const excludedCategories = ['Columna Caída', 'Hurto', 'Vandalizado'];
+            const categoryFailures = baseFilteredEvents.filter(e => 
+                e.status === 'FAILURE' && 
+                e.failureCategory &&
+                !excludedCategories.includes(e.failureCategory)
+            );
+            const categoryCounts = categoryFailures.reduce((acc, event) => {
+                if (event.failureCategory) {
+                    acc[event.failureCategory] = (acc[event.failureCategory] || 0) + 1;
+                }
+                return acc;
+            }, {} as Record<string, number>);
+
+            const categoryTableBody = Object.entries(categoryCounts).map(([name, value]) => [name, value.toString()]);
+            
+            if (categoryTableBody.length > 0) {
+                 if (yPos > 240) {
+                    doc.addPage();
+                    yPos = 20;
+                }
+                doc.setFontSize(14);
+                doc.text("Tabla de Fallas por Categoría", pageMargin, yPos);
+                yPos += 8;
+                 (doc as any).autoTable({
+                    head: [['Categoría', 'Cantidad de Fallas']],
+                    body: categoryTableBody,
+                    startY: yPos,
+                    theme: 'grid',
+                    headStyles: { fillColor: [44, 62, 80] },
+                    margin: { left: pageMargin }
+                });
+                yPos = (doc as any).autoTable.previous.finalY + 10;
+            }
+
+            const addChartToPdf = async (elementId: string, title: string) => {
+                const chartElement = document.getElementById(elementId);
+                if (!chartElement) return;
+    
+                const chartHeight = 100;
+                if (yPos + chartHeight > doc.internal.pageSize.getHeight() - pageMargin) {
+                    doc.addPage();
+                    yPos = 20;
+                }
+                
+                doc.setFontSize(14);
+                doc.text(title, pageMargin, yPos);
+                yPos += 8;
+    
+                const originalBg = chartElement.style.backgroundColor;
+                chartElement.style.backgroundColor = 'white';
+    
+                const canvas = await html2canvas(chartElement, { scale: 2 });
+                
+                chartElement.style.backgroundColor = originalBg;
+    
+                const imgData = canvas.toDataURL('image/png');
+                const imgProps = doc.getImageProperties(imgData);
+                const imgHeight = (imgProps.height * contentWidth) / imgProps.width;
+                
+                doc.addImage(imgData, 'PNG', pageMargin, yPos, contentWidth, imgHeight);
+                yPos += imgHeight + 10;
+            };
+    
+            await addChartToPdf('category-chart-container', 'Gráfico de Fallas por Categoría');
+            await addChartToPdf('zone-chart-container', 'Fallas por Zona');
+            await addChartToPdf('municipio-chart-container', 'Fallas por Municipio');
+            
+            const dateStr = new Date().toISOString().split('T')[0];
+            doc.save(`reporte_alumbrado_${dateStr}.pdf`);
+    
+        } catch (err) {
+            console.error("Error exporting to PDF", err);
+        } finally {
+            setIsExportingPdf(false);
+        }
+    };
+
     return (
         <div className="min-h-screen bg-gray-900 text-gray-200 font-sans">
             <Header />
@@ -195,7 +325,7 @@ const App: React.FC = () => {
                                 <p className="text-gray-400 mb-6">
                                     Carga nuevos datos desde un archivo CSV o gestiona respaldos de tu base de datos en formato JSON.
                                 </p>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
                                     <FileUpload onFileUpload={addEventsFromCSV} loading={loading} />
                                     <div>
                                         <input
@@ -228,6 +358,22 @@ const App: React.FC = () => {
                                         className="w-full bg-red-600 hover:bg-red-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-colors duration-300 flex items-center justify-center gap-2">
                                         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm4 0a1 1 0 012 0v6a1 1 0 11-2 0V8z" clipRule="evenodd" /></svg>
                                         Limpiar Datos
+                                    </button>
+                                     <button
+                                        onClick={handleExportPDF}
+                                        disabled={loading || isExportingPdf || allEvents.length === 0}
+                                        className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-colors duration-300 flex items-center justify-center gap-2">
+                                        {isExportingPdf ? (
+                                            <>
+                                                <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                                Exportando...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10.75 2.75a.75.75 0 00-1.5 0v8.614L6.295 8.235a.75.75 0 10-1.09 1.03l4.25 4.5a.75.75 0 001.09 0l4.25-4.5a.75.75 0 00-1.09-1.03l-2.955 3.129V2.75z" /><path d="M3.5 12.75a.75.75 0 00-1.5 0v2.5A2.75 2.75 0 004.75 18h10.5A2.75 2.75 0 0018 15.25v-2.5a.75.75 0 00-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5z" /></svg>
+                                                Exportar a PDF
+                                            </>
+                                        )}
                                     </button>
                                 </div>
                                  {error && <p className="text-red-400 mt-4">{error}</p>}
@@ -329,17 +475,17 @@ const App: React.FC = () => {
                 {baseFilteredEvents.length > 0 ? (
                     <>
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-                            <div className="bg-gray-800 shadow-lg rounded-xl p-6">
+                            <div id="category-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-6">
                                 <h3 className="text-xl font-semibold text-cyan-400 mb-4">Fallas por Categoría</h3>
                                 <FailureByCategoryChart data={displayEvents} />
                             </div>
-                            <div className="bg-gray-800 shadow-lg rounded-xl p-6">
+                            <div id="zone-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-6">
                                 <h3 className="text-xl font-semibold text-cyan-400 mb-4">Fallas por Zona</h3>
                                 <FailureByZoneChart data={displayEvents} />
                             </div>
                         </div>
                         
-                        <div className="bg-gray-800 shadow-lg rounded-xl p-6 mb-8">
+                        <div id="municipio-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-6 mb-8">
                             <h3 className="text-xl font-semibold text-cyan-400 mb-4">Fallas por Municipio</h3>
                             <FailureByMunicipioChart data={displayEvents} />
                         </div>

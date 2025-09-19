@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, LabelList } from 'recharts';
 import type { LuminaireEvent } from '../types';
 import { getCategoryColor } from '../constants';
 
@@ -29,7 +29,7 @@ const FailureByCategoryChart: React.FC<{ data: LuminaireEvent[] }> = ({ data }) 
     return (
         <div style={{ width: '100%', height: 300 }}>
             <ResponsiveContainer>
-                <BarChart data={chartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                <BarChart data={chartData} margin={{ top: 20, right: 20, left: -10, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#4A5568" />
                     <XAxis dataKey="name" stroke="#A0AEC0" tick={{ fontSize: 12 }} angle={-20} textAnchor="end" height={60} />
                     <YAxis stroke="#A0AEC0" />
@@ -38,7 +38,8 @@ const FailureByCategoryChart: React.FC<{ data: LuminaireEvent[] }> = ({ data }) 
                         labelStyle={{ color: '#E2E8F0' }}
                     />
                     <Legend wrapperStyle={{ color: '#E2E8F0', fontSize: '14px' }}/>
-                    <Bar dataKey="fallas" name="Número de Fallas" fill="#2DD4BF">
+                    <Bar dataKey="fallas" name="Número de Fallas">
+                       <LabelList dataKey="fallas" position="top" style={{ fill: '#E2E8F0', fontSize: 12 }} />
                        {chartData.map((entry, index) => (
                           <Cell key={`cell-${index}`} fill={getCategoryColor(entry.name)} />
                         ))}
