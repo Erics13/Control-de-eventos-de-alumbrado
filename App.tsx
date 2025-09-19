@@ -87,6 +87,12 @@ const App: React.FC = () => {
                 return baseFilteredEvents.filter(e => e.description.trim() === ERROR_DESC_HIGH_CURRENT);
             case 'voltage':
                 return baseFilteredEvents.filter(e => e.description.trim() === ERROR_DESC_VOLTAGE);
+            case 'columnaCaida':
+                return baseFilteredEvents.filter(e => e.failureCategory === 'Columna Caída');
+            case 'hurto':
+                return baseFilteredEvents.filter(e => e.failureCategory === 'Hurto');
+            case 'vandalizado':
+                return baseFilteredEvents.filter(e => e.failureCategory === 'Vandalizado');
             default:
                 return baseFilteredEvents;
         }
@@ -129,6 +135,18 @@ const App: React.FC = () => {
 
     const voltageFailures = useMemo(() => {
         return baseFilteredEvents.filter(e => e.description.trim() === ERROR_DESC_VOLTAGE).length;
+    }, [baseFilteredEvents]);
+
+    const columnaCaidaFailures = useMemo(() => {
+        return baseFilteredEvents.filter(e => e.failureCategory === 'Columna Caída').length;
+    }, [baseFilteredEvents]);
+
+    const hurtoFailures = useMemo(() => {
+        return baseFilteredEvents.filter(e => e.failureCategory === 'Hurto').length;
+    }, [baseFilteredEvents]);
+
+    const vandalizadoFailures = useMemo(() => {
+        return baseFilteredEvents.filter(e => e.failureCategory === 'Vandalizado').length;
     }, [baseFilteredEvents]);
 
     const oldestEventsByZone = useMemo(() => {
@@ -269,6 +287,24 @@ const App: React.FC = () => {
                         value={voltageFailures.toString()} 
                         onClick={() => handleCardClick('voltage')}
                         isActive={cardFilter === 'voltage'}
+                    />
+                    <DashboardCard 
+                        title="Columnas Caídas" 
+                        value={columnaCaidaFailures.toString()} 
+                        onClick={() => handleCardClick('columnaCaida')}
+                        isActive={cardFilter === 'columnaCaida'}
+                    />
+                    <DashboardCard 
+                        title="Hurtos" 
+                        value={hurtoFailures.toString()} 
+                        onClick={() => handleCardClick('hurto')}
+                        isActive={cardFilter === 'hurto'}
+                    />
+                    <DashboardCard 
+                        title="Vandalizados" 
+                        value={vandalizadoFailures.toString()} 
+                        onClick={() => handleCardClick('vandalizado')}
+                        isActive={cardFilter === 'vandalizado'}
                     />
                 </div>
 

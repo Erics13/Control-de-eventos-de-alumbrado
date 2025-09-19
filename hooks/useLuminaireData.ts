@@ -123,9 +123,30 @@ export const useLuminaireData = () => {
                         return; // Skip if event ID is missing or already exists
                     }
                     
+                    const description = columns[12]?.trim() || '';
+                    const situacion = columns[8]?.trim() || '';
+                    const situacionLower = situacion.toLowerCase();
+
+                    let isSpecialFailure = false;
+                    let specialFailureCategory: string | undefined = undefined;
+
+                    if (situacionLower === 'columna caida') {
+                        isSpecialFailure = true;
+                        specialFailureCategory = 'Columna Caída';
+                    } else if (situacionLower === 'hurto') {
+                        isSpecialFailure = true;
+                        specialFailureCategory = 'Hurto';
+                    } else if (situacionLower.startsWith('vandalizado')) {
+                        isSpecialFailure = true;
+                        specialFailureCategory = 'Vandalizado';
+                    }
+
                     const category = columns[10]?.trim();
                     const translatedCategory = FAILURE_CATEGORY_TRANSLATIONS[category];
-                    const isFailure = !!translatedCategory;
+                    const isStandardFailure = !!translatedCategory;
+
+                    const eventStatus = (category && category.length > 0) || isSpecialFailure ? 'FAILURE' : 'OPERATIONAL';
+                    const finalFailureCategory = specialFailureCategory || (isStandardFailure ? translatedCategory : undefined);
                     
                     const municipio = columns[0]?.trim() || 'N/A';
                     const zone = MUNICIPIO_TO_ZONE_MAP[municipio.toUpperCase()] || 'Desconocida';
@@ -143,9 +164,9 @@ export const useLuminaireData = () => {
                         date: eventDate,
                         municipio,
                         zone,
-                        status: category && category.length > 0 ? 'FAILURE' : 'OPERATIONAL',
-                        description: columns[12]?.trim(),
-                        failureCategory: isFailure ? translatedCategory : undefined,
+                        status: eventStatus,
+                        description: description,
+                        failureCategory: finalFailureCategory,
                         lat: !isNaN(lat) ? lat : undefined,
                         lon: !isNaN(lon) ? lon : undefined,
                     };

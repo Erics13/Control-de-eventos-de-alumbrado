@@ -1,4 +1,3 @@
-
 import React, { useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
 import type { LuminaireEvent } from '../types';
@@ -6,7 +5,13 @@ import { getCategoryColor } from '../constants';
 
 const FailureByCategoryChart: React.FC<{ data: LuminaireEvent[] }> = ({ data }) => {
     const chartData = useMemo(() => {
-        const failures = data.filter(e => e.status === 'FAILURE' && e.failureCategory);
+        const excludedCategories = ['Columna Caída', 'Hurto', 'Vandalizado'];
+        const failures = data.filter(e => 
+            e.status === 'FAILURE' && 
+            e.failureCategory &&
+            !excludedCategories.includes(e.failureCategory)
+        );
+        
         const categoryCounts = failures.reduce((acc, event) => {
             if (event.failureCategory) {
                 acc[event.failureCategory] = (acc[event.failureCategory] || 0) + 1;
