@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useCallback } from 'react';
 import type { LuminaireEvent } from '../types';
 import { MUNICIPIO_TO_ZONE_MAP, FAILURE_CATEGORY_TRANSLATIONS } from '../constants';
@@ -83,7 +82,7 @@ export const useLuminaireData = () => {
         }
     }, [allEvents, uploadedFileNames]);
 
-    const addEventsFromCSV = useCallback((file: File) => {
+    const addEventsFromCSV = (file: File) => {
         setLoading(true);
         setError(null);
         const reader = new FileReader();
@@ -96,17 +95,14 @@ export const useLuminaireData = () => {
             }
 
             try {
-                // Assuming the first row is headers and we can skip it.
                 const rows = text.split('\n').slice(1);
-                const newEvents: LuminaireEvent[] = [];
-                const existingEventIds = new Set(allEvents.map(event => event.uniqueEventId));
+                const parsedEvents: LuminaireEvent[] = [];
 
                 rows.forEach((row, index) => {
                     if (row.trim() === '') return;
                     
                     const columns = parseCsvRow(row);
 
-                    // Based on the provided format, we expect at least 14 columns for the necessary data.
                     if (columns.length < 14) {
                         console.warn(`Skipping malformed row ${index + 2}: not enough columns.`);
                         return;
@@ -119,8 +115,8 @@ export const useLuminaireData = () => {
                     }
 
                     const uniqueEventId = columns[11]?.trim();
-                    if (!uniqueEventId || existingEventIds.has(uniqueEventId)) {
-                        return; // Skip if event ID is missing or already exists
+                    if (!uniqueEventId) {
+                        return; // Skip if event ID is missing
                     }
                     
                     const description = columns[12]?.trim() || '';
@@ -171,10 +167,16 @@ export const useLuminaireData = () => {
                         lon: !isNaN(lon) ? lon : undefined,
                     };
 
-                    newEvents.push(event);
+                    parsedEvents.push(event);
                 });
                 
-                setAllEvents(prevEvents => [...prevEvents, ...newEvents].sort((a,b) => b.date.getTime() - a.date.getTime()));
+                setAllEvents(prevEvents => {
+                    const existingEventIds = new Set(prevEvents.map(event => event.uniqueEventId));
+                    const newUniqueEvents = parsedEvents.filter(event => !existingEventIds.has(event.uniqueEventId));
+                    if(newUniqueEvents.length === 0) return prevEvents;
+                    return [...prevEvents, ...newUniqueEvents].sort((a,b) => b.date.getTime() - a.date.getTime());
+                });
+
                 setUploadedFileNames(prevNames => {
                     if (prevNames.includes(file.name)) return prevNames;
                     return [...prevNames, file.name].sort();
@@ -194,9 +196,9 @@ export const useLuminaireData = () => {
         };
         
         reader.readAsText(file);
-    }, [allEvents]);
+    };
 
-    const addEventsFromJSON = useCallback((file: File) => {
+    const addEventsFromJSON = (file: File) => {
         setLoading(true);
         setError(null);
         const reader = new FileReader();
@@ -226,26 +228,20 @@ export const useLuminaireData = () => {
                      throw new Error("El formato del archivo JSON no es válido.");
                 }
                 
-                const newEvents: LuminaireEvent[] = [];
-                const existingEventIds = new Set(allEvents.map(event => event.uniqueEventId));
-
-                eventsToProcess.forEach((eventData: any) => {
-                    if (!eventData.uniqueEventId || !eventData.date || !eventData.id) {
-                        console.warn("Skipping invalid event from JSON:", eventData);
-                        return;
-                    }
-                    if (existingEventIds.has(eventData.uniqueEventId)) {
-                        return; // Skip duplicates
-                    }
-                    
-                    const event: LuminaireEvent = {
+                const parsedEvents: LuminaireEvent[] = eventsToProcess
+                    .filter(eventData => eventData.uniqueEventId && eventData.date && eventData.id)
+                    .map((eventData: any) => ({
                         ...eventData,
                         date: new Date(eventData.date),
-                    };
-                    newEvents.push(event);
-                });
+                    }));
                 
-                setAllEvents(prevEvents => [...prevEvents, ...newEvents].sort((a, b) => b.date.getTime() - a.date.getTime()));
+                setAllEvents(prevEvents => {
+                    const existingEventIds = new Set(prevEvents.map(event => event.uniqueEventId));
+                    const newUniqueEvents = parsedEvents.filter(event => !existingEventIds.has(event.uniqueEventId));
+                    if(newUniqueEvents.length === 0) return prevEvents;
+                    return [...prevEvents, ...newUniqueEvents].sort((a, b) => b.date.getTime() - a.date.getTime());
+                });
+
                 setUploadedFileNames(prevNames => {
                     const combined = new Set([...prevNames, ...filesToProcess]);
                     return Array.from(combined).sort();
@@ -265,7 +261,7 @@ export const useLuminaireData = () => {
         };
         
         reader.readAsText(file, 'UTF-8');
-    }, [allEvents]);
+    };
     
     const downloadDataAsJSON = useCallback(() => {
         if (allEvents.length === 0) {
@@ -300,14 +296,23 @@ export const useLuminaireData = () => {
         }
     }, [allEvents, uploadedFileNames]);
 
-    const clearAllData = useCallback(() => {
-        if(window.confirm("¿Estás seguro de que quieres borrar todos los datos? Esta acción no se puede deshacer.")) {
-            setAllEvents([]);
-            setUploadedFileNames([]);
+    const resetApplication = () => {
+        console.log("Botón 'Reiniciar Aplicación' presionado. Iniciando proceso de borrado.");
+        try {
+            // Primero, se borran explícitamente los datos del almacenamiento para garantizar la persistencia.
             localStorage.removeItem('luminaireEvents');
             localStorage.removeItem('luminaireUploadedFiles');
-        }
-    }, []);
+            console.log("Paso 1: Datos eliminados de localStorage.");
 
-    return { allEvents, uploadedFileNames, addEventsFromCSV, addEventsFromJSON, downloadDataAsJSON, clearAllData, loading, error };
+            // Luego, se actualiza el estado de React para reflejar el cambio en la interfaz de usuario al instante.
+            setAllEvents([]);
+            setUploadedFileNames([]);
+            console.log("Paso 2: Estado de React limpiado. La interfaz debería actualizarse.");
+        } catch (e) {
+             console.error("Fallo al intentar reiniciar la aplicación", e);
+             setError("Error al intentar reiniciar la aplicación.");
+        }
+    };
+
+    return { allEvents, uploadedFileNames, addEventsFromCSV, addEventsFromJSON, downloadDataAsJSON, resetApplication, loading, error };
 };

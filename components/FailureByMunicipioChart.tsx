@@ -1,23 +1,21 @@
-
 import React, { useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LabelList } from 'recharts';
 import type { LuminaireEvent } from '../types';
 
 const FailureByMunicipioChart: React.FC<{ data: LuminaireEvent[] }> = ({ data }) => {
     const chartData = useMemo(() => {
-        const failures = data.filter(e => e.status === 'FAILURE');
-        const municipioCounts = failures.reduce((acc, event) => {
+        const municipioCounts = data.reduce((acc, event) => {
             acc[event.municipio] = (acc[event.municipio] || 0) + 1;
             return acc;
         }, {} as Record<string, number>);
 
         return Object.entries(municipioCounts)
-            .map(([name, value]) => ({ name, fallas: value }))
-            .sort((a, b) => b.fallas - a.fallas);
+            .map(([name, value]) => ({ name, eventos: value }))
+            .sort((a, b) => b.eventos - a.eventos);
     }, [data]);
     
     if (chartData.length === 0) {
-      return <div className="flex items-center justify-center h-full text-gray-500">No hay datos de fallas para mostrar.</div>;
+      return <div className="flex items-center justify-center h-full text-gray-500">No hay datos de eventos para mostrar.</div>;
     }
 
     return (
@@ -32,8 +30,8 @@ const FailureByMunicipioChart: React.FC<{ data: LuminaireEvent[] }> = ({ data })
                         labelStyle={{ color: '#E2E8F0' }}
                     />
                     <Legend wrapperStyle={{ color: '#E2E8F0', fontSize: '14px' }}/>
-                    <Bar dataKey="fallas" name="Número de Fallas" fill="#f472b6">
-                        <LabelList dataKey="fallas" position="top" style={{ fill: '#E2E8F0', fontSize: 12 }} />
+                    <Bar dataKey="eventos" name="Número de Eventos" fill="#f472b6">
+                        <LabelList dataKey="eventos" position="top" style={{ fill: '#E2E8F0', fontSize: 12 }} />
                     </Bar>
                 </BarChart>
             </ResponsiveContainer>

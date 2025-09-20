@@ -1,10 +1,9 @@
-
 import React from 'react';
 
 interface FilterControlsProps {
     dateRange: { start: Date | null; end: Date | null };
     setDateRange: (range: { start: Date | null; end: Date | null }) => void;
-    handleSetDatePreset: (preset: 'week' | 'month' | 'year') => void;
+    handleSetDatePreset: (preset: 'today' | 'week' | 'month' | 'year') => void;
     selectedZone: string;
     setSelectedZone: (zone: string) => void;
     selectedMunicipio: string;
@@ -14,7 +13,27 @@ interface FilterControlsProps {
     zones: string[];
     municipios: string[];
     failureCategories: string[];
+    availableYears: string[];
+    selectedMonth: string;
+    setSelectedMonth: (month: string) => void;
+    selectedYear: string;
+    setSelectedYear: (year: string) => void;
 }
+
+const meses = [
+    { value: '1', label: 'Enero' },
+    { value: '2', label: 'Febrero' },
+    { value: '3', label: 'Marzo' },
+    { value: '4', label: 'Abril' },
+    { value: '5', label: 'Mayo' },
+    { value: '6', label: 'Junio' },
+    { value: '7', label: 'Julio' },
+    { value: '8', label: 'Agosto' },
+    { value: '9', label: 'Septiembre' },
+    { value: '10', label: 'Octubre' },
+    { value: '11', label: 'Noviembre' },
+    { value: '12', label: 'Diciembre' },
+];
 
 const FilterControls: React.FC<FilterControlsProps> = ({
     dateRange,
@@ -28,11 +47,18 @@ const FilterControls: React.FC<FilterControlsProps> = ({
     setSelectedCategory,
     zones,
     municipios,
-    failureCategories
+    failureCategories,
+    availableYears,
+    selectedMonth,
+    setSelectedMonth,
+    selectedYear,
+    setSelectedYear,
 }) => {
     const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>, part: 'start' | 'end') => {
         const value = e.target.value ? new Date(e.target.value) : null;
         setDateRange({ ...dateRange, [part]: value });
+        setSelectedMonth('');
+        setSelectedYear('');
     };
 
     const dateToInputValue = (date: Date | null) => {
@@ -45,29 +71,13 @@ const FilterControls: React.FC<FilterControlsProps> = ({
 
 
     return (
-        <div className="space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                <div>
-                    <label className="block text-sm font-medium text-gray-400 mb-1">Fecha Inicio</label>
-                    <input
-                        type="date"
-                        value={dateToInputValue(dateRange.start)}
-                        onChange={(e) => handleDateChange(e, 'start')}
-                        className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500"
-                    />
-                </div>
-                <div>
-                    <label className="block text-sm font-medium text-gray-400 mb-1">Fecha Fin</label>
-                    <input
-                        type="date"
-                        value={dateToInputValue(dateRange.end)}
-                        onChange={(e) => handleDateChange(e, 'end')}
-                        className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500"
-                    />
-                </div>
-                <div>
-                    <label className="block text-sm font-medium text-gray-400 mb-1">Zona de Alumbrado</label>
+        <div className="space-y-6">
+            {/* Fila 1: Ubicación */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                 <div>
+                    <label htmlFor="zone-select" className="block text-sm font-medium text-gray-400 mb-1">Zona de Alumbrado</label>
                     <select
+                        id="zone-select"
                         value={selectedZone}
                         onChange={(e) => setSelectedZone(e.target.value)}
                         className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500"
@@ -77,8 +87,9 @@ const FilterControls: React.FC<FilterControlsProps> = ({
                     </select>
                 </div>
                  <div>
-                    <label className="block text-sm font-medium text-gray-400 mb-1">Municipio</label>
+                    <label htmlFor="municipio-select" className="block text-sm font-medium text-gray-400 mb-1">Municipio</label>
                     <select
+                        id="municipio-select"
                         value={selectedMunicipio}
                         onChange={(e) => setSelectedMunicipio(e.target.value)}
                         className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500"
@@ -87,9 +98,68 @@ const FilterControls: React.FC<FilterControlsProps> = ({
                         {municipios.map(muni => <option key={muni} value={muni}>{muni}</option>)}
                     </select>
                 </div>
+            </div>
+
+            {/* Fila 2: Fechas */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
                 <div>
-                    <label className="block text-sm font-medium text-gray-400 mb-1">Categoría de Falla</label>
+                    <label htmlFor="start-date-input" className="block text-sm font-medium text-gray-400 mb-1">Fecha Inicio</label>
+                    <input
+                        id="start-date-input"
+                        type="date"
+                        value={dateToInputValue(dateRange.start)}
+                        onChange={(e) => handleDateChange(e, 'start')}
+                        className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500"
+                    />
+                </div>
+                <div>
+                    <label htmlFor="end-date-input" className="block text-sm font-medium text-gray-400 mb-1">Fecha Fin</label>
+                    <input
+                        id="end-date-input"
+                        type="date"
+                        value={dateToInputValue(dateRange.end)}
+                        onChange={(e) => handleDateChange(e, 'end')}
+                        className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500"
+                    />
+                </div>
+                <div>
+                    <label htmlFor="month-select" className="block text-sm font-medium text-gray-400 mb-1">Mes</label>
                     <select
+                        id="month-select"
+                        value={selectedMonth}
+                        onChange={(e) => setSelectedMonth(e.target.value)}
+                        disabled={availableYears.length === 0}
+                        className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500 disabled:opacity-50"
+                    >
+                        <option value="">Seleccionar...</option>
+                        {meses.map(mes => (
+                            <option key={mes.value} value={mes.value}>{mes.label}</option>
+                        ))}
+                    </select>
+                </div>
+                <div>
+                    <label htmlFor="year-select" className="block text-sm font-medium text-gray-400 mb-1">Año</label>
+                    <select
+                        id="year-select"
+                        value={selectedYear}
+                        onChange={(e) => setSelectedYear(e.target.value)}
+                        disabled={availableYears.length === 0}
+                        className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500 disabled:opacity-50"
+                    >
+                        <option value="">Seleccionar...</option>
+                        {availableYears.map(year => (
+                            <option key={year} value={year}>{year}</option>
+                        ))}
+                    </select>
+                </div>
+            </div>
+            
+            {/* Fila 3: Categoría */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                 <div>
+                    <label htmlFor="category-select" className="block text-sm font-medium text-gray-400 mb-1">Categoría de Falla</label>
+                    <select
+                        id="category-select"
                         value={selectedCategory}
                         onChange={(e) => setSelectedCategory(e.target.value)}
                         className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500"
@@ -99,11 +169,20 @@ const FilterControls: React.FC<FilterControlsProps> = ({
                     </select>
                 </div>
             </div>
-            <div className="flex flex-wrap gap-2 pt-2">
+
+            <div className="flex flex-wrap gap-2 pt-4 border-t border-gray-700">
+                 <button onClick={() => handleSetDatePreset('today')} className="bg-gray-700 hover:bg-cyan-600 text-sm font-medium py-1 px-3 rounded-md transition-colors">Hoy</button>
                  <button onClick={() => handleSetDatePreset('week')} className="bg-gray-700 hover:bg-cyan-600 text-sm font-medium py-1 px-3 rounded-md transition-colors">Últimos 7 días</button>
                  <button onClick={() => handleSetDatePreset('month')} className="bg-gray-700 hover:bg-cyan-600 text-sm font-medium py-1 px-3 rounded-md transition-colors">Este Mes</button>
                  <button onClick={() => handleSetDatePreset('year')} className="bg-gray-700 hover:bg-cyan-600 text-sm font-medium py-1 px-3 rounded-md transition-colors">Este Año</button>
-                 <button onClick={() => {setDateRange({start: null, end: null}); setSelectedZone('all'); setSelectedMunicipio('all'); setSelectedCategory('all')}} className="bg-gray-700 hover:bg-red-600 text-sm font-medium py-1 px-3 rounded-md transition-colors">Limpiar Filtros</button>
+                 <button onClick={() => {
+                    setDateRange({start: null, end: null}); 
+                    setSelectedZone('all'); 
+                    setSelectedMunicipio('all'); 
+                    setSelectedCategory('all');
+                    setSelectedMonth('');
+                    setSelectedYear('');
+                 }} className="bg-gray-700 hover:bg-red-600 text-sm font-medium py-1 px-3 rounded-md transition-colors">Limpiar Filtros</button>
             </div>
         </div>
     );

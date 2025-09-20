@@ -3,16 +3,13 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsive
 import type { LuminaireEvent } from '../types';
 import { getCategoryColor } from '../constants';
 
-const SPECIAL_CATEGORIES_TO_EXCLUDE = ["Columna Caída", "Hurto", "Vandalizado"];
+const SPECIAL_CATEGORIES = ["Columna Caída", "Hurto", "Vandalizado"];
 
-const FailureByCategoryChart: React.FC<{ data: LuminaireEvent[] }> = ({ data }) => {
+const SpecialEventsChart: React.FC<{ data: LuminaireEvent[] }> = ({ data }) => {
     const chartData = useMemo(() => {
-        // Exclude special categories and events without a category
-        const eventsWithCategory = data.filter(e => 
-            e.failureCategory && !SPECIAL_CATEGORIES_TO_EXCLUDE.includes(e.failureCategory)
-        );
+        const specialEvents = data.filter(e => e.failureCategory && SPECIAL_CATEGORIES.includes(e.failureCategory));
         
-        const categoryCounts = eventsWithCategory.reduce((acc, event) => {
+        const categoryCounts = specialEvents.reduce((acc, event) => {
             if (event.failureCategory) {
                 acc[event.failureCategory] = (acc[event.failureCategory] || 0) + 1;
             }
@@ -25,7 +22,7 @@ const FailureByCategoryChart: React.FC<{ data: LuminaireEvent[] }> = ({ data }) 
     }, [data]);
 
     if (chartData.length === 0) {
-      return <div className="flex items-center justify-center h-full text-gray-500">No hay datos de eventos para mostrar.</div>;
+      return <div className="flex items-center justify-center h-full text-gray-500">No hay datos de este tipo para mostrar.</div>;
     }
 
     return (
@@ -33,7 +30,7 @@ const FailureByCategoryChart: React.FC<{ data: LuminaireEvent[] }> = ({ data }) 
             <ResponsiveContainer>
                 <BarChart data={chartData} margin={{ top: 20, right: 20, left: -10, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#4A5568" />
-                    <XAxis dataKey="name" stroke="#A0AEC0" tick={{ fontSize: 12 }} angle={-20} textAnchor="end" height={60} />
+                    <XAxis dataKey="name" stroke="#A0AEC0" tick={{ fontSize: 12 }} />
                     <YAxis stroke="#A0AEC0" />
                     <Tooltip
                         contentStyle={{ backgroundColor: '#1A202C', border: '1px solid #2D3748' }}
@@ -52,4 +49,4 @@ const FailureByCategoryChart: React.FC<{ data: LuminaireEvent[] }> = ({ data }) 
     );
 };
 
-export default FailureByCategoryChart;
+export default SpecialEventsChart;

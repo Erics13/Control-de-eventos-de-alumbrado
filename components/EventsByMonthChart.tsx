@@ -1,33 +1,37 @@
 import React, { useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LabelList } from 'recharts';
 import type { LuminaireEvent } from '../types';
+import { format } from 'date-fns/format';
+import { es } from 'date-fns/locale/es';
+import { parse } from 'date-fns/parse';
 
-const ZONE_ORDER = ['ZONA A', 'ZONA B', 'ZONA B1', 'ZONA B2', 'ZONA B3', 'ZONA C', 'ZONA D'];
+interface EventsByMonthChartProps {
+    data: LuminaireEvent[];
+}
 
-const FailureByZoneChart: React.FC<{ data: LuminaireEvent[] }> = ({ data }) => {
+const EventsByMonthChart: React.FC<EventsByMonthChartProps> = ({ data }) => {
     const chartData = useMemo(() => {
-        const zoneCounts = data.reduce((acc, event) => {
-            acc[event.zone] = (acc[event.zone] || 0) + 1;
+        if (data.length === 0) {
+            return [];
+        }
+
+        const monthCounts = data.reduce((acc, event) => {
+            const monthKey = format(event.date, 'yyyy-MM');
+            acc[monthKey] = (acc[monthKey] || 0) + 1;
             return acc;
         }, {} as Record<string, number>);
 
-        const unsortedData = Object.entries(zoneCounts).map(([name, value]) => ({ name, eventos: value }));
-        
-        return unsortedData.sort((a, b) => {
-            const indexA = ZONE_ORDER.indexOf(a.name);
-            const indexB = ZONE_ORDER.indexOf(b.name);
-            
-            if (indexA !== -1 && indexB !== -1) {
-                return indexA - indexB; // Both are in the order list
-            }
-            if (indexA !== -1) {
-                return -1; // A is in the list, B is not, so A comes first
-            }
-            if (indexB !== -1) {
-                return 1; // B is in the list, A is not, so B comes first
-            }
-            return a.name.localeCompare(b.name); // Neither are in the list, sort alphabetically
+        const unsortedData = Object.entries(monthCounts).map(([monthKey, value]) => {
+            const date = parse(monthKey, 'yyyy-MM', new Date());
+            return {
+                name: format(date, 'MMM yyyy', { locale: es }),
+                eventos: value,
+                date: date
+            };
         });
+
+        // Sort chronologically
+        return unsortedData.sort((a, b) => a.date.getTime() - b.date.getTime());
 
     }, [data]);
     
@@ -40,14 +44,14 @@ const FailureByZoneChart: React.FC<{ data: LuminaireEvent[] }> = ({ data }) => {
             <ResponsiveContainer>
                 <BarChart data={chartData} margin={{ top: 20, right: 20, left: -10, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#4A5568" />
-                    <XAxis dataKey="name" stroke="#A0AEC0" tick={{ fontSize: 12 }}/>
+                    <XAxis dataKey="name" stroke="#A0AEC0" tick={{ fontSize: 12 }} angle={-20} textAnchor="end" height={60} />
                     <YAxis stroke="#A0AEC0" />
                     <Tooltip
                         contentStyle={{ backgroundColor: '#1A202C', border: '1px solid #2D3748' }}
                         labelStyle={{ color: '#E2E8F0' }}
                     />
                     <Legend wrapperStyle={{ color: '#E2E8F0', fontSize: '14px' }}/>
-                    <Bar dataKey="eventos" name="Número de Eventos" fill="#818CF8">
+                    <Bar dataKey="eventos" name="Total de Eventos" fill="#14b8a6">
                         <LabelList dataKey="eventos" position="top" style={{ fill: '#E2E8F0', fontSize: 12 }} />
                     </Bar>
                 </BarChart>
@@ -56,4 +60,4 @@ const FailureByZoneChart: React.FC<{ data: LuminaireEvent[] }> = ({ data }) => {
     );
 };
 
-export default FailureByZoneChart;
+export default EventsByMonthChart;

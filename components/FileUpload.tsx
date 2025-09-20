@@ -1,5 +1,5 @@
 
-import React, { useCallback, useState } from 'react';
+import React, { useState } from 'react';
 
 interface FileUploadProps {
     onFileUpload: (file: File) => void;
@@ -14,6 +14,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFileUpload, loading }) => {
         if (file) {
             setFileName(file.name);
             onFileUpload(file);
+            event.target.value = '';
         }
     };
 
