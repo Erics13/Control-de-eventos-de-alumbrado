@@ -1,6 +1,7 @@
 
 
 
+
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 // FIX: Changed date-fns submodule imports from default to named. This resolves the "not callable"
 // error, likely caused by an upgrade to date-fns v3+ which uses named exports for submodules.
@@ -664,7 +665,24 @@ const App: React.FC = () => {
                 })();
 
                 if (powerData.length > 0) {
-                    if (yPos > 240) { doc.addPage(); yPos = 20; }
+                    // Estimate height to see if the table fits on the current page.
+                    // Row height estimation: 7pt font (2.5mm) + padding. Let's say 4mm per row.
+                    // Header/Footer height estimation: 8pt font. Let's say 5mm per row.
+                    const titleHeight = 8; // mm for title
+                    const titleSpacing = 8; // mm
+                    const estimatedTableRowHeight = 4; // mm
+                    const estimatedTableHeaderFooterHeight = 5; // mm
+                    const estimatedTableHeight = (powerData.length * estimatedTableRowHeight) + (2 * estimatedTableHeaderFooterHeight);
+                    const totalSpaceNeeded = titleHeight + titleSpacing + estimatedTableHeight;
+
+                    const pageHeight = doc.internal.pageSize.getHeight();
+                    const pageBottom = pageHeight - pageMargin;
+
+                    if (yPos + totalSpaceNeeded > pageBottom) {
+                        doc.addPage();
+                        yPos = 20; // Reset yPos for the new page
+                    }
+
                     doc.setFontSize(14);
                     doc.text('Resumen de Potencias por Ubicación', pageMargin, yPos);
                     yPos += 8;

@@ -55,10 +55,10 @@ const ChangesByZoneChart: React.FC<{ data: ChangeEvent[] }> = ({ data }) => {
                         labelStyle={{ color: '#E2E8F0' }}
                     />
                     <Legend wrapperStyle={{ color: '#E2E8F0', fontSize: '14px' }}/>
-                    <Bar dataKey="LUMINARIA" name="Luminarias" fill="#3b82f6">
+                    <Bar dataKey="LUMINARIA" name="Luminarias" fill="#3b82f6" isAnimationActive={false}>
                         <LabelList dataKey="LUMINARIA" position="top" style={{ fill: '#E2E8F0', fontSize: 12 }} />
                     </Bar>
-                    <Bar dataKey="OLC" name="OLCs" fill="#14b8a6">
+                    <Bar dataKey="OLC" name="OLCs" fill="#14b8a6" isAnimationActive={false}>
                         <LabelList dataKey="OLC" position="top" style={{ fill: '#E2E8F0', fontSize: 12 }} />
                     </Bar>
                 </BarChart>

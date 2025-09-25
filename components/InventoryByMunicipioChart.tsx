@@ -34,7 +34,7 @@ const InventoryByMunicipioChart: React.FC<{ data: InventoryItem[] }> = ({ data }
                         labelStyle={{ color: '#E2E8F0' }}
                     />
                     <Legend wrapperStyle={{ color: '#E2E8F0', fontSize: '14px' }}/>
-                    <Bar dataKey="luminarias" name="Nro de Luminarias" fill="#d946ef">
+                    <Bar dataKey="luminarias" name="Nro de Luminarias" fill="#d946ef" isAnimationActive={false}>
                         <LabelList dataKey="luminarias" position="top" style={{ fill: '#E2E8F0', fontSize: 12 }} />
                     </Bar>
                 </BarChart>

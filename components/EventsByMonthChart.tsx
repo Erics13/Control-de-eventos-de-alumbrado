@@ -51,7 +51,7 @@ const EventsByMonthChart: React.FC<EventsByMonthChartProps> = ({ data }) => {
                         labelStyle={{ color: '#E2E8F0' }}
                     />
                     <Legend wrapperStyle={{ color: '#E2E8F0', fontSize: '14px' }}/>
-                    <Bar dataKey="eventos" name="Total de Eventos" fill="#14b8a6">
+                    <Bar dataKey="eventos" name="Total de Eventos" fill="#14b8a6" isAnimationActive={false}>
                         <LabelList dataKey="eventos" position="top" style={{ fill: '#E2E8F0', fontSize: 12 }} />
                     </Bar>
                 </BarChart>

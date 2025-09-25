@@ -45,7 +45,7 @@ const InventoryByZoneChart: React.FC<{ data: InventoryItem[] }> = ({ data }) => 
                         labelStyle={{ color: '#E2E8F0' }}
                     />
                     <Legend wrapperStyle={{ color: '#E2E8F0', fontSize: '14px' }}/>
-                    <Bar dataKey="luminarias" name="Nro de Luminarias" fill="#22c55e">
+                    <Bar dataKey="luminarias" name="Nro de Luminarias" fill="#22c55e" isAnimationActive={false}>
                         <LabelList dataKey="luminarias" position="top" style={{ fill: '#E2E8F0', fontSize: 12 }} />
                     </Bar>
                 </BarChart>
