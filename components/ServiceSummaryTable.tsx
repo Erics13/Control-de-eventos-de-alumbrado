@@ -74,12 +74,11 @@ const ServiceSummaryTable: React.FC<{ items: InventoryItem[] }> = ({ items }) =>
     };
 
     if (serviceData.length === 0) {
-        return null;
+        return <div className="flex items-center justify-center h-40 text-gray-500">No hay datos de servicios para mostrar.</div>;
     }
 
     return (
-        <div className="bg-gray-800 shadow-lg rounded-xl p-6 mb-8">
-            <h3 className="text-xl font-semibold text-cyan-400 mb-4">Resumen de Servicios de Alumbrado</h3>
+        <div>
             <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-700">
                     <thead className="bg-gray-700/50">

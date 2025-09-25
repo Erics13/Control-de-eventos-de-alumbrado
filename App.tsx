@@ -34,6 +34,7 @@ import InventoryByMunicipioChart from './components/InventoryByMunicipioChart';
 import PowerSummaryTable from './components/PowerSummaryTable';
 import CabinetSummaryTable from './components/CabinetSummaryTable';
 import ServiceSummaryTable from './components/ServiceSummaryTable';
+import CollapsibleSection from './components/CollapsibleSection';
 
 const ERROR_DESC_LOW_CURRENT = "La corriente medida es menor que lo esperado o no hay corriente que fluya a través de la combinación de driver y lámpara.";
 const ERROR_DESC_HIGH_CURRENT = "La corriente medida para la combinación de driver y lámpara es mayor que la esperada.";
@@ -45,6 +46,35 @@ declare global {
         html2canvas: any;
     }
 }
+
+type ActiveTab = 'eventos' | 'cambios' | 'inventario';
+
+const TabButton: React.FC<{
+    tabId: ActiveTab;
+    title: string;
+    activeTab: ActiveTab;
+    setActiveTab: (tabId: ActiveTab) => void;
+    disabled?: boolean;
+}> = ({ tabId, title, activeTab, setActiveTab, disabled }) => {
+    const isActive = activeTab === tabId;
+    return (
+        <button
+            onClick={() => setActiveTab(tabId)}
+            disabled={disabled}
+            className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-lg transition-colors ${
+                disabled
+                    ? 'text-gray-600 border-transparent cursor-not-allowed'
+                    : isActive
+                    ? 'border-cyan-500 text-cyan-400'
+                    : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-500'
+            }`}
+            aria-current={isActive ? 'page' : undefined}
+        >
+            {title}
+        </button>
+    );
+};
+
 
 const App: React.FC = () => {
     const { allEvents, changeEvents, inventory, uploadedFileNames, addEventsFromCSV, addChangeEventsFromCSV, addInventoryFromCSV, addEventsFromJSON, downloadDataAsJSON, resetApplication, loading, error } = useLuminaireData();
@@ -61,7 +91,9 @@ const App: React.FC = () => {
     const [cardInventoryFilter, setCardInventoryFilter] = useState<{key: keyof InventoryItem, value: string} | null>(null);
     const [isFilelistVisible, setIsFilelistVisible] = useState(true);
     const [isDataManagementVisible, setIsDataManagementVisible] = useState(false);
+    const [isFiltersVisible, setIsFiltersVisible] = useState(true);
     const [isExportingPdf, setIsExportingPdf] = useState(false);
+    const [activeTab, setActiveTab] = useState<ActiveTab>('eventos');
 
     const handleCardClick = useCallback((filterType: string) => {
         setCardFilter(prevFilter => (prevFilter === filterType ? null : filterType));
@@ -119,6 +151,22 @@ const App: React.FC = () => {
         }
     }, [selectedMonth, selectedYear]);
     
+     useEffect(() => {
+        // If the active tab has no data, switch to one that does.
+        if (loading) return;
+
+        if (activeTab === 'eventos' && allEvents.length === 0) {
+            if (inventory.length > 0) setActiveTab('inventario');
+            else if (changeEvents.length > 0) setActiveTab('cambios');
+        } else if (activeTab === 'cambios' && changeEvents.length === 0) {
+            if (allEvents.length > 0) setActiveTab('eventos');
+            else if (inventory.length > 0) setActiveTab('inventario');
+        } else if (activeTab === 'inventario' && inventory.length === 0) {
+            if (allEvents.length > 0) setActiveTab('eventos');
+            else if (changeEvents.length > 0) setActiveTab('cambios');
+        }
+    }, [allEvents.length, changeEvents.length, inventory.length, activeTab, loading]);
+
      const handleJsonFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
         if (file) {
@@ -327,6 +375,14 @@ const App: React.FC = () => {
 
     const columnaCaidaInventoryCount = useMemo(() => 
         displayInventory.filter(item => item.situacion?.toUpperCase().trim() === 'COLUMNA CAIDA').length,
+    [displayInventory]);
+
+    const faltaPodaInventoryCount = useMemo(() => 
+        displayInventory.filter(item => item.situacion?.toUpperCase().trim() === 'FALTA PODA').length,
+    [displayInventory]);
+
+    const faltaLineaInventoryCount = useMemo(() => 
+        displayInventory.filter(item => item.situacion?.toUpperCase().trim() === 'FALTA LINEA').length,
     [displayInventory]);
 
     // --- Event Metrics ---
@@ -566,313 +622,356 @@ const App: React.FC = () => {
         }
     };
 
+    const noDataLoaded = !loading && allEvents.length === 0 && changeEvents.length === 0 && inventory.length === 0;
+
     return (
-        <div className="min-h-screen bg-gray-900 text-gray-200 font-sans">
+        <div className="flex flex-col h-screen bg-gray-900 text-gray-200 font-sans">
             <Header />
-            <main className="container mx-auto p-4 md:p-8">
-                 <div className="bg-gray-800 shadow-lg rounded-xl mb-8">
-                    <div
-                        className={`p-6 flex justify-between items-center cursor-pointer hover:bg-gray-700/50 transition-colors ${!isDataManagementVisible ? 'rounded-xl' : 'rounded-t-xl'}`}
-                        onClick={() => setIsDataManagementVisible(!isDataManagementVisible)}
-                        role="button"
-                        tabIndex={0}
-                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setIsDataManagementVisible(!isDataManagementVisible); } }}
-                        aria-expanded={isDataManagementVisible}
-                        aria-controls="data-management-panel"
-                    >
-                        <h2 className="text-2xl font-bold text-cyan-400">Gestión de Datos</h2>
-                        <div className="flex items-center gap-2">
-                             <span className="text-sm text-gray-400 sr-only md:not-sr-only">{isDataManagementVisible ? 'Ocultar' : 'Mostrar'}</span>
-                            <svg xmlns="http://www.w3.org/2000/svg" className={`h-6 w-6 text-gray-400 transform transition-transform duration-300 ${isDataManagementVisible ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                            </svg>
+            <main className="flex-grow container mx-auto px-4 md:px-8 pt-8 overflow-hidden flex flex-col">
+                {/* --- FIXED TOP SECTION --- */}
+                <div className="flex-shrink-0 space-y-8">
+                     <div className="bg-gray-800 shadow-lg rounded-xl">
+                        <div
+                            className={`p-6 flex justify-between items-center cursor-pointer hover:bg-gray-700/50 transition-colors ${!isDataManagementVisible ? 'rounded-xl' : 'rounded-t-xl'}`}
+                            onClick={() => setIsDataManagementVisible(!isDataManagementVisible)}
+                            role="button"
+                            tabIndex={0}
+                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setIsDataManagementVisible(!isDataManagementVisible); } }}
+                            aria-expanded={isDataManagementVisible}
+                            aria-controls="data-management-panel"
+                        >
+                            <h2 className="text-2xl font-bold text-cyan-400">Gestión de Datos</h2>
+                            <div className="flex items-center gap-2">
+                                <span className="text-sm text-gray-400 sr-only md:not-sr-only">{isDataManagementVisible ? 'Ocultar' : 'Mostrar'}</span>
+                                <svg xmlns="http://www.w3.org/2000/svg" className={`h-6 w-6 text-gray-400 transform transition-transform duration-300 ${isDataManagementVisible ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                </svg>
+                            </div>
                         </div>
-                    </div>
-                    
-                    {isDataManagementVisible && (
-                        <div id="data-management-panel" className="px-6 pb-6">
-                           <div className="border-t border-gray-700 pt-6">
-                                <p className="text-gray-400 mb-6">
-                                    Carga nuevos datos de eventos, cambios o inventario desde archivos CSV, o gestiona respaldos de tu base de datos en formato JSON.
-                                </p>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                                    <FileUpload onFileUpload={addEventsFromCSV} loading={loading} />
-                                    <div>
-                                         <input
-                                            type="file"
-                                            id="change-csv-upload-input"
-                                            accept=".csv"
-                                            onChange={handleChangesFileChange}
-                                            className="hidden"
-                                            disabled={loading}
-                                        />
+                        
+                        {isDataManagementVisible && (
+                            <div id="data-management-panel" className="px-6 pb-6">
+                            <div className="border-t border-gray-700 pt-6">
+                                    <p className="text-gray-400 mb-6">
+                                        Carga nuevos datos de eventos, cambios o inventario desde archivos CSV, o gestiona respaldos de tu base de datos en formato JSON.
+                                    </p>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                                        <FileUpload onFileUpload={addEventsFromCSV} loading={loading} />
+                                        <div>
+                                            <input
+                                                type="file"
+                                                id="change-csv-upload-input"
+                                                accept=".csv"
+                                                onChange={handleChangesFileChange}
+                                                className="hidden"
+                                                disabled={loading}
+                                            />
+                                            <button
+                                                onClick={() => document.getElementById('change-csv-upload-input')?.click()}
+                                                disabled={loading}
+                                                className="w-full h-full bg-amber-600 hover:bg-amber-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-colors duration-300 flex items-center justify-center gap-3"
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h5M5.5 9.5L4 11m0 0l1.5 1.5M4 11h16m-5-5v5h5m-5-1.5l1.5 1.5m0 0L20 9.5" /></svg>
+                                                <span>Cargar CSV de Cambios</span>
+                                            </button>
+                                        </div>
+                                        <div>
+                                            <input
+                                                type="file"
+                                                id="inventory-csv-upload-input"
+                                                accept=".csv"
+                                                onChange={handleInventoryFileChange}
+                                                className="hidden"
+                                                disabled={loading}
+                                            />
+                                            <button
+                                                onClick={() => document.getElementById('inventory-csv-upload-input')?.click()}
+                                                disabled={loading}
+                                                className="w-full h-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-colors duration-300 flex items-center justify-center gap-3"
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor"><path d="M7 3a1 1 0 000 2h6a1 1 0 100-2H7zM4 7a1 1 0 011-1h10a1 1 0 110 2H5a1 1 0 01-1-1zM2 11a2 2 0 012-2h12a2 2 0 012 2v4a2 2 0 01-2-2H4a2 2 0 01-2-2v-4z" /></svg>
+                                                <span>Cargar CSV de Inventario</span>
+                                            </button>
+                                        </div>
+                                        <div>
+                                            <input
+                                                type="file"
+                                                id="json-upload-input"
+                                                accept=".json"
+                                                onChange={handleJsonFileChange}
+                                                className="hidden"
+                                                disabled={loading}
+                                            />
+                                            <button
+                                                onClick={() => document.getElementById('json-upload-input')?.click()}
+                                                disabled={loading}
+                                                className="w-full h-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-colors duration-300 flex items-center justify-center gap-3"
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
+                                                <span>Cargar Respaldo JSON</span>
+                                            </button>
+                                        </div>
                                         <button
-                                            onClick={() => document.getElementById('change-csv-upload-input')?.click()}
-                                            disabled={loading}
-                                            className="w-full h-full bg-amber-600 hover:bg-amber-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-colors duration-300 flex items-center justify-center gap-3"
-                                        >
-                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h5M5.5 9.5L4 11m0 0l1.5 1.5M4 11h16m-5-5v5h5m-5-1.5l1.5 1.5m0 0L20 9.5" /></svg>
-                                            <span>Cargar CSV de Cambios</span>
+                                            onClick={downloadDataAsJSON}
+                                            disabled={loading || (allEvents.length === 0 && changeEvents.length === 0)}
+                                            className="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-colors duration-300 flex items-center justify-center gap-2">
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
+                                            Descargar Respaldo JSON
+                                        </button>
+                                        <button
+                                            onClick={handleExportPDF}
+                                            disabled={loading || isExportingPdf || (allEvents.length === 0 && changeEvents.length === 0)}
+                                            className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-colors duration-300 flex items-center justify-center gap-2">
+                                            {isExportingPdf ? (
+                                                <>
+                                                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                                    Exportando...
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10.75 2.75a.75.75 0 00-1.5 0v8.614L6.295 8.235a.75.75 0 10-1.09 1.03l4.25 4.5a.75.75 0 001.09 0l4.25-4.5a.75.75 0 00-1.09-1.03l-2.955 3.129V2.75z" /><path d="M3.5 12.75a.75.75 0 00-1.5 0v2.5A2.75 2.75 0 004.75 18h10.5A2.75 2.75 0 0018 15.25v-2.5a.75.75 0 00-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5z" /></svg>
+                                                    Exportar a PDF
+                                                </>
+                                            )}
+                                        </button>
+                                        <button
+                                            onClick={resetApplication}
+                                            disabled={loading || (allEvents.length === 0 && changeEvents.length === 0 && inventory.length === 0)}
+                                            className="w-full bg-red-600 hover:bg-red-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-colors duration-300 flex items-center justify-center gap-2">
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 110 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" /></svg>
+                                            Reiniciar Aplicación
                                         </button>
                                     </div>
-                                    <div>
-                                        <input
-                                            type="file"
-                                            id="inventory-csv-upload-input"
-                                            accept=".csv"
-                                            onChange={handleInventoryFileChange}
-                                            className="hidden"
-                                            disabled={loading}
-                                        />
-                                        <button
-                                            onClick={() => document.getElementById('inventory-csv-upload-input')?.click()}
-                                            disabled={loading}
-                                            className="w-full h-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-colors duration-300 flex items-center justify-center gap-3"
-                                        >
-                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor"><path d="M7 3a1 1 0 000 2h6a1 1 0 100-2H7zM4 7a1 1 0 011-1h10a1 1 0 110 2H5a1 1 0 01-1-1zM2 11a2 2 0 012-2h12a2 2 0 012 2v4a2 2 0 01-2 2H4a2 2 0 01-2-2v-4z" /></svg>
-                                            <span>Cargar CSV de Inventario</span>
-                                        </button>
-                                    </div>
-                                    <div>
-                                        <input
-                                            type="file"
-                                            id="json-upload-input"
-                                            accept=".json"
-                                            onChange={handleJsonFileChange}
-                                            className="hidden"
-                                            disabled={loading}
-                                        />
-                                        <button
-                                            onClick={() => document.getElementById('json-upload-input')?.click()}
-                                            disabled={loading}
-                                            className="w-full h-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-colors duration-300 flex items-center justify-center gap-3"
-                                        >
-                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
-                                            <span>Cargar Respaldo JSON</span>
-                                        </button>
-                                    </div>
-                                    <button
-                                        onClick={downloadDataAsJSON}
-                                        disabled={loading || (allEvents.length === 0 && changeEvents.length === 0)}
-                                        className="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-colors duration-300 flex items-center justify-center gap-2">
-                                         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
-                                        Descargar Respaldo JSON
-                                    </button>
-                                    <button
-                                        onClick={handleExportPDF}
-                                        disabled={loading || isExportingPdf || (allEvents.length === 0 && changeEvents.length === 0)}
-                                        className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-colors duration-300 flex items-center justify-center gap-2">
-                                        {isExportingPdf ? (
-                                            <>
-                                                <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                                                Exportando...
-                                            </>
-                                        ) : (
-                                            <>
-                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10.75 2.75a.75.75 0 00-1.5 0v8.614L6.295 8.235a.75.75 0 10-1.09 1.03l4.25 4.5a.75.75 0 001.09 0l4.25-4.5a.75.75 0 00-1.09-1.03l-2.955 3.129V2.75z" /><path d="M3.5 12.75a.75.75 0 00-1.5 0v2.5A2.75 2.75 0 004.75 18h10.5A2.75 2.75 0 0018 15.25v-2.5a.75.75 0 00-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5z" /></svg>
-                                                Exportar a PDF
-                                            </>
-                                        )}
-                                    </button>
-                                    <button
-                                        onClick={resetApplication}
-                                        disabled={loading || (allEvents.length === 0 && changeEvents.length === 0 && inventory.length === 0)}
-                                        className="w-full bg-red-600 hover:bg-red-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-colors duration-300 flex items-center justify-center gap-2">
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 110 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" /></svg>
-                                        Reiniciar Aplicación
-                                    </button>
-                                </div>
-                                 {error && <p className="text-red-400 mt-4">{error}</p>}
-                                 {uploadedFileNames.length > 0 && (
-                                    <div className="mt-6 border-t border-gray-700 pt-4">
-                                        <div className="flex justify-between items-center">
-                                            <h3 className="text-lg font-semibold text-cyan-400">Planillas Cargadas ({uploadedFileNames.length})</h3>
-                                            {uploadedFileNames.length > 1 && (
-                                                 <button
-                                                    onClick={() => setIsFilelistVisible(!isFilelistVisible)}
-                                                    className="p-1 rounded-full hover:bg-gray-700 transition-colors focus:outline-none focus:ring-2 focus:ring-cyan-500"
-                                                    aria-expanded={isFilelistVisible}
-                                                    aria-controls="file-list"
-                                                >
-                                                    <svg xmlns="http://www.w3.org/2000/svg" className={`h-6 w-6 text-gray-400 transform transition-transform duration-300 ${ isFilelistVisible ? 'rotate-180' : '' }`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                                                    </svg>
-                                                    <span className="sr-only">{isFilelistVisible ? 'Ocultar lista' : 'Mostrar lista'}</span>
-                                                </button>
+                                    {error && <p className="text-red-400 mt-4">{error}</p>}
+                                    {uploadedFileNames.length > 0 && (
+                                        <div className="mt-6 border-t border-gray-700 pt-4">
+                                            <div className="flex justify-between items-center">
+                                                <h3 className="text-lg font-semibold text-cyan-400">Planillas Cargadas ({uploadedFileNames.length})</h3>
+                                                {uploadedFileNames.length > 1 && (
+                                                    <button
+                                                        onClick={() => setIsFilelistVisible(!isFilelistVisible)}
+                                                        className="p-1 rounded-full hover:bg-gray-700 transition-colors focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                                                        aria-expanded={isFilelistVisible}
+                                                        aria-controls="file-list"
+                                                    >
+                                                        <svg xmlns="http://www.w3.org/2000/svg" className={`h-6 w-6 text-gray-400 transform transition-transform duration-300 ${ isFilelistVisible ? 'rotate-180' : '' }`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                                        </svg>
+                                                        <span className="sr-only">{isFilelistVisible ? 'Ocultar lista' : 'Mostrar lista'}</span>
+                                                    </button>
+                                                )}
+                                            </div>
+                                            {isFilelistVisible && (
+                                                <ul id="file-list" className="list-disc list-inside text-gray-400 max-h-32 overflow-y-auto text-sm space-y-1 bg-gray-900/50 p-3 rounded-md mt-2">
+                                                    {uploadedFileNames.map(name => <li key={name}>{name}</li>)}
+                                                </ul>
                                             )}
                                         </div>
-                                        {isFilelistVisible && (
-                                            <ul id="file-list" className="list-disc list-inside text-gray-400 max-h-32 overflow-y-auto text-sm space-y-1 bg-gray-900/50 p-3 rounded-md mt-2">
-                                                {uploadedFileNames.map(name => <li key={name}>{name}</li>)}
-                                            </ul>
-                                        )}
-                                    </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                    <div className="bg-gray-800 shadow-lg rounded-xl">
+                        <div
+                            className={`p-6 flex justify-between items-center cursor-pointer hover:bg-gray-700/50 transition-colors ${!isFiltersVisible ? 'rounded-xl' : 'rounded-t-xl'}`}
+                            onClick={() => setIsFiltersVisible(!isFiltersVisible)}
+                            role="button"
+                            tabIndex={0}
+                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setIsFiltersVisible(!isFiltersVisible); } }}
+                            aria-expanded={isFiltersVisible}
+                            aria-controls="filters-panel"
+                        >
+                            <h2 className="text-2xl font-bold text-cyan-400">Filtros y Análisis</h2>
+                             <div className="flex items-center gap-2">
+                                <span className="text-sm text-gray-400 sr-only md:not-sr-only">{isFiltersVisible ? 'Ocultar' : 'Mostrar'}</span>
+                                <svg xmlns="http://www.w3.org/2000/svg" className={`h-6 w-6 text-gray-400 transform transition-transform duration-300 ${isFiltersVisible ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                </svg>
+                            </div>
+                        </div>
+
+                        {isFiltersVisible && (
+                            <div id="filters-panel" className="px-6 pb-6">
+                                <div className="border-t border-gray-700 pt-6">
+                                    <FilterControls
+                                        dateRange={dateRange}
+                                        setDateRange={setDateRange}
+                                        handleSetDatePreset={handleSetDatePreset}
+                                        selectedZone={selectedZone}
+                                        setSelectedZone={setSelectedZone}
+                                        selectedMunicipio={selectedMunicipio}
+                                        setSelectedMunicipio={setSelectedMunicipio}
+                                        municipios={filteredMunicipios}
+                                        selectedCategory={selectedCategory}
+                                        setSelectedCategory={setSelectedCategory}
+                                        zones={zones.length > 0 ? zones : ALL_ZONES}
+                                        failureCategories={failureCategories}
+                                        availableYears={availableYears}
+                                        selectedMonth={selectedMonth}
+                                        setSelectedMonth={setSelectedMonth}
+                                        selectedYear={selectedYear}
+                                        setSelectedYear={setSelectedYear}
+                                        availablePowers={availablePowers}
+                                        selectedPower={selectedPower}
+                                        setSelectedPower={setSelectedPower}
+                                        availableCalendars={availableCalendars}
+                                        selectedCalendar={selectedCalendar}
+                                        setSelectedCalendar={setSelectedCalendar}
+                                    />
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                {/* --- TABS & SCROLLABLE CONTENT --- */}
+                <div className="flex-grow flex flex-col overflow-hidden mt-8">
+                     <div className="flex-shrink-0 border-b border-gray-700">
+                        <nav className="-mb-px flex space-x-8" aria-label="Tabs">
+                             <TabButton tabId="eventos" title="Eventos" activeTab={activeTab} setActiveTab={setActiveTab} disabled={allEvents.length === 0} />
+                             <TabButton tabId="cambios" title="Cambios" activeTab={activeTab} setActiveTab={setActiveTab} disabled={changeEvents.length === 0} />
+                             <TabButton tabId="inventario" title="Inventario" activeTab={activeTab} setActiveTab={setActiveTab} disabled={inventory.length === 0} />
+                        </nav>
+                    </div>
+
+                    <div className="flex-grow overflow-y-auto pt-8">
+                        {loading && <div className="text-center p-8"><p>Cargando datos...</p></div>}
+                        
+                        {!loading && !noDataLoaded && (
+                            <div className="space-y-8">
+                                {activeTab === 'eventos' && allEvents.length > 0 && (
+                                    <>
+                                        <div className="bg-gray-800 shadow-lg rounded-xl p-6">
+                                            <h2 className="text-2xl font-bold text-cyan-400 mb-4">Indicadores de Eventos</h2>
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                                                <DashboardCard title="Total Eventos" value={baseFilteredEvents.length.toLocaleString()} />
+                                                <DashboardCard title="Fallas Bajo Consumo" value={lowCurrentFailures.toLocaleString()} onClick={() => handleCardClick('lowCurrent')} isActive={cardFilter === 'lowCurrent'} />
+                                                <DashboardCard title="Fallas Alto Consumo" value={highCurrentFailures.toLocaleString()} onClick={() => handleCardClick('highCurrent')} isActive={cardFilter === 'highCurrent'} />
+                                                <DashboardCard title="Fallas de Voltaje" value={voltageFailures.toLocaleString()} onClick={() => handleCardClick('voltage')} isActive={cardFilter === 'voltage'} />
+                                                <DashboardCard title="Columnas Caídas" value={columnaCaidaFailures.toLocaleString()} onClick={() => handleCardClick('columnaCaida')} isActive={cardFilter === 'columnaCaida'}/>
+                                                <DashboardCard title="Hurtos" value={hurtoFailures.toLocaleString()} onClick={() => handleCardClick('hurto')} isActive={cardFilter === 'hurto'} />
+                                                <DashboardCard title="Vandalizados" value={vandalizadoFailures.toLocaleString()} onClick={() => handleCardClick('vandalizado')} isActive={cardFilter === 'vandalizado'} />
+                                            </div>
+                                        </div>
+                                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                                            <div id="category-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-6">
+                                                <h3 className="text-xl font-semibold text-cyan-400 mb-4">Eventos por Categoría</h3>
+                                                <FailureByCategoryChart data={baseFilteredEvents} />
+                                            </div>
+                                            <div id="special-events-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-6">
+                                                <h3 className="text-xl font-semibold text-cyan-400 mb-4">Eventos por Hurto, Vandalismo y Caídas</h3>
+                                                <SpecialEventsChart data={baseFilteredEvents} />
+                                            </div>
+                                        </div>
+                                        <div id="zone-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-6">
+                                            <h3 className="text-xl font-semibold text-cyan-400 mb-4">Eventos por Zona</h3>
+                                            <FailureByZoneChart data={baseFilteredEvents} />
+                                        </div>
+                                        <div id="municipio-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-6">
+                                            <h3 className="text-xl font-semibold text-cyan-400 mb-4">Eventos por Municipio</h3>
+                                            <FailureByMunicipioChart data={baseFilteredEvents} />
+                                        </div>
+                                        <div id="events-by-month-container" className="bg-gray-800 shadow-lg rounded-xl p-6">
+                                            <h3 className="text-xl font-semibold text-cyan-400 mb-4">Volumen de Eventos por Mes</h3>
+                                            <EventsByMonthChart data={baseFilteredEvents} />
+                                        </div>
+                                        <CollapsibleSection title="Registro de Eventos de Falla">
+                                            <EventTable events={displayEvents} />
+                                        </CollapsibleSection>
+                                        <CollapsibleSection title="Eventos Reportados Más Antiguos por Zona">
+                                            <OldestEventsByZone data={oldestEventsByZone} />
+                                        </CollapsibleSection>
+                                    </>
+                                )}
+                                
+                                {activeTab === 'cambios' && changeEvents.length > 0 && (
+                                    <>
+                                        <div className="bg-gray-800 shadow-lg rounded-xl p-6">
+                                            <h2 className="text-2xl font-bold text-cyan-400 mb-4">Indicadores de Cambios</h2>
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                                                <DashboardCard title="Total Cambios" value={baseFilteredChangeEvents.length.toLocaleString()} />
+                                                <DashboardCard title="Cambios de Luminarias" value={luminariaChangesCount.toLocaleString()} onClick={() => handleCardChangeClick('luminaria')} isActive={cardChangeFilter === 'luminaria'}/>
+                                                <DashboardCard title="Cambios de OLCs" value={olcChangesCount.toLocaleString()} onClick={() => handleCardChangeClick('olc')} isActive={cardChangeFilter === 'olc'}/>
+                                                <DashboardCard title="Por Garantía" value={garantiaChangesCount.toLocaleString()} onClick={() => handleCardChangeClick('garantia')} isActive={cardChangeFilter === 'garantia'}/>
+                                                <DashboardCard title="Por Vandalismo" value={vandalizadoChangesCount.toLocaleString()} onClick={() => handleCardChangeClick('vandalizado')} isActive={cardChangeFilter === 'vandalizado'}/>
+                                                <DashboardCard title="Por Columna Caída" value={columnaCaidaChangesCount.toLocaleString()} onClick={() => handleCardChangeClick('columnaCaidaChange')} isActive={cardChangeFilter === 'columnaCaidaChange'}/>
+                                                <DashboardCard title="Por Hurto" value={hurtoChangesCount.toLocaleString()} onClick={() => handleCardChangeClick('hurtoChange')} isActive={cardChangeFilter === 'hurtoChange'}/>
+                                            </div>
+                                        </div>
+                                        <div className="grid grid-cols-1 gap-8">
+                                            <div id="changes-by-zone-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-6">
+                                                <h3 className="text-xl font-semibold text-cyan-400 mb-4">Cambios por Zona</h3>
+                                                <ChangesByZoneChart data={baseFilteredChangeEvents} />
+                                            </div>
+                                        </div>
+                                        <CollapsibleSection title="Registro de Cambios">
+                                            <ChangeEventTable events={displayChangeEvents} />
+                                        </CollapsibleSection>
+                                    </>
+                                )}
+
+                                {activeTab === 'inventario' && inventory.length > 0 && (
+                                    <>
+                                        <div className="bg-gray-800 shadow-lg rounded-xl p-6">
+                                            <h2 className="text-2xl font-bold text-cyan-400 mb-4">Indicadores de Inventario</h2>
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mb-8">
+                                                <DashboardCard title="Total Luminarias" value={displayInventory.length.toLocaleString()} />
+                                                <DashboardCard title="Gabinetes Únicos" value={uniqueCabinetCount.toLocaleString()} />
+                                                <DashboardCard title="Inauguradas" value={inauguratedCount.toLocaleString()} />
+                                                <DashboardCard title="Puntos Marcados" value={markedCount.toLocaleString()} />
+                                                <DashboardCard title="Servicios AP" value={uniqueAccountCount.toLocaleString()} />
+                                            </div>
+                                            
+                                            <h3 className="text-xl font-bold text-amber-400 mb-4">Indicadores de Situación de Inventario</h3>
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+                                                <DashboardCard title="Vandalizados" value={vandalizadoInventoryCount.toLocaleString()} onClick={() => handleCardInventoryClick('situacion', 'Vandalizado')} isActive={cardInventoryFilter?.value === 'Vandalizado'}/>
+                                                <DashboardCard title="Hurtos" value={hurtoInventoryCount.toLocaleString()} onClick={() => handleCardInventoryClick('situacion', 'Hurto')} isActive={cardInventoryFilter?.value === 'Hurto'}/>
+                                                <DashboardCard title="Columnas Caídas" value={columnaCaidaInventoryCount.toLocaleString()} onClick={() => handleCardInventoryClick('situacion', 'Columna Caida')} isActive={cardInventoryFilter?.value === 'Columna Caida'}/>
+                                                <DashboardCard title="Falta Poda" value={faltaPodaInventoryCount.toLocaleString()} onClick={() => handleCardInventoryClick('situacion', 'Falta Poda')} isActive={cardInventoryFilter?.value === 'Falta Poda'}/>
+                                                <DashboardCard title="Falta Línea" value={faltaLineaInventoryCount.toLocaleString()} onClick={() => handleCardInventoryClick('situacion', 'Falta Linea')} isActive={cardInventoryFilter?.value === 'Falta Linea'}/>
+                                            </div>
+                                        </div>
+                                        <div id="inventory-analysis-section" className="space-y-8">
+                                            <h2 className="text-2xl font-bold text-cyan-400">Análisis de Inventario</h2>
+                                            <CollapsibleSection title="Resumen de Potencias por Ubicación">
+                                                <PowerSummaryTable items={finalDisplayInventory} selectedZone={selectedZone}/>
+                                            </CollapsibleSection>
+                                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                                                <CollapsibleSection title="Resumen de Luminarias por Gabinete">
+                                                    <CabinetSummaryTable items={finalDisplayInventory} />
+                                                </CollapsibleSection>
+                                                <CollapsibleSection title="Resumen de Servicios de Alumbrado">
+                                                    <ServiceSummaryTable items={finalDisplayInventory} />
+                                                </CollapsibleSection>
+                                            </div>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                                <div id="inventory-zone-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-6">
+                                                    <h3 className="text-xl font-semibold text-cyan-400 mb-4">Inventario por Zona</h3>
+                                                    <InventoryByZoneChart data={finalDisplayInventory} />
+                                                </div>
+                                                <div id="inventory-municipio-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-6">
+                                                    <h3 className="text-xl font-semibold text-cyan-400 mb-4">Inventario por Municipio</h3>
+                                                    <InventoryByMunicipioChart data={finalDisplayInventory} />
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <CollapsibleSection title="Listado de Inventario">
+                                            <InventoryTable items={finalDisplayInventory} />
+                                        </CollapsibleSection>
+                                    </>
                                 )}
                             </div>
-                        </div>
-                    )}
-                </div>
+                        )}
 
-                <div className="bg-gray-800 shadow-lg rounded-xl p-6 mb-8">
-                    <h2 className="text-2xl font-bold text-cyan-400 mb-4">Filtros y Análisis</h2>
-                    <FilterControls
-                        dateRange={dateRange}
-                        setDateRange={setDateRange}
-                        handleSetDatePreset={handleSetDatePreset}
-                        selectedZone={selectedZone}
-                        setSelectedZone={setSelectedZone}
-                        selectedMunicipio={selectedMunicipio}
-                        setSelectedMunicipio={setSelectedMunicipio}
-                        municipios={filteredMunicipios}
-                        selectedCategory={selectedCategory}
-                        setSelectedCategory={setSelectedCategory}
-                        zones={zones.length > 0 ? zones : ALL_ZONES}
-                        failureCategories={failureCategories}
-                        availableYears={availableYears}
-                        selectedMonth={selectedMonth}
-                        setSelectedMonth={setSelectedMonth}
-                        selectedYear={selectedYear}
-                        setSelectedYear={setSelectedYear}
-                        availablePowers={availablePowers}
-                        selectedPower={selectedPower}
-                        setSelectedPower={setSelectedPower}
-                        availableCalendars={availableCalendars}
-                        selectedCalendar={selectedCalendar}
-                        setSelectedCalendar={setSelectedCalendar}
-                    />
-                </div>
-                
-                {loading && <div className="text-center p-8"><p>Cargando datos...</p></div>}
-                
-                {!loading && allEvents.length > 0 && (
-                    <>
-                        {/* Event Metrics Section */}
-                        <div className="bg-gray-800 shadow-lg rounded-xl p-6 mb-8">
-                            <h2 className="text-2xl font-bold text-cyan-400 mb-4">Indicadores de Eventos</h2>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                                <DashboardCard title="Total Eventos" value={baseFilteredEvents.length.toLocaleString()} />
-                                <DashboardCard title="Luminarias Únicas" value={uniqueLuminaires.toLocaleString()} />
-                                <DashboardCard title="Fallas Bajo Consumo" value={lowCurrentFailures.toLocaleString()} onClick={() => handleCardClick('lowCurrent')} isActive={cardFilter === 'lowCurrent'} />
-                                <DashboardCard title="Fallas Alto Consumo" value={highCurrentFailures.toLocaleString()} onClick={() => handleCardClick('highCurrent')} isActive={cardFilter === 'highCurrent'} />
-                                <DashboardCard title="Fallas de Voltaje" value={voltageFailures.toLocaleString()} onClick={() => handleCardClick('voltage')} isActive={cardFilter === 'voltage'} />
-                                <DashboardCard title="Columnas Caídas" value={columnaCaidaFailures.toLocaleString()} onClick={() => handleCardClick('columnaCaida')} isActive={cardFilter === 'columnaCaida'}/>
-                                <DashboardCard title="Hurtos" value={hurtoFailures.toLocaleString()} onClick={() => handleCardClick('hurto')} isActive={cardFilter === 'hurto'} />
-                                <DashboardCard title="Vandalizados" value={vandalizadoFailures.toLocaleString()} onClick={() => handleCardClick('vandalizado')} isActive={cardFilter === 'vandalizado'} />
+                        {noDataLoaded && (
+                            <div className="text-center p-16 bg-gray-800 rounded-lg">
+                                <h2 className="text-2xl font-semibold text-gray-300">No hay datos cargados</h2>
+                                <p className="text-gray-500 mt-2">Utilice los botones de "Gestión de Datos" para cargar planillas CSV y comenzar el análisis.</p>
                             </div>
-                        </div>
-
-                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-                            <div id="category-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-6">
-                                <h3 className="text-xl font-semibold text-cyan-400 mb-4">Eventos por Categoría</h3>
-                                <FailureByCategoryChart data={baseFilteredEvents} />
-                            </div>
-                             <div id="special-events-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-6">
-                                <h3 className="text-xl font-semibold text-cyan-400 mb-4">Eventos por Hurto, Vandalismo y Caídas</h3>
-                                <SpecialEventsChart data={baseFilteredEvents} />
-                            </div>
-                            <div id="zone-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-6">
-                                <h3 className="text-xl font-semibold text-cyan-400 mb-4">Eventos por Zona</h3>
-                                <FailureByZoneChart data={baseFilteredEvents} />
-                            </div>
-                             <div id="municipio-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-6">
-                                <h3 className="text-xl font-semibold text-cyan-400 mb-4">Eventos por Municipio</h3>
-                                <FailureByMunicipioChart data={baseFilteredEvents} />
-                            </div>
-                             <div id="events-by-month-container" className="bg-gray-800 shadow-lg rounded-xl p-6 lg:col-span-2">
-                                <h3 className="text-xl font-semibold text-cyan-400 mb-4">Volumen de Eventos por Mes</h3>
-                                <EventsByMonthChart data={baseFilteredEvents} />
-                            </div>
-                        </div>
-                        
-                        <div className="bg-gray-800 shadow-lg rounded-xl p-6 mb-8">
-                            <h3 className="text-xl font-semibold text-cyan-400 mb-4">Registro de Eventos de Falla</h3>
-                            <EventTable events={displayEvents} />
-                        </div>
-                        
-                         <OldestEventsByZone data={oldestEventsByZone} />
-                    </>
-                )}
-                
-                {!loading && changeEvents.length > 0 && (
-                     <>
-                        {/* Change Metrics Section */}
-                        <div className="bg-gray-800 shadow-lg rounded-xl p-6 mb-8">
-                            <h2 className="text-2xl font-bold text-cyan-400 mb-4">Indicadores de Cambios</h2>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                                <DashboardCard title="Total Cambios" value={baseFilteredChangeEvents.length.toLocaleString()} />
-                                <DashboardCard title="Cambios de Luminarias" value={luminariaChangesCount.toLocaleString()} onClick={() => handleCardChangeClick('luminaria')} isActive={cardChangeFilter === 'luminaria'}/>
-                                <DashboardCard title="Cambios de OLCs" value={olcChangesCount.toLocaleString()} onClick={() => handleCardChangeClick('olc')} isActive={cardChangeFilter === 'olc'}/>
-                                <DashboardCard title="Por Garantía" value={garantiaChangesCount.toLocaleString()} onClick={() => handleCardChangeClick('garantia')} isActive={cardChangeFilter === 'garantia'}/>
-                                <DashboardCard title="Por Vandalismo" value={vandalizadoChangesCount.toLocaleString()} onClick={() => handleCardChangeClick('vandalizado')} isActive={cardChangeFilter === 'vandalizado'}/>
-                                <DashboardCard title="Por Columna Caída" value={columnaCaidaChangesCount.toLocaleString()} onClick={() => handleCardChangeClick('columnaCaidaChange')} isActive={cardChangeFilter === 'columnaCaidaChange'}/>
-                                <DashboardCard title="Por Hurto" value={hurtoChangesCount.toLocaleString()} onClick={() => handleCardChangeClick('hurtoChange')} isActive={cardChangeFilter === 'hurtoChange'}/>
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 gap-8 mb-8">
-                            <div id="changes-by-zone-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-6">
-                                <h3 className="text-xl font-semibold text-cyan-400 mb-4">Cambios por Zona</h3>
-                                <ChangesByZoneChart data={baseFilteredChangeEvents} />
-                            </div>
-                        </div>
-
-                        <div className="bg-gray-800 shadow-lg rounded-xl p-6 mb-8">
-                            <h3 className="text-xl font-semibold text-cyan-400 mb-4">Registro de Cambios</h3>
-                            <ChangeEventTable events={displayChangeEvents} />
-                        </div>
-                    </>
-                )}
-
-                {!loading && inventory.length > 0 && (
-                    <>
-                        <div className="bg-gray-800 shadow-lg rounded-xl p-6 mb-8">
-                             <h2 className="text-2xl font-bold text-cyan-400 mb-4">Indicadores de Inventario</h2>
-                             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mb-8">
-                                <DashboardCard title="Total Luminarias" value={displayInventory.length.toLocaleString()} />
-                                <DashboardCard title="Gabinetes Únicos" value={uniqueCabinetCount.toLocaleString()} />
-                                <DashboardCard title="Inauguradas" value={inauguratedCount.toLocaleString()} />
-                                <DashboardCard title="Puntos Marcados" value={markedCount.toLocaleString()} />
-                                <DashboardCard title="Servicios AP" value={uniqueAccountCount.toLocaleString()} />
-                             </div>
-                            
-                             <h3 className="text-xl font-bold text-amber-400 mb-4">Indicadores de Situación de Inventario</h3>
-                             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                                <DashboardCard title="Inventario Vandalizado" value={vandalizadoInventoryCount.toLocaleString()} onClick={() => handleCardInventoryClick('situacion', 'Vandalizado')} isActive={cardInventoryFilter?.value === 'Vandalizado'}/>
-                                <DashboardCard title="Inventario por Hurto" value={hurtoInventoryCount.toLocaleString()} onClick={() => handleCardInventoryClick('situacion', 'Hurto')} isActive={cardInventoryFilter?.value === 'Hurto'}/>
-                                <DashboardCard title="Inventario Columna Caída" value={columnaCaidaInventoryCount.toLocaleString()} onClick={() => handleCardInventoryClick('situacion', 'Columna Caida')} isActive={cardInventoryFilter?.value === 'Columna Caida'}/>
-                             </div>
-                        </div>
-
-                        <div id="inventory-analysis-section">
-                            <h2 className="text-2xl font-bold text-cyan-400 mb-4">Análisis de Inventario</h2>
-                            <PowerSummaryTable items={finalDisplayInventory} selectedZone={selectedZone}/>
-                            <CabinetSummaryTable items={finalDisplayInventory} />
-                            <ServiceSummaryTable items={finalDisplayInventory} />
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                                <div id="inventory-zone-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-6">
-                                    <h3 className="text-xl font-semibold text-cyan-400 mb-4">Inventario por Zona</h3>
-                                    <InventoryByZoneChart data={finalDisplayInventory} />
-                                </div>
-                                <div id="inventory-municipio-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-6">
-                                    <h3 className="text-xl font-semibold text-cyan-400 mb-4">Inventario por Municipio</h3>
-                                    <InventoryByMunicipioChart data={finalDisplayInventory} />
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div className="bg-gray-800 shadow-lg rounded-xl p-6 my-8">
-                            <h3 className="text-xl font-semibold text-cyan-400 mb-4">Listado de Inventario</h3>
-                            <InventoryTable items={finalDisplayInventory} />
-                        </div>
-                    </>
-                )}
-
-                {!loading && allEvents.length === 0 && changeEvents.length === 0 && inventory.length === 0 && (
-                     <div className="text-center p-16 bg-gray-800 rounded-lg">
-                        <h2 className="text-2xl font-semibold text-gray-300">No hay datos cargados</h2>
-                        <p className="text-gray-500 mt-2">Utilice los botones de "Gestión de Datos" para cargar planillas CSV y comenzar el análisis.</p>
+                        )}
                     </div>
-                )}
+                </div>
             </main>
         </div>
     );

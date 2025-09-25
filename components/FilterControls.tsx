@@ -84,11 +84,10 @@ const FilterControls: React.FC<FilterControlsProps> = ({
 
 
     return (
-        <div className="space-y-6">
-            {/* Fila 1: Ubicación */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                  <div>
-                    <label htmlFor="zone-select" className="block text-sm font-medium text-gray-400 mb-1">Zona de Alumbrado</label>
+                    <label htmlFor="zone-select" className="block text-sm font-medium text-gray-400 mb-1">Zona</label>
                     <select
                         id="zone-select"
                         value={selectedZone}
@@ -111,10 +110,6 @@ const FilterControls: React.FC<FilterControlsProps> = ({
                         {municipios.map(muni => <option key={muni} value={muni}>{muni}</option>)}
                     </select>
                 </div>
-            </div>
-
-            {/* Fila 2: Fechas */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
                 <div>
                     <label htmlFor="start-date-input" className="block text-sm font-medium text-gray-400 mb-1">Fecha Inicio</label>
                     <input
@@ -135,54 +130,52 @@ const FilterControls: React.FC<FilterControlsProps> = ({
                         className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500"
                     />
                 </div>
-                <div>
-                    <label htmlFor="month-select" className="block text-sm font-medium text-gray-400 mb-1">Mes</label>
-                    <select
-                        id="month-select"
-                        value={selectedMonth}
-                        onChange={(e) => setSelectedMonth(e.target.value)}
-                        disabled={availableYears.length === 0}
-                        className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500 disabled:opacity-50"
-                    >
-                        <option value="">Seleccionar...</option>
-                        {meses.map(mes => (
-                            <option key={mes.value} value={mes.value}>{mes.label}</option>
-                        ))}
-                    </select>
+                <div className="grid grid-cols-2 gap-2">
+                    <div>
+                        <label htmlFor="month-select" className="block text-sm font-medium text-gray-400 mb-1">Mes</label>
+                        <select
+                            id="month-select"
+                            value={selectedMonth}
+                            onChange={(e) => setSelectedMonth(e.target.value)}
+                            disabled={availableYears.length === 0}
+                            className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500 disabled:opacity-50"
+                        >
+                            <option value="">...</option>
+                            {meses.map(mes => (
+                                <option key={mes.value} value={mes.value}>{mes.label.substring(0,3)}</option>
+                            ))}
+                        </select>
+                    </div>
+                    <div>
+                        <label htmlFor="year-select" className="block text-sm font-medium text-gray-400 mb-1">Año</label>
+                        <select
+                            id="year-select"
+                            value={selectedYear}
+                            onChange={(e) => setSelectedYear(e.target.value)}
+                            disabled={availableYears.length === 0}
+                            className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500 disabled:opacity-50"
+                        >
+                            <option value="">...</option>
+                            {availableYears.map(year => (
+                                <option key={year} value={year}>{year}</option>
+                            ))}
+                        </select>
+                    </div>
                 </div>
-                <div>
-                    <label htmlFor="year-select" className="block text-sm font-medium text-gray-400 mb-1">Año</label>
-                    <select
-                        id="year-select"
-                        value={selectedYear}
-                        onChange={(e) => setSelectedYear(e.target.value)}
-                        disabled={availableYears.length === 0}
-                        className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500 disabled:opacity-50"
-                    >
-                        <option value="">Seleccionar...</option>
-                        {availableYears.map(year => (
-                            <option key={year} value={year}>{year}</option>
-                        ))}
-                    </select>
-                </div>
-            </div>
-            
-            {/* Fila 3: Filtros específicos */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                  <div>
-                    <label htmlFor="category-select" className="block text-sm font-medium text-gray-400 mb-1">Categoría de Falla</label>
+                    <label htmlFor="category-select" className="block text-sm font-medium text-gray-400 mb-1">Categoría Falla</label>
                     <select
                         id="category-select"
                         value={selectedCategory}
                         onChange={(e) => setSelectedCategory(e.target.value)}
                         className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500"
                     >
-                        <option value="all">Todas las Categorías</option>
+                        <option value="all">Todas</option>
                         {failureCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                     </select>
                 </div>
                 <div>
-                    <label htmlFor="power-select" className="block text-sm font-medium text-gray-400 mb-1">Potencia Nominal</label>
+                    <label htmlFor="power-select" className="block text-sm font-medium text-gray-400 mb-1">Potencia</label>
                     <select
                         id="power-select"
                         value={selectedPower}
@@ -190,12 +183,12 @@ const FilterControls: React.FC<FilterControlsProps> = ({
                         disabled={availablePowers.length === 0}
                         className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500 disabled:opacity-50"
                     >
-                        <option value="all">Todas las Potencias</option>
+                        <option value="all">Todas</option>
                         {availablePowers.map(p => <option key={p} value={p}>{p}W</option>)}
                     </select>
                 </div>
                 <div>
-                    <label htmlFor="calendar-select" className="block text-sm font-medium text-gray-400 mb-1">Calendarios</label>
+                    <label htmlFor="calendar-select" className="block text-sm font-medium text-gray-400 mb-1">Calendario</label>
                     <select
                         id="calendar-select"
                         value={selectedCalendar}
@@ -203,7 +196,7 @@ const FilterControls: React.FC<FilterControlsProps> = ({
                         disabled={availableCalendars.length === 0}
                         className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500 disabled:opacity-50"
                     >
-                        <option value="all">Todos los Calendarios</option>
+                        <option value="all">Todos</option>
                         {availableCalendars.map(c => <option key={c} value={c}>{c}</option>)}
                     </select>
                 </div>
@@ -223,7 +216,7 @@ const FilterControls: React.FC<FilterControlsProps> = ({
                     setSelectedYear('');
                     setSelectedPower('all');
                     setSelectedCalendar('all');
-                 }} className="bg-gray-700 hover:bg-red-600 text-sm font-medium py-1 px-3 rounded-md transition-colors">Limpiar Filtros</button>
+                 }} className="ml-auto bg-gray-700 hover:bg-red-600 text-sm font-medium py-1 px-3 rounded-md transition-colors">Limpiar Filtros</button>
             </div>
         </div>
     );

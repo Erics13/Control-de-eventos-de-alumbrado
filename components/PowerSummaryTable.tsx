@@ -1,3 +1,4 @@
+
 import React, { useMemo } from 'react';
 import type { InventoryItem } from '../types';
 import { ALL_ZONES } from '../constants';
@@ -61,55 +62,52 @@ const PowerSummaryTable: React.FC<PowerSummaryTableProps> = ({ items, selectedZo
     }, [items, selectedZone]);
 
     if (items.length === 0 || powerData.length === 0) {
-        return null; 
+        return <div className="flex items-center justify-center h-40 text-gray-500">No hay datos de potencias para mostrar.</div>;
     }
     
     return (
-        <div className="bg-gray-800 shadow-lg rounded-xl p-6 mb-8">
-            <h3 className="text-xl font-semibold text-cyan-400 mb-4">Resumen de Potencias por Ubicación</h3>
-            <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-700 text-sm">
-                    <thead className="bg-gray-700/50">
-                        <tr>
-                            <th scope="col" className="sticky left-0 bg-gray-700/50 px-3 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider z-10">
-                                Potencia
+        <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-700 text-sm">
+                <thead className="bg-gray-700/50">
+                    <tr>
+                        <th scope="col" className="sticky left-0 bg-gray-700/50 px-3 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider z-10">
+                            Potencia
+                        </th>
+                        {locationColumns.map(loc => (
+                            <th key={loc} scope="col" className="px-3 py-3 text-center text-xs font-medium text-gray-300 uppercase tracking-wider">
+                                {loc}
                             </th>
-                            {locationColumns.map(loc => (
-                                <th key={loc} scope="col" className="px-3 py-3 text-center text-xs font-medium text-gray-300 uppercase tracking-wider">
-                                    {loc}
-                                </th>
-                            ))}
-                            <th scope="col" className="px-3 py-3 text-center text-xs font-medium text-gray-300 uppercase tracking-wider">
-                                Total
-                            </th>
-                        </tr>
-                    </thead>
-                    <tbody className="bg-gray-800 divide-y divide-gray-700">
-                        {powerData.map((row) => (
-                            <tr key={row.power} className="hover:bg-gray-700/50">
-                                <td className="sticky left-0 bg-gray-800 px-3 py-4 whitespace-nowrap font-medium text-cyan-300">{row.power}</td>
-                                {locationColumns.map(loc => (
-                                    <td key={loc} className="px-3 py-4 whitespace-nowrap text-center text-gray-300">
-                                        {(row as any)[loc] || 0}
-                                    </td>
-                                ))}
-                                <td className="px-3 py-4 whitespace-nowrap text-center font-bold text-gray-200">{row.total}</td>
-                            </tr>
                         ))}
-                    </tbody>
-                    <tfoot className="bg-gray-700/50">
-                         <tr>
-                             <th scope="row" className="sticky left-0 bg-gray-700/50 px-3 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider z-10">Total General</th>
-                             {locationColumns.map(loc => (
-                                 <td key={loc} className="px-3 py-3 whitespace-nowrap text-center font-bold text-gray-200">
-                                     {columnTotals[loc] || 0}
-                                 </td>
-                             ))}
-                             <td className="px-3 py-3 whitespace-nowrap text-center font-extrabold text-cyan-300">{grandTotal}</td>
-                         </tr>
-                    </tfoot>
-                </table>
-            </div>
+                        <th scope="col" className="px-3 py-3 text-center text-xs font-medium text-gray-300 uppercase tracking-wider">
+                            Total
+                        </th>
+                    </tr>
+                </thead>
+                <tbody className="bg-gray-800 divide-y divide-gray-700">
+                    {powerData.map((row) => (
+                        <tr key={row.power} className="hover:bg-gray-700/50">
+                            <td className="sticky left-0 bg-gray-800 px-3 py-4 whitespace-nowrap font-medium text-cyan-300">{row.power}</td>
+                            {locationColumns.map(loc => (
+                                <td key={loc} className="px-3 py-4 whitespace-nowrap text-center text-gray-300">
+                                    {(row as any)[loc] || 0}
+                                </td>
+                            ))}
+                            <td className="px-3 py-4 whitespace-nowrap text-center font-bold text-gray-200">{row.total}</td>
+                        </tr>
+                    ))}
+                </tbody>
+                <tfoot className="bg-gray-700/50">
+                     <tr>
+                         <th scope="row" className="sticky left-0 bg-gray-700/50 px-3 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider z-10">Total General</th>
+                         {locationColumns.map(loc => (
+                             <td key={loc} className="px-3 py-3 whitespace-nowrap text-center font-bold text-gray-200">
+                                 {columnTotals[loc] || 0}
+                             </td>
+                         ))}
+                         <td className="px-3 py-3 whitespace-nowrap text-center font-extrabold text-cyan-300">{grandTotal}</td>
+                     </tr>
+                </tfoot>
+            </table>
         </div>
     );
 };
