@@ -1,6 +1,7 @@
 
+
 import { useState, useEffect, useCallback } from 'react';
-import { openDB, DBSchema, IDBPDatabase } from 'idb';
+import { openDB, DBSchema, IDBPDatabase, deleteDB } from 'idb';
 import type { LuminaireEvent, ChangeEvent, InventoryItem } from '../types';
 import { MUNICIPIO_TO_ZONE_MAP, FAILURE_CATEGORY_TRANSLATIONS } from '../constants';
 
@@ -95,13 +96,15 @@ const setDbFileNames = async (fileNames: string[]): Promise<void> => {
 }
 
 const clearAllData = async (): Promise<void> => {
-    const db = await getDb();
-    await Promise.all([
-        db.clear(LUMINAIRE_EVENTS_STORE),
-        db.clear(CHANGE_EVENTS_STORE),
-        db.clear(INVENTORY_STORE),
-        db.clear(METADATA_STORE),
-    ]);
+    // Close the existing database connection if it's open.
+    // This prevents errors on some browsers when trying to delete an open database.
+    if (dbPromise) {
+        const db = await dbPromise;
+        db.close();
+        // Nullify the promise so that getDb() will re-initialize it after deletion.
+        dbPromise = null;
+    }
+    await deleteDB(DB_NAME);
 };
 
 // --- Helper Functions ---
