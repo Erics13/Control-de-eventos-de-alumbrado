@@ -1,6 +1,7 @@
 export const MUNICIPIO_TO_ZONE_MAP: Record<string, string> = {
     'AGUAS CORRIENTES': 'ZONA A',
     'SANTA LUCÍA': 'ZONA A',
+    'SANTA LUCIA': 'ZONA A',
     'CERRILLOS': 'ZONA A',
     'JUANICO': 'ZONA A',
     'CANELONES': 'ZONA A',

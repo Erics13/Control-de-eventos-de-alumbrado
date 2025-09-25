@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 // FIX: Changed date-fns submodule imports from default to named. This resolves the "not callable"
 // error, likely caused by an upgrade to date-fns v3+ which uses named exports for submodules.
@@ -25,6 +26,11 @@ import EventsByMonthChart from './components/EventsByMonthChart';
 import SpecialEventsChart from './components/SpecialEventsChart';
 import EventTable from './components/EventTable';
 import OldestEventsByZone from './components/OldestEventsByZone';
+import ChangeEventTable from './components/ChangeEventTable';
+import ChangesByZoneChart from './components/ChangesByZoneChart';
+import InventoryTable from './components/InventoryTable';
+import InventoryByZoneChart from './components/InventoryByZoneChart';
+import InventoryByMunicipioChart from './components/InventoryByMunicipioChart';
 
 const ERROR_DESC_LOW_CURRENT = "La corriente medida es menor que lo esperado o no hay corriente que fluya a través de la combinación de driver y lámpara.";
 const ERROR_DESC_HIGH_CURRENT = "La corriente medida para la combinación de driver y lámpara es mayor que la esperada.";
@@ -38,20 +44,29 @@ declare global {
 }
 
 const App: React.FC = () => {
-    const { allEvents, uploadedFileNames, addEventsFromCSV, addEventsFromJSON, downloadDataAsJSON, resetApplication, loading, error } = useLuminaireData();
+    const { allEvents, changeEvents, inventory, uploadedFileNames, addEventsFromCSV, addChangeEventsFromCSV, addInventoryFromCSV, addEventsFromJSON, downloadDataAsJSON, resetApplication, loading, error } = useLuminaireData();
     const [dateRange, setDateRange] = useState<{ start: Date | null; end: Date | null }>({ start: null, end: null });
     const [selectedZone, setSelectedZone] = useState<string>('all');
     const [selectedMunicipio, setSelectedMunicipio] = useState<string>('all');
     const [selectedCategory, setSelectedCategory] = useState<string>('all');
     const [selectedMonth, setSelectedMonth] = useState<string>('');
     const [selectedYear, setSelectedYear] = useState<string>('');
+    const [selectedPower, setSelectedPower] = useState<string>('all');
+    const [selectedCalendar, setSelectedCalendar] = useState<string>('all');
     const [cardFilter, setCardFilter] = useState<string | null>(null);
+    const [cardChangeFilter, setCardChangeFilter] = useState<string | null>(null);
     const [isFilelistVisible, setIsFilelistVisible] = useState(true);
     const [isDataManagementVisible, setIsDataManagementVisible] = useState(false);
     const [isExportingPdf, setIsExportingPdf] = useState(false);
 
     const handleCardClick = useCallback((filterType: string) => {
         setCardFilter(prevFilter => (prevFilter === filterType ? null : filterType));
+        setCardChangeFilter(null);
+    }, []);
+
+    const handleCardChangeClick = useCallback((filterType: string) => {
+        setCardChangeFilter(prevFilter => (prevFilter === filterType ? null : filterType));
+        setCardFilter(null);
     }, []);
 
     const handleSetDatePreset = useCallback((preset: 'today' | 'week' | 'month' | 'year') => {
@@ -98,6 +113,22 @@ const App: React.FC = () => {
         }
     };
 
+    const handleChangesFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if(file) {
+            addChangeEventsFromCSV(file);
+            event.target.value = '';
+        }
+    };
+
+    const handleInventoryFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if(file) {
+            addInventoryFromCSV(file);
+            event.target.value = '';
+        }
+    };
+
     const baseFilteredEvents = useMemo(() => {
         return allEvents.filter(event => {
             const eventDate = typeof event.date === 'string' ? parseISO(event.date) : event.date;
@@ -109,13 +140,33 @@ const App: React.FC = () => {
         });
     }, [allEvents, dateRange, selectedZone, selectedMunicipio, selectedCategory]);
 
+    const baseFilteredChangeEvents = useMemo(() => {
+        return changeEvents.filter(event => {
+            const eventDate = event.fechaRetiro;
+            const isDateInRange = !dateRange.start || !dateRange.end || isWithinInterval(eventDate, { start: dateRange.start, end: dateRange.end });
+            const isZoneMatch = selectedZone === 'all' || event.zone === selectedZone;
+            const isMunicipioMatch = selectedMunicipio === 'all' || event.municipio === selectedMunicipio;
+            return isDateInRange && isZoneMatch && isMunicipioMatch;
+        });
+    }, [changeEvents, dateRange, selectedZone, selectedMunicipio]);
+
+    const displayInventory = useMemo(() => {
+        return inventory.filter(item => {
+            const installDate = item.fechaInstalacion;
+            const isDateInRange = !installDate || !dateRange.start || !dateRange.end || isWithinInterval(installDate, { start: dateRange.start, end: dateRange.end });
+            const isZoneMatch = selectedZone === 'all' || item.zone === selectedZone;
+            const isMunicipioMatch = selectedMunicipio === 'all' || item.municipio === selectedMunicipio;
+            const isPowerMatch = selectedPower === 'all' || String(item.potenciaNominal) === selectedPower;
+            const isCalendarMatch = selectedCalendar === 'all' || item.dimmingCalendar === selectedCalendar;
+            return isDateInRange && isZoneMatch && isMunicipioMatch && isPowerMatch && isCalendarMatch;
+        });
+    }, [inventory, dateRange, selectedZone, selectedMunicipio, selectedPower, selectedCalendar]);
+
     const displayEvents = useMemo(() => {
         if (!cardFilter) {
             return baseFilteredEvents;
         }
         switch (cardFilter) {
-            case 'totalFailures':
-                return baseFilteredEvents.filter(e => e.status === 'FAILURE');
             case 'lowCurrent':
                 return baseFilteredEvents.filter(e => e.description.trim() === ERROR_DESC_LOW_CURRENT);
             case 'highCurrent':
@@ -132,6 +183,28 @@ const App: React.FC = () => {
                 return baseFilteredEvents;
         }
     }, [baseFilteredEvents, cardFilter]);
+    
+    const displayChangeEvents = useMemo(() => {
+        if (!cardChangeFilter) {
+            return baseFilteredChangeEvents;
+        }
+        switch (cardChangeFilter) {
+            case 'luminaria':
+                return baseFilteredChangeEvents.filter(e => e.componente.toUpperCase().includes('LUMINARIA'));
+            case 'olc':
+                return baseFilteredChangeEvents.filter(e => e.componente.toUpperCase().includes('OLC'));
+            case 'garantia':
+                return baseFilteredChangeEvents.filter(e => e.condicion.toLowerCase() === 'garantia');
+            case 'vandalizado':
+                return baseFilteredChangeEvents.filter(e => e.condicion.toLowerCase() === 'vandalizado');
+            case 'columnaCaidaChange':
+                return baseFilteredChangeEvents.filter(e => e.condicion.toLowerCase() === 'columna caída');
+            case 'hurtoChange':
+                return baseFilteredChangeEvents.filter(e => e.condicion.toLowerCase() === 'hurto');
+            default:
+                return baseFilteredChangeEvents;
+        }
+    }, [baseFilteredChangeEvents, cardChangeFilter]);
 
 
     const failureCategories = useMemo(() => {
@@ -143,14 +216,14 @@ const App: React.FC = () => {
     }, [allEvents]);
 
     const zones = useMemo(() => {
-        const zoneSet = new Set(allEvents.map(e => e.zone));
+        const zoneSet = new Set([...allEvents.map(e => e.zone), ...changeEvents.map(e => e.zone), ...inventory.map(i => i.zone)]);
         return Array.from(zoneSet).sort();
-    }, [allEvents]);
+    }, [allEvents, changeEvents, inventory]);
     
     const municipios = useMemo(() => {
-        const municipioSet = new Set(allEvents.map(e => e.municipio));
+        const municipioSet = new Set([...allEvents.map(e => e.municipio), ...changeEvents.map(e => e.municipio), ...inventory.map(i => i.municipio)]);
         return Array.from(municipioSet).sort();
-    }, [allEvents]);
+    }, [allEvents, changeEvents, inventory]);
 
     const availableYears = useMemo(() => {
         if (allEvents.length === 0) return [];
@@ -160,14 +233,19 @@ const App: React.FC = () => {
         });
         return Array.from(years).sort((a, b) => parseInt(b) - parseInt(a));
     }, [allEvents]);
+    
+    const availablePowers = useMemo(() => {
+        const powers = new Set(inventory.map(i => i.potenciaNominal).filter((p): p is number => p != null));
+        return Array.from(powers).sort((a,b) => a - b).map(String);
+    }, [inventory]);
+
+    const availableCalendars = useMemo(() => {
+        const calendars = new Set(inventory.map(i => i.dimmingCalendar).filter((c): c is string => !!c && c !== '-'));
+        return Array.from(calendars).sort();
+    }, [inventory]);
 
 
-    const totalFailures = useMemo(() => baseFilteredEvents.filter(e => e.status === 'FAILURE').length, [baseFilteredEvents]);
     const uniqueLuminaires = useMemo(() => new Set(baseFilteredEvents.map(e => e.id)).size, [baseFilteredEvents]);
-    const failureRate = useMemo(() => {
-         const totalLuminaires = new Set(allEvents.map(e => e.id)).size;
-         return totalLuminaires > 0 ? (totalFailures / totalLuminaires) * 100 : 0;
-    }, [totalFailures, allEvents]);
 
     const lowCurrentFailures = useMemo(() => {
         return baseFilteredEvents.filter(e => e.description.trim() === ERROR_DESC_LOW_CURRENT).length;
@@ -193,6 +271,30 @@ const App: React.FC = () => {
         return baseFilteredEvents.filter(e => e.failureCategory === 'Vandalizado').length;
     }, [baseFilteredEvents]);
 
+    const luminariaChangesCount = useMemo(() => {
+        return baseFilteredChangeEvents.filter(e => e.componente.toUpperCase().includes('LUMINARIA')).length;
+    }, [baseFilteredChangeEvents]);
+
+    const olcChangesCount = useMemo(() => {
+        return baseFilteredChangeEvents.filter(e => e.componente.toUpperCase().includes('OLC')).length;
+    }, [baseFilteredChangeEvents]);
+    
+    const garantiaChangesCount = useMemo(() => {
+        return baseFilteredChangeEvents.filter(e => e.condicion.toLowerCase() === 'garantia').length;
+    }, [baseFilteredChangeEvents]);
+
+    const vandalizadoChangesCount = useMemo(() => {
+        return baseFilteredChangeEvents.filter(e => e.condicion.toLowerCase() === 'vandalizado').length;
+    }, [baseFilteredChangeEvents]);
+
+    const columnaCaidaChangesCount = useMemo(() => {
+        return baseFilteredChangeEvents.filter(e => e.condicion.toLowerCase() === 'columna caída').length;
+    }, [baseFilteredChangeEvents]);
+
+    const hurtoChangesCount = useMemo(() => {
+        return baseFilteredChangeEvents.filter(e => e.condicion.toLowerCase() === 'hurto').length;
+    }, [baseFilteredChangeEvents]);
+
     const oldestEventsByZone = useMemo(() => {
         if (allEvents.length === 0) {
             return [];
@@ -211,7 +313,7 @@ const App: React.FC = () => {
     }, [allEvents]);
 
     const handleExportPDF = async () => {
-        if (baseFilteredEvents.length === 0) {
+        if (baseFilteredEvents.length === 0 && baseFilteredChangeEvents.length === 0) {
             alert("No hay datos para exportar con los filtros actuales.");
             return;
         }
@@ -228,80 +330,52 @@ const App: React.FC = () => {
             const contentWidth = pageWidth - pageMargin * 2;
             
             doc.setFontSize(20);
-            doc.text("Reporte de Eventos de Alumbrado", pageWidth / 2, yPos, { align: 'center' });
+            doc.text("Reporte de Alumbrado Público", pageWidth / 2, yPos, { align: 'center' });
             yPos += 8;
             doc.setFontSize(10);
             doc.text(`Generado: ${new Date().toLocaleString()}`, pageWidth / 2, yPos, { align: 'center' });
             yPos += 15;
     
-            doc.setFontSize(14);
-            doc.text("Resumen de Métricas", pageMargin, yPos);
-            yPos += 6;
-            const metricsBody = [
-                ['Luminarias Monitoreadas', uniqueLuminaires.toString()],
-                ['Fallas por Bajo Consumo', lowCurrentFailures.toString()],
-                ['Fallas por Alto Consumo', highCurrentFailures.toString()],
-                ['Fallas de Voltaje', voltageFailures.toString()],
-                ['Columnas Caídas', columnaCaidaFailures.toString()],
-                ['Hurtos', hurtoFailures.toString()],
-                ['Vandalizados', vandalizadoFailures.toString()],
-            ];
-            (doc as any).autoTable({
-                head: [['Métrica', 'Valor']],
-                body: metricsBody,
-                startY: yPos,
-                theme: 'grid',
-                headStyles: { fillColor: [44, 62, 80] },
-                margin: { left: pageMargin }
-            });
-            yPos = (doc as any).autoTable.previous.finalY + 15;
-            
-            const SPECIAL_CATEGORIES_FOR_PDF = ["Columna Caída", "Hurto", "Vandalizado"];
-
-            // Technical Categories Table
-            const technicalCategoryEvents = baseFilteredEvents.filter(e => 
-                e.failureCategory && !SPECIAL_CATEGORIES_FOR_PDF.includes(e.failureCategory)
-            );
-            const technicalCategoryCounts = technicalCategoryEvents.reduce((acc, event) => {
-                if (event.failureCategory) { acc[event.failureCategory] = (acc[event.failureCategory] || 0) + 1; }
-                return acc;
-            }, {} as Record<string, number>);
-            const technicalCategoryTableBody = Object.entries(technicalCategoryCounts).map(([name, value]) => [name, value.toString()]);
-
-            if (technicalCategoryTableBody.length > 0) {
-                if (yPos > 240) { doc.addPage(); yPos = 20; }
+            if (baseFilteredEvents.length > 0) {
                 doc.setFontSize(14);
-                doc.text("Tabla de Eventos por Categoría (Técnicos)", pageMargin, yPos);
-                yPos += 8;
+                doc.text("Resumen de Métricas de Eventos", pageMargin, yPos);
+                yPos += 6;
+                const metricsBody = [
+                    ['Luminarias con eventos', uniqueLuminaires.toString()],
+                    ['Fallas por Bajo Consumo', lowCurrentFailures.toString()],
+                    ['Fallas por Alto Consumo', highCurrentFailures.toString()],
+                    ['Fallas de Voltaje', voltageFailures.toString()],
+                    ['Columnas Caídas', columnaCaidaFailures.toString()],
+                    ['Hurtos', hurtoFailures.toString()],
+                    ['Vandalizados', vandalizadoFailures.toString()],
+                ];
                 (doc as any).autoTable({
-                    head: [['Categoría', 'Cantidad de Eventos']],
-                    body: technicalCategoryTableBody,
+                    head: [['Métrica de Evento', 'Valor']],
+                    body: metricsBody,
                     startY: yPos,
                     theme: 'grid',
                     headStyles: { fillColor: [44, 62, 80] },
                     margin: { left: pageMargin }
                 });
-                yPos = (doc as any).autoTable.previous.finalY + 10;
+                yPos = (doc as any).autoTable.previous.finalY + 15;
             }
-
-            // Special Categories Table
-            const specialCategoryEvents = baseFilteredEvents.filter(e => 
-                e.failureCategory && SPECIAL_CATEGORIES_FOR_PDF.includes(e.failureCategory)
-            );
-            const specialCategoryCounts = specialCategoryEvents.reduce((acc, event) => {
-                if (event.failureCategory) { acc[event.failureCategory] = (acc[event.failureCategory] || 0) + 1; }
-                return acc;
-            }, {} as Record<string, number>);
-            const specialCategoryTableBody = Object.entries(specialCategoryCounts).map(([name, value]) => [name, value.toString()]);
-
-            if (specialCategoryTableBody.length > 0) {
+            
+            if (baseFilteredChangeEvents.length > 0) {
                 if (yPos > 240) { doc.addPage(); yPos = 20; }
                 doc.setFontSize(14);
-                doc.text("Tabla de Eventos por Hurto, Vandalismo y Caídas", pageMargin, yPos);
-                yPos += 8;
+                doc.text("Resumen de Métricas de Cambios", pageMargin, yPos);
+                yPos += 6;
+                const changeMetricsBody = [
+                     ['Cambios de Luminarias', luminariaChangesCount.toString()],
+                    ['Cambios de OLCs', olcChangesCount.toString()],
+                    ['Cambios por Garantía', garantiaChangesCount.toString()],
+                    ['Cambios por Vandalismo', vandalizadoChangesCount.toString()],
+                    ['Cambios por Columna Caída', columnaCaidaChangesCount.toString()],
+                    ['Cambios por Hurto', hurtoChangesCount.toString()],
+                ];
                 (doc as any).autoTable({
-                    head: [['Categoría', 'Cantidad de Eventos']],
-                    body: specialCategoryTableBody,
+                    head: [['Métrica de Cambio', 'Valor']],
+                    body: changeMetricsBody,
                     startY: yPos,
                     theme: 'grid',
                     headStyles: { fillColor: [44, 62, 80] },
@@ -340,10 +414,62 @@ const App: React.FC = () => {
             };
     
             await addChartToPdf('category-chart-container', 'Gráfico de Eventos por Categoría');
-            await addChartToPdf('special-events-chart-container', 'Eventos por Hurto, Vandalismo y Caídas');
-            await addChartToPdf('zone-chart-container', 'Eventos por Zona');
-            await addChartToPdf('municipio-chart-container', 'Eventos por Municipio');
-            await addChartToPdf('events-by-month-container', 'Volumen de Eventos por Mes');
+            await addChartToPdf('special-events-chart-container', 'Gráfico de Eventos por Hurto, Vandalismo y Caídas');
+            await addChartToPdf('zone-chart-container', 'Gráfico de Eventos por Zona');
+            await addChartToPdf('changes-by-zone-chart-container', 'Gráfico de Cambios por Zona');
+            await addChartToPdf('municipio-chart-container', 'Gráfico de Eventos por Municipio');
+            await addChartToPdf('events-by-month-container', 'Gráfico de Volumen de Eventos por Mes');
+
+            if (yPos > 260) { doc.addPage(); yPos = 20; }
+            if (displayChangeEvents.length > 0) {
+                doc.setFontSize(14);
+                doc.text("Registro de Cambios", pageMargin, yPos);
+                yPos += 8;
+                const changeTableBody = displayChangeEvents.map(event => [
+                    event.fechaRetiro.toLocaleDateString(),
+                    event.componente,
+                    event.poleIdExterno,
+                    event.streetlightIdExterno,
+                    event.municipio,
+                    event.zone,
+                    event.condicion,
+                ]);
+                (doc as any).autoTable({
+                    head: [['Fecha Retiro', 'Componente', 'ID Poste', 'ID Luminaria', 'Municipio', 'Zona', 'Condición']],
+                    body: changeTableBody,
+                    startY: yPos,
+                    theme: 'grid',
+                    headStyles: { fillColor: [44, 62, 80] },
+                    margin: { left: pageMargin }
+                });
+                yPos = (doc as any).autoTable.previous.finalY + 15;
+            }
+            
+            if (yPos > 260) { doc.addPage(); yPos = 20; }
+            if (displayEvents.length > 0) {
+                doc.setFontSize(14);
+                doc.text("Registro de Eventos de Falla", pageMargin, yPos);
+                yPos += 8;
+                const eventTableBody = displayEvents.map(event => [
+                    event.date.toLocaleDateString(),
+                    event.id,
+                    event.municipio,
+                    event.zone,
+                    event.status,
+                    event.failureCategory || 'N/A',
+                    event.description,
+                ]);
+                (doc as any).autoTable({
+                    head: [['Fecha', 'ID', 'Municipio', 'Zona', 'Status', 'Categoría', 'Descripción']],
+                    body: eventTableBody,
+                    startY: yPos,
+                    theme: 'grid',
+                    headStyles: { fillColor: [44, 62, 80] },
+                    margin: { left: pageMargin },
+                    columnStyles: { 6: { cellWidth: 50 } }
+                });
+                yPos = (doc as any).autoTable.previous.finalY + 15;
+            }
             
             const dateStr = new Date().toISOString().split('T')[0];
             doc.save(`reporte_alumbrado_${dateStr}.pdf`);
@@ -382,10 +508,46 @@ const App: React.FC = () => {
                         <div id="data-management-panel" className="px-6 pb-6">
                            <div className="border-t border-gray-700 pt-6">
                                 <p className="text-gray-400 mb-6">
-                                    Carga nuevos datos desde un archivo CSV o gestiona respaldos de tu base de datos en formato JSON.
+                                    Carga nuevos datos de eventos, cambios o inventario desde archivos CSV, o gestiona respaldos de tu base de datos en formato JSON.
                                 </p>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                                     <FileUpload onFileUpload={addEventsFromCSV} loading={loading} />
+                                    <div>
+                                         <input
+                                            type="file"
+                                            id="change-csv-upload-input"
+                                            accept=".csv"
+                                            onChange={handleChangesFileChange}
+                                            className="hidden"
+                                            disabled={loading}
+                                        />
+                                        <button
+                                            onClick={() => document.getElementById('change-csv-upload-input')?.click()}
+                                            disabled={loading}
+                                            className="w-full h-full bg-amber-600 hover:bg-amber-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-colors duration-300 flex items-center justify-center gap-3"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h5M5.5 9.5L4 11m0 0l1.5 1.5M4 11h16m-5-5v5h5m-5-1.5l1.5 1.5m0 0L20 9.5" /></svg>
+                                            <span>Cargar CSV de Cambios</span>
+                                        </button>
+                                    </div>
+                                    <div>
+                                        <input
+                                            type="file"
+                                            id="inventory-csv-upload-input"
+                                            accept=".csv"
+                                            onChange={handleInventoryFileChange}
+                                            className="hidden"
+                                            disabled={loading}
+                                        />
+                                        <button
+                                            onClick={() => document.getElementById('inventory-csv-upload-input')?.click()}
+                                            disabled={loading}
+                                            className="w-full h-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-colors duration-300 flex items-center justify-center gap-3"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor"><path d="M7 3a1 1 0 000 2h6a1 1 0 100-2H7zM4 7a1 1 0 011-1h10a1 1 0 110 2H5a1 1 0 01-1-1zM2 11a2 2 0 012-2h12a2 2 0 012 2v4a2 2 0 01-2 2H4a2 2 0 01-2-2v-4z" /></svg>
+                                            <span>Cargar CSV de Inventario</span>
+                                        </button>
+                                    </div>
                                     <div>
                                         <input
                                             type="file"
@@ -406,21 +568,14 @@ const App: React.FC = () => {
                                     </div>
                                     <button
                                         onClick={downloadDataAsJSON}
-                                        disabled={loading || allEvents.length === 0}
+                                        disabled={loading || (allEvents.length === 0 && changeEvents.length === 0)}
                                         className="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-colors duration-300 flex items-center justify-center gap-2">
                                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
                                         Descargar Respaldo JSON
                                     </button>
                                     <button
-                                        onClick={resetApplication}
-                                        disabled={loading || allEvents.length === 0}
-                                        className="w-full bg-red-600 hover:bg-red-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-colors duration-300 flex items-center justify-center gap-2">
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 110 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" /></svg>
-                                        Reiniciar Aplicación
-                                    </button>
-                                     <button
                                         onClick={handleExportPDF}
-                                        disabled={loading || isExportingPdf || allEvents.length === 0}
+                                        disabled={loading || isExportingPdf || (allEvents.length === 0 && changeEvents.length === 0)}
                                         className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-colors duration-300 flex items-center justify-center gap-2">
                                         {isExportingPdf ? (
                                             <>
@@ -433,6 +588,13 @@ const App: React.FC = () => {
                                                 Exportar a PDF
                                             </>
                                         )}
+                                    </button>
+                                    <button
+                                        onClick={resetApplication}
+                                        disabled={loading || (allEvents.length === 0 && changeEvents.length === 0 && inventory.length === 0)}
+                                        className="w-full bg-red-600 hover:bg-red-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-colors duration-300 flex items-center justify-center gap-2">
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 110 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" /></svg>
+                                        Reiniciar Aplicación
                                     </button>
                                 </div>
                                  {error && <p className="text-red-400 mt-4">{error}</p>}
@@ -466,53 +628,6 @@ const App: React.FC = () => {
                     )}
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                    <DashboardCard title="Luminarias Monitoreadas" value={uniqueLuminaires.toString()} />
-                    <DashboardCard 
-                        title="Total de Fallas (en período)" 
-                        value={totalFailures.toString()} 
-                        onClick={() => handleCardClick('totalFailures')}
-                        isActive={cardFilter === 'totalFailures'}
-                    />
-                    <DashboardCard title="Tasa de Falla (histórica)" value={`${failureRate.toFixed(2)}%`} />
-                    <DashboardCard 
-                        title="Fallas por Bajo Consumo" 
-                        value={lowCurrentFailures.toString()} 
-                        onClick={() => handleCardClick('lowCurrent')}
-                        isActive={cardFilter === 'lowCurrent'}
-                    />
-                    <DashboardCard 
-                        title="Fallas por Alto Consumo" 
-                        value={highCurrentFailures.toString()} 
-                        onClick={() => handleCardClick('highCurrent')}
-                        isActive={cardFilter === 'highCurrent'}
-                    />
-                    <DashboardCard 
-                        title="Fallas de Voltaje" 
-                        value={voltageFailures.toString()} 
-                        onClick={() => handleCardClick('voltage')}
-                        isActive={cardFilter === 'voltage'}
-                    />
-                    <DashboardCard 
-                        title="Columnas Caídas" 
-                        value={columnaCaidaFailures.toString()} 
-                        onClick={() => handleCardClick('columnaCaida')}
-                        isActive={cardFilter === 'columnaCaida'}
-                    />
-                    <DashboardCard 
-                        title="Hurtos" 
-                        value={hurtoFailures.toString()} 
-                        onClick={() => handleCardClick('hurto')}
-                        isActive={cardFilter === 'hurto'}
-                    />
-                    <DashboardCard 
-                        title="Vandalizados" 
-                        value={vandalizadoFailures.toString()} 
-                        onClick={() => handleCardClick('vandalizado')}
-                        isActive={cardFilter === 'vandalizado'}
-                    />
-                </div>
-
                 <div className="bg-gray-800 shadow-lg rounded-xl p-6 mb-8">
                     <h2 className="text-2xl font-bold text-cyan-400 mb-4">Filtros y Análisis</h2>
                     <FilterControls
@@ -533,46 +648,198 @@ const App: React.FC = () => {
                         setSelectedMonth={setSelectedMonth}
                         selectedYear={selectedYear}
                         setSelectedYear={setSelectedYear}
+                        availablePowers={availablePowers}
+                        selectedPower={selectedPower}
+                        setSelectedPower={setSelectedPower}
+                        availableCalendars={availableCalendars}
+                        selectedCalendar={selectedCalendar}
+                        setSelectedCalendar={setSelectedCalendar}
                     />
                 </div>
 
-                {baseFilteredEvents.length > 0 ? (
+                <div className="space-y-8 mb-8">
+                    {/* Grupo 1: Indicadores de Eventos (Fallas Técnicas) */}
+                    <div>
+                        <h2 className="text-2xl font-bold text-cyan-400 mb-4 border-b border-gray-700 pb-2">Indicadores de Eventos (Fallas Técnicas)</h2>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 pt-4">
+                            <DashboardCard title="Luminarias con eventos" value={uniqueLuminaires.toString()} />
+                            <DashboardCard 
+                                title="Fallas por Bajo Consumo" 
+                                value={lowCurrentFailures.toString()} 
+                                onClick={() => handleCardClick('lowCurrent')}
+                                isActive={cardFilter === 'lowCurrent'}
+                            />
+                            <DashboardCard 
+                                title="Fallas por Alto Consumo" 
+                                value={highCurrentFailures.toString()} 
+                                onClick={() => handleCardClick('highCurrent')}
+                                isActive={cardFilter === 'highCurrent'}
+                            />
+                            <DashboardCard 
+                                title="Fallas de Voltaje" 
+                                value={voltageFailures.toString()} 
+                                onClick={() => handleCardClick('voltage')}
+                                isActive={cardFilter === 'voltage'}
+                            />
+                        </div>
+                    </div>
+
+                    {/* Grupo 2: Indicadores por Situación */}
+                    <div>
+                        <h2 className="text-2xl font-bold text-cyan-400 mb-4 border-b border-gray-700 pb-2">Indicadores por Situación</h2>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 pt-4">
+                            <DashboardCard 
+                                title="Columnas Caídas" 
+                                value={columnaCaidaFailures.toString()} 
+                                onClick={() => handleCardClick('columnaCaida')}
+                                isActive={cardFilter === 'columnaCaida'}
+                            />
+                            <DashboardCard 
+                                title="Hurtos" 
+                                value={hurtoFailures.toString()} 
+                                onClick={() => handleCardClick('hurto')}
+                                isActive={cardFilter === 'hurto'}
+                            />
+                            <DashboardCard 
+                                title="Vandalizados" 
+                                value={vandalizadoFailures.toString()} 
+                                onClick={() => handleCardClick('vandalizado')}
+                                isActive={cardFilter === 'vandalizado'}
+                            />
+                        </div>
+                    </div>
+
+                    {/* Grupo 3: Indicadores de Cambios */}
+                    <div>
+                        <h2 className="text-2xl font-bold text-cyan-400 mb-4 border-b border-gray-700 pb-2">Indicadores de Cambios</h2>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 pt-4">
+                            <DashboardCard 
+                                title="Cambios de Luminarias" 
+                                value={luminariaChangesCount.toString()} 
+                                onClick={() => handleCardChangeClick('luminaria')}
+                                isActive={cardChangeFilter === 'luminaria'}
+                            />
+                            <DashboardCard 
+                                title="Cambios de OLCs" 
+                                value={olcChangesCount.toString()} 
+                                onClick={() => handleCardChangeClick('olc')}
+                                isActive={cardChangeFilter === 'olc'}
+                            />
+                            <DashboardCard 
+                                title="Cambios por Garantía" 
+                                value={garantiaChangesCount.toString()} 
+                                onClick={() => handleCardChangeClick('garantia')}
+                                isActive={cardChangeFilter === 'garantia'}
+                            />
+                            <DashboardCard 
+                                title="Cambios por Vandalismo" 
+                                value={vandalizadoChangesCount.toString()} 
+                                onClick={() => handleCardChangeClick('vandalizado')}
+                                isActive={cardChangeFilter === 'vandalizado'}
+                            />
+                            <DashboardCard 
+                                title="Cambios por Columna Caída" 
+                                value={columnaCaidaChangesCount.toString()} 
+                                onClick={() => handleCardChangeClick('columnaCaidaChange')}
+                                isActive={cardChangeFilter === 'columnaCaidaChange'}
+                            />
+                            <DashboardCard 
+                                title="Cambios por Hurto" 
+                                value={hurtoChangesCount.toString()} 
+                                onClick={() => handleCardChangeClick('hurtoChange')}
+                                isActive={cardChangeFilter === 'hurtoChange'}
+                            />
+                        </div>
+                    </div>
+                </div>
+
+
+                {allEvents.length > 0 || changeEvents.length > 0 || inventory.length > 0 ? (
                     <>
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-                            <div id="category-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-6">
-                                <h3 className="text-xl font-semibold text-cyan-400 mb-4">Eventos por Categoría</h3>
-                                <FailureByCategoryChart data={displayEvents} />
-                            </div>
-                            <div id="special-events-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-6">
-                                <h3 className="text-xl font-semibold text-cyan-400 mb-4">Eventos por Hurto, Vandalismo y Caídas</h3>
-                                <SpecialEventsChart data={displayEvents} />
-                            </div>
-                            <div id="zone-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-6 lg:col-span-2">
-                                <h3 className="text-xl font-semibold text-cyan-400 mb-4">Eventos por Zona</h3>
-                                <FailureByZoneChart data={displayEvents} />
-                            </div>
-                            <div id="municipio-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-6 lg:col-span-2">
-                                <h3 className="text-xl font-semibold text-cyan-400 mb-4">Eventos por Municipio</h3>
-                                <FailureByMunicipioChart data={displayEvents} />
-                            </div>
-                        </div>
+                        {inventory.length > 0 && (
+                             <div className="space-y-8 mb-8">
+                                <h2 className="text-3xl font-bold text-white mb-4 border-b-2 border-cyan-500 pb-3">Análisis de Inventario</h2>
+                                <div>
+                                    <h3 className="text-2xl font-bold text-cyan-400 mb-4 border-b border-gray-700 pb-2">Indicadores de Inventario</h3>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 pt-4">
+                                        <DashboardCard title="Total de Luminarias" value={displayInventory.length.toLocaleString()} />
+                                        <DashboardCard title="Potencias distintas" value={availablePowers.length.toString()} />
+                                        <DashboardCard title="Calendarios distintos" value={availableCalendars.length.toString()} />
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+                                    <div id="inventory-by-zone-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-6">
+                                        <h3 className="text-xl font-semibold text-cyan-400 mb-4">Luminarias por Zona</h3>
+                                        <InventoryByZoneChart data={displayInventory} />
+                                    </div>
+                                    <div id="inventory-by-municipio-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-6 lg:col-span-2">
+                                        <h3 className="text-xl font-semibold text-cyan-400 mb-4">Luminarias por Municipio</h3>
+                                        <InventoryByMunicipioChart data={displayInventory} />
+                                    </div>
+                                </div>
+                                <div className="bg-gray-800 shadow-lg rounded-xl p-6">
+                                    <h3 className="text-xl font-semibold text-cyan-400 mb-4">Listado de Inventario</h3>
+                                    <InventoryTable items={displayInventory} />
+                                 </div>
+                             </div>
+                        )}
+
+                        {(baseFilteredEvents.length > 0 || changeEvents.length > 0) && <h2 className="text-3xl font-bold text-white mt-12 mb-4 border-b-2 border-cyan-500 pb-3">Análisis de Eventos y Cambios</h2>}
                         
-                        <div id="events-by-month-container" className="bg-gray-800 shadow-lg rounded-xl p-6 mb-8">
-                            <h3 className="text-xl font-semibold text-cyan-400 mb-4">Volumen de Eventos por Mes</h3>
-                            <EventsByMonthChart data={allEvents} />
-                        </div>
+                        {baseFilteredEvents.length > 0 && (
+                            <>
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+                                    <div id="category-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-6">
+                                        <h3 className="text-xl font-semibold text-cyan-400 mb-4">Eventos por Categoría</h3>
+                                        <FailureByCategoryChart data={displayEvents} />
+                                    </div>
+                                    <div id="special-events-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-6">
+                                        <h3 className="text-xl font-semibold text-cyan-400 mb-4">Eventos por Hurto, Vandalismo y Caídas</h3>
+                                        <SpecialEventsChart data={displayEvents} />
+                                    </div>
+                                    <div id="zone-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-6 lg:col-span-2">
+                                        <h3 className="text-xl font-semibold text-cyan-400 mb-4">Eventos por Zona</h3>
+                                        <FailureByZoneChart data={displayEvents} />
+                                    </div>
+                                    <div id="municipio-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-6 lg:col-span-2">
+                                        <h3 className="text-xl font-semibold text-cyan-400 mb-4">Eventos por Municipio</h3>
+                                        <FailureByMunicipioChart data={displayEvents} />
+                                    </div>
+                                </div>
+                                
+                                <div id="events-by-month-container" className="bg-gray-800 shadow-lg rounded-xl p-6 mb-8">
+                                    <h3 className="text-xl font-semibold text-cyan-400 mb-4">Volumen de Eventos por Mes</h3>
+                                    <EventsByMonthChart data={allEvents} />
+                                </div>
 
-                        <OldestEventsByZone data={oldestEventsByZone} />
+                                <OldestEventsByZone data={oldestEventsByZone} />
+                            </>
+                        )}
+                        
+                        {changeEvents.length > 0 && (
+                            <>
+                                <div id="changes-by-zone-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-6 mb-8">
+                                    <h3 className="text-xl font-semibold text-cyan-400 mb-4">Cambios por Zona</h3>
+                                    <ChangesByZoneChart data={displayChangeEvents} />
+                                </div>
+                                <div className="bg-gray-800 shadow-lg rounded-xl p-6 mb-8">
+                                    <h3 className="text-xl font-semibold text-cyan-400 mb-4">Registro de Cambios (Luminarias y OLCs)</h3>
+                                    <ChangeEventTable events={displayChangeEvents} />
+                                </div>
+                            </>
+                        )}
 
-                        <div className="bg-gray-800 shadow-lg rounded-xl p-6">
-                           <h3 className="text-xl font-semibold text-cyan-400 mb-4">Registro de Eventos</h3>
-                           <EventTable events={displayEvents} />
-                        </div>
+                        {displayEvents.length > 0 && (
+                            <div className="bg-gray-800 shadow-lg rounded-xl p-6">
+                               <h3 className="text-xl font-semibold text-cyan-400 mb-4">Registro de Eventos de Falla</h3>
+                               <EventTable events={displayEvents} />
+                            </div>
+                        )}
                     </>
                 ) : (
                     <div className="text-center py-16 bg-gray-800 rounded-xl">
                         <h2 className="text-2xl font-bold text-gray-400">No hay datos para mostrar</h2>
-                        <p className="text-gray-500 mt-2">Carga un archivo CSV o ajusta los filtros para comenzar.</p>
+                        <p className="text-gray-500 mt-2">Carga un archivo CSV para comenzar.</p>
                     </div>
                 )}
             </main>

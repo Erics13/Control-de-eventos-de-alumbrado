@@ -1,3 +1,4 @@
+
 import React from 'react';
 
 interface FilterControlsProps {
@@ -18,6 +19,12 @@ interface FilterControlsProps {
     setSelectedMonth: (month: string) => void;
     selectedYear: string;
     setSelectedYear: (year: string) => void;
+    availablePowers: string[];
+    selectedPower: string;
+    setSelectedPower: (power: string) => void;
+    availableCalendars: string[];
+    selectedCalendar: string;
+    setSelectedCalendar: (calendar: string) => void;
 }
 
 const meses = [
@@ -53,6 +60,12 @@ const FilterControls: React.FC<FilterControlsProps> = ({
     setSelectedMonth,
     selectedYear,
     setSelectedYear,
+    availablePowers,
+    selectedPower,
+    setSelectedPower,
+    availableCalendars,
+    selectedCalendar,
+    setSelectedCalendar,
 }) => {
     const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>, part: 'start' | 'end') => {
         const value = e.target.value ? new Date(e.target.value) : null;
@@ -154,8 +167,8 @@ const FilterControls: React.FC<FilterControlsProps> = ({
                 </div>
             </div>
             
-            {/* Fila 3: Categoría */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Fila 3: Filtros específicos */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                  <div>
                     <label htmlFor="category-select" className="block text-sm font-medium text-gray-400 mb-1">Categoría de Falla</label>
                     <select
@@ -166,6 +179,32 @@ const FilterControls: React.FC<FilterControlsProps> = ({
                     >
                         <option value="all">Todas las Categorías</option>
                         {failureCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                    </select>
+                </div>
+                <div>
+                    <label htmlFor="power-select" className="block text-sm font-medium text-gray-400 mb-1">Potencia Nominal</label>
+                    <select
+                        id="power-select"
+                        value={selectedPower}
+                        onChange={(e) => setSelectedPower(e.target.value)}
+                        disabled={availablePowers.length === 0}
+                        className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500 disabled:opacity-50"
+                    >
+                        <option value="all">Todas las Potencias</option>
+                        {availablePowers.map(p => <option key={p} value={p}>{p}W</option>)}
+                    </select>
+                </div>
+                <div>
+                    <label htmlFor="calendar-select" className="block text-sm font-medium text-gray-400 mb-1">Calendario de Dimming</label>
+                    <select
+                        id="calendar-select"
+                        value={selectedCalendar}
+                        onChange={(e) => setSelectedCalendar(e.target.value)}
+                        disabled={availableCalendars.length === 0}
+                        className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500 disabled:opacity-50"
+                    >
+                        <option value="all">Todos los Calendarios</option>
+                        {availableCalendars.map(c => <option key={c} value={c}>{c}</option>)}
                     </select>
                 </div>
             </div>
@@ -182,6 +221,8 @@ const FilterControls: React.FC<FilterControlsProps> = ({
                     setSelectedCategory('all');
                     setSelectedMonth('');
                     setSelectedYear('');
+                    setSelectedPower('all');
+                    setSelectedCalendar('all');
                  }} className="bg-gray-700 hover:bg-red-600 text-sm font-medium py-1 px-3 rounded-md transition-colors">Limpiar Filtros</button>
             </div>
         </div>
