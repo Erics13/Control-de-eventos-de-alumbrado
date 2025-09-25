@@ -1,7 +1,3 @@
-
-
-
-
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 // FIX: Changed date-fns submodule imports from default to named. This resolves the "not callable"
 // error, likely caused by an upgrade to date-fns v3+ which uses named exports for submodules.
@@ -366,8 +362,8 @@ const App: React.FC = () => {
     }, [displayInventory]);
 
     const markedCount = useMemo(() => {
-        return displayInventory.filter(item => item.marked && item.marked.trim() !== '' && item.marked.trim() !== '-').length;
-    }, [displayInventory]);
+        return inventory.filter(item => item.marked?.trim().toUpperCase() === 'YES').length;
+    }, [inventory]);
     
     const uniqueAccountCount = useMemo(() => {
         const accounts = new Set(displayInventory.map(i => i.nroCuenta).filter((c): c is string => !!c && c.trim() !== '' && c.trim() !== '-'));
@@ -723,7 +719,8 @@ const App: React.FC = () => {
                 await addChartToPdf('pdf-municipio-chart', 'Eventos por Municipio');
                 
                 const dateStr = new Date().toISOString().split('T')[0];
-                doc.save(`reporte_alumbrado_${dateStr}.pdf`);
+                const zoneStr = selectedZone !== 'all' ? `_${selectedZone.replace(/\s+/g, '_')}` : '';
+                doc.save(`reporte_alumbrado${zoneStr}_${dateStr}.pdf`);
         
             } catch (err) {
                 console.error("Error exporting to PDF", err);
