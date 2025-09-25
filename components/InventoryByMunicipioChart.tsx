@@ -13,7 +13,8 @@ const InventoryByMunicipioChart: React.FC<{ data: InventoryItem[] }> = ({ data }
         }, {} as Record<string, number>);
 
         return Object.entries(municipioCounts)
-            .map(([name, value]) => ({ name, luminarias: value }))
+            // FIX: Cast value to number to ensure correct type inference for 'luminarias'.
+            .map(([name, value]) => ({ name, luminarias: value as number }))
             .sort((a, b) => b.luminarias - a.luminarias);
     }, [data]);
     

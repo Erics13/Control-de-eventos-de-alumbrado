@@ -507,15 +507,12 @@ export const useLuminaireData = () => {
             setLoading(true);
             try {
                 await clearAllData();
-                setAllEvents([]);
-                setChangeEvents([]);
-                setInventory([]);
-                setUploadedFileNames([]);
+                // Reload the page to ensure all state is cleared and data is re-fetched from the now-empty DB.
+                window.location.reload();
             } catch (e) {
                  console.error("Fallo al intentar reiniciar la aplicación", e);
                  setError("Error al intentar reiniciar la aplicación.");
-            } finally {
-                setLoading(false);
+                 setLoading(false); // Only set loading to false on error, as success will reload.
             }
         }
     }, []);

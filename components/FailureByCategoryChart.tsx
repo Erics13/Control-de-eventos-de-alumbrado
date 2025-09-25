@@ -20,7 +20,8 @@ const FailureByCategoryChart: React.FC<{ data: LuminaireEvent[] }> = ({ data }) 
         }, {} as Record<string, number>);
 
         return Object.entries(categoryCounts)
-            .map(([name, value]) => ({ name, eventos: value }))
+            // FIX: Cast value to number to ensure correct type inference for 'eventos'.
+            .map(([name, value]) => ({ name, eventos: value as number }))
             .sort((a, b) => b.eventos - a.eventos);
     }, [data]);
 

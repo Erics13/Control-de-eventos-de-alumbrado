@@ -13,8 +13,8 @@ import { endOfMonth } from 'date-fns/endOfMonth';
 import { format } from 'date-fns/format';
 import { es } from 'date-fns/locale/es';
 import { useLuminaireData } from './hooks/useLuminaireData';
-import type { LuminaireEvent } from './types';
-import { ALL_ZONES } from './constants';
+import type { LuminaireEvent, InventoryItem } from './types';
+import { ALL_ZONES, MUNICIPIO_TO_ZONE_MAP } from './constants';
 import Header from './components/Header';
 import FileUpload from './components/FileUpload';
 import DashboardCard from './components/DashboardCard';
@@ -31,6 +31,9 @@ import ChangesByZoneChart from './components/ChangesByZoneChart';
 import InventoryTable from './components/InventoryTable';
 import InventoryByZoneChart from './components/InventoryByZoneChart';
 import InventoryByMunicipioChart from './components/InventoryByMunicipioChart';
+import PowerSummaryTable from './components/PowerSummaryTable';
+import CabinetSummaryTable from './components/CabinetSummaryTable';
+import ServiceSummaryTable from './components/ServiceSummaryTable';
 
 const ERROR_DESC_LOW_CURRENT = "La corriente medida es menor que lo esperado o no hay corriente que fluya a través de la combinación de driver y lámpara.";
 const ERROR_DESC_HIGH_CURRENT = "La corriente medida para la combinación de driver y lámpara es mayor que la esperada.";
@@ -55,6 +58,7 @@ const App: React.FC = () => {
     const [selectedCalendar, setSelectedCalendar] = useState<string>('all');
     const [cardFilter, setCardFilter] = useState<string | null>(null);
     const [cardChangeFilter, setCardChangeFilter] = useState<string | null>(null);
+    const [cardInventoryFilter, setCardInventoryFilter] = useState<{key: keyof InventoryItem, value: string} | null>(null);
     const [isFilelistVisible, setIsFilelistVisible] = useState(true);
     const [isDataManagementVisible, setIsDataManagementVisible] = useState(false);
     const [isExportingPdf, setIsExportingPdf] = useState(false);
@@ -62,11 +66,21 @@ const App: React.FC = () => {
     const handleCardClick = useCallback((filterType: string) => {
         setCardFilter(prevFilter => (prevFilter === filterType ? null : filterType));
         setCardChangeFilter(null);
+        setCardInventoryFilter(null);
     }, []);
 
     const handleCardChangeClick = useCallback((filterType: string) => {
         setCardChangeFilter(prevFilter => (prevFilter === filterType ? null : filterType));
         setCardFilter(null);
+        setCardInventoryFilter(null);
+    }, []);
+
+    const handleCardInventoryClick = useCallback((key: keyof InventoryItem, value: string) => {
+        setCardInventoryFilter(prevFilter => 
+            (prevFilter && prevFilter.key === key && prevFilter.value === value) ? null : { key, value }
+        );
+        setCardFilter(null);
+        setCardChangeFilter(null);
     }, []);
 
     const handleSetDatePreset = useCallback((preset: 'today' | 'week' | 'month' | 'year') => {
@@ -152,8 +166,12 @@ const App: React.FC = () => {
 
     const displayInventory = useMemo(() => {
         return inventory.filter(item => {
-            const installDate = item.fechaInstalacion;
-            const isDateInRange = !installDate || !dateRange.start || !dateRange.end || isWithinInterval(installDate, { start: dateRange.start, end: dateRange.end });
+            // Use the later of the two dates for filtering
+            const relevantDate = item.fechaInauguracion && item.fechaInstalacion 
+                ? (item.fechaInauguracion > item.fechaInstalacion ? item.fechaInauguracion : item.fechaInstalacion)
+                : item.fechaInauguracion || item.fechaInstalacion;
+
+            const isDateInRange = !relevantDate || !dateRange.start || !dateRange.end || isWithinInterval(relevantDate, { start: dateRange.start, end: dateRange.end });
             const isZoneMatch = selectedZone === 'all' || item.zone === selectedZone;
             const isMunicipioMatch = selectedMunicipio === 'all' || item.municipio === selectedMunicipio;
             const isPowerMatch = selectedPower === 'all' || String(item.potenciaNominal) === selectedPower;
@@ -161,6 +179,27 @@ const App: React.FC = () => {
             return isDateInRange && isZoneMatch && isMunicipioMatch && isPowerMatch && isCalendarMatch;
         });
     }, [inventory, dateRange, selectedZone, selectedMunicipio, selectedPower, selectedCalendar]);
+    
+    const finalDisplayInventory = useMemo(() => {
+        if (!cardInventoryFilter) {
+            return displayInventory;
+        }
+        return displayInventory.filter(item => {
+            const itemValue = item[cardInventoryFilter.key];
+            if (typeof itemValue !== 'string') {
+                return false;
+            }
+
+            const filterValue = cardInventoryFilter.value.toUpperCase().trim();
+            const processedItemValue = itemValue.toUpperCase().trim();
+
+            if (cardInventoryFilter.key === 'situacion' && filterValue === 'VANDALIZADO') {
+                return processedItemValue.startsWith('VANDALIZADO');
+            }
+            
+            return processedItemValue === filterValue;
+        });
+    }, [displayInventory, cardInventoryFilter]);
 
     const displayEvents = useMemo(() => {
         if (!cardFilter) {
@@ -225,26 +264,72 @@ const App: React.FC = () => {
         return Array.from(municipioSet).sort();
     }, [allEvents, changeEvents, inventory]);
 
+    const filteredMunicipios = useMemo(() => {
+        if (selectedZone === 'all') {
+            return municipios;
+        }
+        return municipios.filter(m => MUNICIPIO_TO_ZONE_MAP[m.toUpperCase()] === selectedZone);
+    }, [selectedZone, municipios]);
+
+    useEffect(() => {
+        if (selectedMunicipio !== 'all' && !filteredMunicipios.includes(selectedMunicipio)) {
+            setSelectedMunicipio('all');
+        }
+    }, [selectedZone, filteredMunicipios, selectedMunicipio]);
+
     const availableYears = useMemo(() => {
         if (allEvents.length === 0) return [];
         const years = new Set<string>();
         allEvents.forEach(event => {
             years.add(format(event.date, 'yyyy'));
         });
-        return Array.from(years).sort((a, b) => parseInt(b) - parseInt(a));
+        // FIX: Explicitly typed sort parameters to resolve TS error with arithmetic operations.
+        return Array.from(years).sort((a: string, b: string) => parseInt(b) - parseInt(a));
     }, [allEvents]);
     
     const availablePowers = useMemo(() => {
         const powers = new Set(inventory.map(i => i.potenciaNominal).filter((p): p is number => p != null));
-        return Array.from(powers).sort((a,b) => a - b).map(String);
+        // FIX: Explicitly typed sort parameters to resolve TS error with arithmetic operations.
+        return Array.from(powers).sort((a: number, b: number) => a - b).map(String);
     }, [inventory]);
 
     const availableCalendars = useMemo(() => {
         const calendars = new Set(inventory.map(i => i.dimmingCalendar).filter((c): c is string => !!c && c !== '-'));
         return Array.from(calendars).sort();
     }, [inventory]);
+    
+    // --- Inventory Metrics ---
+    const uniqueCabinetCount = useMemo(() => {
+        const cabinets = new Set(displayInventory.map(i => i.cabinetIdExterno).filter((c): c is string => !!c && c.trim() !== '' && c.trim() !== '-'));
+        return cabinets.size;
+    }, [displayInventory]);
 
+    const inauguratedCount = useMemo(() => {
+        return displayInventory.filter(item => item.fechaInauguracion).length;
+    }, [displayInventory]);
 
+    const markedCount = useMemo(() => {
+        return displayInventory.filter(item => item.marked && item.marked.trim() !== '' && item.marked.trim() !== '-').length;
+    }, [displayInventory]);
+    
+    const uniqueAccountCount = useMemo(() => {
+        const accounts = new Set(displayInventory.map(i => i.nroCuenta).filter((c): c is string => !!c && c.trim() !== '' && c.trim() !== '-'));
+        return accounts.size;
+    }, [displayInventory]);
+    
+    const vandalizadoInventoryCount = useMemo(() => 
+        displayInventory.filter(item => item.situacion?.toUpperCase().trim().startsWith('VANDALIZADO')).length,
+    [displayInventory]);
+
+    const hurtoInventoryCount = useMemo(() => 
+        displayInventory.filter(item => item.situacion?.toUpperCase().trim() === 'HURTO').length,
+    [displayInventory]);
+
+    const columnaCaidaInventoryCount = useMemo(() => 
+        displayInventory.filter(item => item.situacion?.toUpperCase().trim() === 'COLUMNA CAIDA').length,
+    [displayInventory]);
+
+    // --- Event Metrics ---
     const uniqueLuminaires = useMemo(() => new Set(baseFilteredEvents.map(e => e.id)).size, [baseFilteredEvents]);
 
     const lowCurrentFailures = useMemo(() => {
@@ -638,7 +723,7 @@ const App: React.FC = () => {
                         setSelectedZone={setSelectedZone}
                         selectedMunicipio={selectedMunicipio}
                         setSelectedMunicipio={setSelectedMunicipio}
-                        municipios={municipios}
+                        municipios={filteredMunicipios}
                         selectedCategory={selectedCategory}
                         setSelectedCategory={setSelectedCategory}
                         zones={zones.length > 0 ? zones : ALL_ZONES}
@@ -656,190 +741,136 @@ const App: React.FC = () => {
                         setSelectedCalendar={setSelectedCalendar}
                     />
                 </div>
-
-                <div className="space-y-8 mb-8">
-                    {/* Grupo 1: Indicadores de Eventos (Fallas Técnicas) */}
-                    <div>
-                        <h2 className="text-2xl font-bold text-cyan-400 mb-4 border-b border-gray-700 pb-2">Indicadores de Eventos (Fallas Técnicas)</h2>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 pt-4">
-                            <DashboardCard title="Luminarias con eventos" value={uniqueLuminaires.toString()} />
-                            <DashboardCard 
-                                title="Fallas por Bajo Consumo" 
-                                value={lowCurrentFailures.toString()} 
-                                onClick={() => handleCardClick('lowCurrent')}
-                                isActive={cardFilter === 'lowCurrent'}
-                            />
-                            <DashboardCard 
-                                title="Fallas por Alto Consumo" 
-                                value={highCurrentFailures.toString()} 
-                                onClick={() => handleCardClick('highCurrent')}
-                                isActive={cardFilter === 'highCurrent'}
-                            />
-                            <DashboardCard 
-                                title="Fallas de Voltaje" 
-                                value={voltageFailures.toString()} 
-                                onClick={() => handleCardClick('voltage')}
-                                isActive={cardFilter === 'voltage'}
-                            />
-                        </div>
-                    </div>
-
-                    {/* Grupo 2: Indicadores por Situación */}
-                    <div>
-                        <h2 className="text-2xl font-bold text-cyan-400 mb-4 border-b border-gray-700 pb-2">Indicadores por Situación</h2>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 pt-4">
-                            <DashboardCard 
-                                title="Columnas Caídas" 
-                                value={columnaCaidaFailures.toString()} 
-                                onClick={() => handleCardClick('columnaCaida')}
-                                isActive={cardFilter === 'columnaCaida'}
-                            />
-                            <DashboardCard 
-                                title="Hurtos" 
-                                value={hurtoFailures.toString()} 
-                                onClick={() => handleCardClick('hurto')}
-                                isActive={cardFilter === 'hurto'}
-                            />
-                            <DashboardCard 
-                                title="Vandalizados" 
-                                value={vandalizadoFailures.toString()} 
-                                onClick={() => handleCardClick('vandalizado')}
-                                isActive={cardFilter === 'vandalizado'}
-                            />
-                        </div>
-                    </div>
-
-                    {/* Grupo 3: Indicadores de Cambios */}
-                    <div>
-                        <h2 className="text-2xl font-bold text-cyan-400 mb-4 border-b border-gray-700 pb-2">Indicadores de Cambios</h2>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 pt-4">
-                            <DashboardCard 
-                                title="Cambios de Luminarias" 
-                                value={luminariaChangesCount.toString()} 
-                                onClick={() => handleCardChangeClick('luminaria')}
-                                isActive={cardChangeFilter === 'luminaria'}
-                            />
-                            <DashboardCard 
-                                title="Cambios de OLCs" 
-                                value={olcChangesCount.toString()} 
-                                onClick={() => handleCardChangeClick('olc')}
-                                isActive={cardChangeFilter === 'olc'}
-                            />
-                            <DashboardCard 
-                                title="Cambios por Garantía" 
-                                value={garantiaChangesCount.toString()} 
-                                onClick={() => handleCardChangeClick('garantia')}
-                                isActive={cardChangeFilter === 'garantia'}
-                            />
-                            <DashboardCard 
-                                title="Cambios por Vandalismo" 
-                                value={vandalizadoChangesCount.toString()} 
-                                onClick={() => handleCardChangeClick('vandalizado')}
-                                isActive={cardChangeFilter === 'vandalizado'}
-                            />
-                            <DashboardCard 
-                                title="Cambios por Columna Caída" 
-                                value={columnaCaidaChangesCount.toString()} 
-                                onClick={() => handleCardChangeClick('columnaCaidaChange')}
-                                isActive={cardChangeFilter === 'columnaCaidaChange'}
-                            />
-                            <DashboardCard 
-                                title="Cambios por Hurto" 
-                                value={hurtoChangesCount.toString()} 
-                                onClick={() => handleCardChangeClick('hurtoChange')}
-                                isActive={cardChangeFilter === 'hurtoChange'}
-                            />
-                        </div>
-                    </div>
-                </div>
-
-
-                {allEvents.length > 0 || changeEvents.length > 0 || inventory.length > 0 ? (
+                
+                {loading && <div className="text-center p-8"><p>Cargando datos...</p></div>}
+                
+                {!loading && allEvents.length > 0 && (
                     <>
-                        {inventory.length > 0 && (
-                             <div className="space-y-8 mb-8">
-                                <h2 className="text-3xl font-bold text-white mb-4 border-b-2 border-cyan-500 pb-3">Análisis de Inventario</h2>
-                                <div>
-                                    <h3 className="text-2xl font-bold text-cyan-400 mb-4 border-b border-gray-700 pb-2">Indicadores de Inventario</h3>
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 pt-4">
-                                        <DashboardCard title="Total de Luminarias" value={displayInventory.length.toLocaleString()} />
-                                        <DashboardCard title="Potencias distintas" value={availablePowers.length.toString()} />
-                                        <DashboardCard title="Calendarios distintos" value={availableCalendars.length.toString()} />
-                                    </div>
-                                </div>
-                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-                                    <div id="inventory-by-zone-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-6">
-                                        <h3 className="text-xl font-semibold text-cyan-400 mb-4">Luminarias por Zona</h3>
-                                        <InventoryByZoneChart data={displayInventory} />
-                                    </div>
-                                    <div id="inventory-by-municipio-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-6 lg:col-span-2">
-                                        <h3 className="text-xl font-semibold text-cyan-400 mb-4">Luminarias por Municipio</h3>
-                                        <InventoryByMunicipioChart data={displayInventory} />
-                                    </div>
-                                </div>
-                                <div className="bg-gray-800 shadow-lg rounded-xl p-6">
-                                    <h3 className="text-xl font-semibold text-cyan-400 mb-4">Listado de Inventario</h3>
-                                    <InventoryTable items={displayInventory} />
-                                 </div>
-                             </div>
-                        )}
-
-                        {(baseFilteredEvents.length > 0 || changeEvents.length > 0) && <h2 className="text-3xl font-bold text-white mt-12 mb-4 border-b-2 border-cyan-500 pb-3">Análisis de Eventos y Cambios</h2>}
-                        
-                        {baseFilteredEvents.length > 0 && (
-                            <>
-                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-                                    <div id="category-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-6">
-                                        <h3 className="text-xl font-semibold text-cyan-400 mb-4">Eventos por Categoría</h3>
-                                        <FailureByCategoryChart data={displayEvents} />
-                                    </div>
-                                    <div id="special-events-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-6">
-                                        <h3 className="text-xl font-semibold text-cyan-400 mb-4">Eventos por Hurto, Vandalismo y Caídas</h3>
-                                        <SpecialEventsChart data={displayEvents} />
-                                    </div>
-                                    <div id="zone-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-6 lg:col-span-2">
-                                        <h3 className="text-xl font-semibold text-cyan-400 mb-4">Eventos por Zona</h3>
-                                        <FailureByZoneChart data={displayEvents} />
-                                    </div>
-                                    <div id="municipio-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-6 lg:col-span-2">
-                                        <h3 className="text-xl font-semibold text-cyan-400 mb-4">Eventos por Municipio</h3>
-                                        <FailureByMunicipioChart data={displayEvents} />
-                                    </div>
-                                </div>
-                                
-                                <div id="events-by-month-container" className="bg-gray-800 shadow-lg rounded-xl p-6 mb-8">
-                                    <h3 className="text-xl font-semibold text-cyan-400 mb-4">Volumen de Eventos por Mes</h3>
-                                    <EventsByMonthChart data={allEvents} />
-                                </div>
-
-                                <OldestEventsByZone data={oldestEventsByZone} />
-                            </>
-                        )}
-                        
-                        {changeEvents.length > 0 && (
-                            <>
-                                <div id="changes-by-zone-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-6 mb-8">
-                                    <h3 className="text-xl font-semibold text-cyan-400 mb-4">Cambios por Zona</h3>
-                                    <ChangesByZoneChart data={displayChangeEvents} />
-                                </div>
-                                <div className="bg-gray-800 shadow-lg rounded-xl p-6 mb-8">
-                                    <h3 className="text-xl font-semibold text-cyan-400 mb-4">Registro de Cambios (Luminarias y OLCs)</h3>
-                                    <ChangeEventTable events={displayChangeEvents} />
-                                </div>
-                            </>
-                        )}
-
-                        {displayEvents.length > 0 && (
-                            <div className="bg-gray-800 shadow-lg rounded-xl p-6">
-                               <h3 className="text-xl font-semibold text-cyan-400 mb-4">Registro de Eventos de Falla</h3>
-                               <EventTable events={displayEvents} />
+                        {/* Event Metrics Section */}
+                        <div className="bg-gray-800 shadow-lg rounded-xl p-6 mb-8">
+                            <h2 className="text-2xl font-bold text-cyan-400 mb-4">Indicadores de Eventos</h2>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                                <DashboardCard title="Total Eventos" value={baseFilteredEvents.length.toLocaleString()} />
+                                <DashboardCard title="Luminarias Únicas" value={uniqueLuminaires.toLocaleString()} />
+                                <DashboardCard title="Fallas Bajo Consumo" value={lowCurrentFailures.toLocaleString()} onClick={() => handleCardClick('lowCurrent')} isActive={cardFilter === 'lowCurrent'} />
+                                <DashboardCard title="Fallas Alto Consumo" value={highCurrentFailures.toLocaleString()} onClick={() => handleCardClick('highCurrent')} isActive={cardFilter === 'highCurrent'} />
+                                <DashboardCard title="Fallas de Voltaje" value={voltageFailures.toLocaleString()} onClick={() => handleCardClick('voltage')} isActive={cardFilter === 'voltage'} />
+                                <DashboardCard title="Columnas Caídas" value={columnaCaidaFailures.toLocaleString()} onClick={() => handleCardClick('columnaCaida')} isActive={cardFilter === 'columnaCaida'}/>
+                                <DashboardCard title="Hurtos" value={hurtoFailures.toLocaleString()} onClick={() => handleCardClick('hurto')} isActive={cardFilter === 'hurto'} />
+                                <DashboardCard title="Vandalizados" value={vandalizadoFailures.toLocaleString()} onClick={() => handleCardClick('vandalizado')} isActive={cardFilter === 'vandalizado'} />
                             </div>
-                        )}
+                        </div>
+
+                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+                            <div id="category-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-6">
+                                <h3 className="text-xl font-semibold text-cyan-400 mb-4">Eventos por Categoría</h3>
+                                <FailureByCategoryChart data={baseFilteredEvents} />
+                            </div>
+                             <div id="special-events-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-6">
+                                <h3 className="text-xl font-semibold text-cyan-400 mb-4">Eventos por Hurto, Vandalismo y Caídas</h3>
+                                <SpecialEventsChart data={baseFilteredEvents} />
+                            </div>
+                            <div id="zone-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-6">
+                                <h3 className="text-xl font-semibold text-cyan-400 mb-4">Eventos por Zona</h3>
+                                <FailureByZoneChart data={baseFilteredEvents} />
+                            </div>
+                             <div id="municipio-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-6">
+                                <h3 className="text-xl font-semibold text-cyan-400 mb-4">Eventos por Municipio</h3>
+                                <FailureByMunicipioChart data={baseFilteredEvents} />
+                            </div>
+                             <div id="events-by-month-container" className="bg-gray-800 shadow-lg rounded-xl p-6 lg:col-span-2">
+                                <h3 className="text-xl font-semibold text-cyan-400 mb-4">Volumen de Eventos por Mes</h3>
+                                <EventsByMonthChart data={baseFilteredEvents} />
+                            </div>
+                        </div>
+                        
+                        <div className="bg-gray-800 shadow-lg rounded-xl p-6 mb-8">
+                            <h3 className="text-xl font-semibold text-cyan-400 mb-4">Registro de Eventos de Falla</h3>
+                            <EventTable events={displayEvents} />
+                        </div>
+                        
+                         <OldestEventsByZone data={oldestEventsByZone} />
                     </>
-                ) : (
-                    <div className="text-center py-16 bg-gray-800 rounded-xl">
-                        <h2 className="text-2xl font-bold text-gray-400">No hay datos para mostrar</h2>
-                        <p className="text-gray-500 mt-2">Carga un archivo CSV para comenzar.</p>
+                )}
+                
+                {!loading && changeEvents.length > 0 && (
+                     <>
+                        {/* Change Metrics Section */}
+                        <div className="bg-gray-800 shadow-lg rounded-xl p-6 mb-8">
+                            <h2 className="text-2xl font-bold text-cyan-400 mb-4">Indicadores de Cambios</h2>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                                <DashboardCard title="Total Cambios" value={baseFilteredChangeEvents.length.toLocaleString()} />
+                                <DashboardCard title="Cambios de Luminarias" value={luminariaChangesCount.toLocaleString()} onClick={() => handleCardChangeClick('luminaria')} isActive={cardChangeFilter === 'luminaria'}/>
+                                <DashboardCard title="Cambios de OLCs" value={olcChangesCount.toLocaleString()} onClick={() => handleCardChangeClick('olc')} isActive={cardChangeFilter === 'olc'}/>
+                                <DashboardCard title="Por Garantía" value={garantiaChangesCount.toLocaleString()} onClick={() => handleCardChangeClick('garantia')} isActive={cardChangeFilter === 'garantia'}/>
+                                <DashboardCard title="Por Vandalismo" value={vandalizadoChangesCount.toLocaleString()} onClick={() => handleCardChangeClick('vandalizado')} isActive={cardChangeFilter === 'vandalizado'}/>
+                                <DashboardCard title="Por Columna Caída" value={columnaCaidaChangesCount.toLocaleString()} onClick={() => handleCardChangeClick('columnaCaidaChange')} isActive={cardChangeFilter === 'columnaCaidaChange'}/>
+                                <DashboardCard title="Por Hurto" value={hurtoChangesCount.toLocaleString()} onClick={() => handleCardChangeClick('hurtoChange')} isActive={cardChangeFilter === 'hurtoChange'}/>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-8 mb-8">
+                            <div id="changes-by-zone-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-6">
+                                <h3 className="text-xl font-semibold text-cyan-400 mb-4">Cambios por Zona</h3>
+                                <ChangesByZoneChart data={baseFilteredChangeEvents} />
+                            </div>
+                        </div>
+
+                        <div className="bg-gray-800 shadow-lg rounded-xl p-6 mb-8">
+                            <h3 className="text-xl font-semibold text-cyan-400 mb-4">Registro de Cambios</h3>
+                            <ChangeEventTable events={displayChangeEvents} />
+                        </div>
+                    </>
+                )}
+
+                {!loading && inventory.length > 0 && (
+                    <>
+                        <div className="bg-gray-800 shadow-lg rounded-xl p-6 mb-8">
+                             <h2 className="text-2xl font-bold text-cyan-400 mb-4">Indicadores de Inventario</h2>
+                             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mb-8">
+                                <DashboardCard title="Total Luminarias" value={displayInventory.length.toLocaleString()} />
+                                <DashboardCard title="Gabinetes Únicos" value={uniqueCabinetCount.toLocaleString()} />
+                                <DashboardCard title="Inauguradas" value={inauguratedCount.toLocaleString()} />
+                                <DashboardCard title="Puntos Marcados" value={markedCount.toLocaleString()} />
+                                <DashboardCard title="Servicios AP" value={uniqueAccountCount.toLocaleString()} />
+                             </div>
+                            
+                             <h3 className="text-xl font-bold text-amber-400 mb-4">Indicadores de Situación de Inventario</h3>
+                             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                                <DashboardCard title="Inventario Vandalizado" value={vandalizadoInventoryCount.toLocaleString()} onClick={() => handleCardInventoryClick('situacion', 'Vandalizado')} isActive={cardInventoryFilter?.value === 'Vandalizado'}/>
+                                <DashboardCard title="Inventario por Hurto" value={hurtoInventoryCount.toLocaleString()} onClick={() => handleCardInventoryClick('situacion', 'Hurto')} isActive={cardInventoryFilter?.value === 'Hurto'}/>
+                                <DashboardCard title="Inventario Columna Caída" value={columnaCaidaInventoryCount.toLocaleString()} onClick={() => handleCardInventoryClick('situacion', 'Columna Caida')} isActive={cardInventoryFilter?.value === 'Columna Caida'}/>
+                             </div>
+                        </div>
+
+                        <div id="inventory-analysis-section">
+                            <h2 className="text-2xl font-bold text-cyan-400 mb-4">Análisis de Inventario</h2>
+                            <PowerSummaryTable items={finalDisplayInventory} selectedZone={selectedZone}/>
+                            <CabinetSummaryTable items={finalDisplayInventory} />
+                            <ServiceSummaryTable items={finalDisplayInventory} />
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                <div id="inventory-zone-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-6">
+                                    <h3 className="text-xl font-semibold text-cyan-400 mb-4">Inventario por Zona</h3>
+                                    <InventoryByZoneChart data={finalDisplayInventory} />
+                                </div>
+                                <div id="inventory-municipio-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-6">
+                                    <h3 className="text-xl font-semibold text-cyan-400 mb-4">Inventario por Municipio</h3>
+                                    <InventoryByMunicipioChart data={finalDisplayInventory} />
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div className="bg-gray-800 shadow-lg rounded-xl p-6 my-8">
+                            <h3 className="text-xl font-semibold text-cyan-400 mb-4">Listado de Inventario</h3>
+                            <InventoryTable items={finalDisplayInventory} />
+                        </div>
+                    </>
+                )}
+
+                {!loading && allEvents.length === 0 && changeEvents.length === 0 && inventory.length === 0 && (
+                     <div className="text-center p-16 bg-gray-800 rounded-lg">
+                        <h2 className="text-2xl font-semibold text-gray-300">No hay datos cargados</h2>
+                        <p className="text-gray-500 mt-2">Utilice los botones de "Gestión de Datos" para cargar planillas CSV y comenzar el análisis.</p>
                     </div>
                 )}
             </main>

@@ -195,7 +195,7 @@ const FilterControls: React.FC<FilterControlsProps> = ({
                     </select>
                 </div>
                 <div>
-                    <label htmlFor="calendar-select" className="block text-sm font-medium text-gray-400 mb-1">Calendario de Dimming</label>
+                    <label htmlFor="calendar-select" className="block text-sm font-medium text-gray-400 mb-1">Calendarios</label>
                     <select
                         id="calendar-select"
                         value={selectedCalendar}
