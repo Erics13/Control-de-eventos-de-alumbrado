@@ -1,67 +1,22 @@
 
-import React, { useMemo } from 'react';
-import type { InventoryItem } from '../types';
-import { ALL_ZONES } from '../constants';
 
-interface PowerSummaryTableProps {
-    items: InventoryItem[];
-    selectedZone: string;
+import React from 'react';
+
+interface PowerSummaryData {
+    powerData: { power: string; total: number; [key: string]: any }[];
+    locationColumns: string[];
+    columnTotals: Record<string, number>;
+    grandTotal: number;
 }
 
-const PowerSummaryTable: React.FC<PowerSummaryTableProps> = ({ items, selectedZone }) => {
-    const { powerData, locationColumns, columnTotals, grandTotal } = useMemo(() => {
-        if (items.length === 0) {
-            return { powerData: [], locationColumns: [], columnTotals: {}, grandTotal: 0 };
-        }
+interface PowerSummaryTableProps {
+    summaryData: PowerSummaryData;
+}
 
-        const isGroupingByZone = selectedZone === 'all';
+const PowerSummaryTable: React.FC<PowerSummaryTableProps> = ({ summaryData }) => {
+    const { powerData, locationColumns, columnTotals, grandTotal } = summaryData;
 
-        // FIX: Explicitly type the Set generic and filter results to resolve type inference errors.
-        const locationColumns: string[] = isGroupingByZone
-            ? ALL_ZONES.filter(zone => items.some(item => item.zone === zone))
-            : Array.from(new Set<string>(items.map(item => item.municipio).filter(Boolean))).sort();
-
-        // FIX: Explicitly type the Set generic to correct the type inference for `powers`.
-        const powers: number[] = Array.from(new Set<number>(items.map(item => item.potenciaNominal).filter((p): p is number => p != null))).sort((a, b) => a - b);
-        
-        const powerMap = new Map<number, Record<string, number>>();
-
-        for (const item of items) {
-            if (item.potenciaNominal != null) {
-                if (!powerMap.has(item.potenciaNominal)) {
-                    powerMap.set(item.potenciaNominal, {});
-                }
-                const powerRow = powerMap.get(item.potenciaNominal)!;
-                const location = isGroupingByZone ? item.zone : item.municipio;
-                if (location) {
-                    powerRow[location] = (powerRow[location] || 0) + 1;
-                }
-            }
-        }
-        
-        const powerData = powers.map(power => {
-            const rowData = powerMap.get(power) || {};
-            const total = locationColumns.reduce((sum, loc) => sum + (rowData[loc] || 0), 0);
-            return {
-                power: `${power}W`,
-                ...rowData,
-                total: total,
-            };
-        });
-        
-        const columnTotals: Record<string, number> = {};
-        let grandTotal = 0;
-        locationColumns.forEach(loc => {
-            const total = powerData.reduce((sum, row) => sum + ((row as any)[loc] || 0), 0);
-            columnTotals[loc] = total;
-            grandTotal += total;
-        });
-
-        return { powerData, locationColumns, columnTotals, grandTotal };
-
-    }, [items, selectedZone]);
-
-    if (items.length === 0 || powerData.length === 0) {
+    if (powerData.length === 0) {
         return <div className="flex items-center justify-center h-40 text-gray-500">No hay datos de potencias para mostrar.</div>;
     }
     

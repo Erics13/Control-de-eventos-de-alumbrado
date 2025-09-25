@@ -20,15 +20,15 @@ const DashboardCard: React.FC<DashboardCardProps> = ({ title, value, onClick, is
 
     return (
         <div 
-            className={`bg-gray-800 p-6 rounded-xl shadow-lg border border-gray-700 transition-all duration-200 ${clickableClasses} ${activeClasses}`}
+            className={`bg-gray-800 p-4 rounded-xl shadow-lg border border-gray-700 transition-all duration-200 ${clickableClasses} ${activeClasses}`}
             onClick={onClick}
             role={onClick ? "button" : undefined}
             tabIndex={onClick ? 0 : undefined}
             onKeyDown={e => { if (onClick && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onClick(); } }}
             aria-pressed={isActive}
         >
-            <h3 className="text-gray-400 text-md font-medium mb-2">{title}</h3>
-            <p className="text-4xl font-bold text-cyan-400">{value}</p>
+            <h3 className="text-gray-400 text-sm font-medium mb-1">{title}</h3>
+            <p className="text-3xl font-bold text-cyan-400">{value}</p>
         </div>
     );
 };

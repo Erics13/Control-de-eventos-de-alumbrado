@@ -1,32 +1,23 @@
 
+
 import React, { useState, useMemo } from 'react';
-import type { InventoryItem } from '../types';
 
 interface CabinetSummary {
     cabinetId: string;
     luminaireCount: number;
 }
 
-const CabinetSummaryTable: React.FC<{ items: InventoryItem[] }> = ({ items }) => {
-    const cabinetData = useMemo(() => {
-        const cabinetCounts = items.reduce((acc, item) => {
-            if (item.cabinetIdExterno) {
-                acc[item.cabinetIdExterno] = (acc[item.cabinetIdExterno] || 0) + 1;
-            }
-            return acc;
-        }, {} as Record<string, number>);
+interface CabinetSummaryTableProps {
+    data: CabinetSummary[];
+}
 
-        return Object.entries(cabinetCounts)
-            .map(([cabinetId, luminaireCount]) => ({ cabinetId, luminaireCount }))
-            .filter(item => item.cabinetId && item.cabinetId !== '-' && item.cabinetId.trim() !== ''); // Filter out empty/placeholder cabinet IDs
-    }, [items]);
-
+const CabinetSummaryTable: React.FC<CabinetSummaryTableProps> = ({ data }) => {
     const [sortConfig, setSortConfig] = useState<{ key: keyof CabinetSummary; direction: 'ascending' | 'descending' } | null>({ key: 'luminaireCount', direction: 'descending' });
     const [currentPage, setCurrentPage] = useState(1);
     const itemsPerPage = 10;
 
     const sortedItems = useMemo(() => {
-        let sortableItems = [...cabinetData];
+        let sortableItems = [...data];
         if (sortConfig !== null) {
             sortableItems.sort((a, b) => {
                 const valA = a[sortConfig.key];
@@ -41,7 +32,7 @@ const CabinetSummaryTable: React.FC<{ items: InventoryItem[] }> = ({ items }) =>
             });
         }
         return sortableItems;
-    }, [cabinetData, sortConfig]);
+    }, [data, sortConfig]);
 
     const paginatedItems = useMemo(() => {
         const startIndex = (currentPage - 1) * itemsPerPage;
@@ -64,7 +55,7 @@ const CabinetSummaryTable: React.FC<{ items: InventoryItem[] }> = ({ items }) =>
         return sortConfig.direction === 'ascending' ? '▲' : '▼';
     };
 
-    if (cabinetData.length === 0) {
+    if (data.length === 0) {
         return <div className="flex items-center justify-center h-40 text-gray-500">No hay datos de gabinetes para mostrar.</div>;
     }
 

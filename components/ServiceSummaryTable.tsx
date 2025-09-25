@@ -1,6 +1,6 @@
 
+
 import React, { useState, useMemo } from 'react';
-import type { InventoryItem } from '../types';
 
 interface ServiceSummary {
     nroCuenta: string;
@@ -8,34 +8,17 @@ interface ServiceSummary {
     totalPower: number;
 }
 
-const ServiceSummaryTable: React.FC<{ items: InventoryItem[] }> = ({ items }) => {
-    const serviceData = useMemo(() => {
-        const serviceMap = items.reduce((acc, item) => {
-            if (item.nroCuenta && item.nroCuenta.trim() !== '' && item.nroCuenta.trim() !== '-') {
-                const cuenta = item.nroCuenta.trim();
-                if (!acc.has(cuenta)) {
-                    acc.set(cuenta, { luminaireCount: 0, totalPower: 0 });
-                }
-                const summary = acc.get(cuenta)!;
-                summary.luminaireCount += 1;
-                summary.totalPower += item.potenciaNominal || 0;
-            }
-            return acc;
-        }, new Map<string, { luminaireCount: number; totalPower: number }>());
+interface ServiceSummaryTableProps {
+    data: ServiceSummary[];
+}
 
-        return Array.from(serviceMap.entries()).map(([nroCuenta, data]) => ({
-            nroCuenta,
-            luminaireCount: data.luminaireCount,
-            totalPower: data.totalPower
-        }));
-    }, [items]);
-
+const ServiceSummaryTable: React.FC<ServiceSummaryTableProps> = ({ data }) => {
     const [sortConfig, setSortConfig] = useState<{ key: keyof ServiceSummary; direction: 'ascending' | 'descending' } | null>({ key: 'luminaireCount', direction: 'descending' });
     const [currentPage, setCurrentPage] = useState(1);
     const itemsPerPage = 10;
 
     const sortedItems = useMemo(() => {
-        let sortableItems = [...serviceData];
+        let sortableItems = [...data];
         if (sortConfig !== null) {
             sortableItems.sort((a, b) => {
                 const valA = a[sortConfig.key];
@@ -50,7 +33,7 @@ const ServiceSummaryTable: React.FC<{ items: InventoryItem[] }> = ({ items }) =>
             });
         }
         return sortableItems;
-    }, [serviceData, sortConfig]);
+    }, [data, sortConfig]);
 
     const paginatedItems = useMemo(() => {
         const startIndex = (currentPage - 1) * itemsPerPage;
@@ -73,7 +56,7 @@ const ServiceSummaryTable: React.FC<{ items: InventoryItem[] }> = ({ items }) =>
         return sortConfig.direction === 'ascending' ? '▲' : '▼';
     };
 
-    if (serviceData.length === 0) {
+    if (data.length === 0) {
         return <div className="flex items-center justify-center h-40 text-gray-500">No hay datos de servicios para mostrar.</div>;
     }
 
