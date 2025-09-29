@@ -1,3 +1,5 @@
+
+
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 // FIX: Changed date-fns submodule imports from default to named. This resolves the "not callable"
 // error, likely caused by an upgrade to date-fns v3+ which uses named exports for submodules.
@@ -86,6 +88,7 @@ const App: React.FC = () => {
     const [selectedYear, setSelectedYear] = useState<string>('');
     const [selectedPower, setSelectedPower] = useState<string>('all');
     const [selectedCalendar, setSelectedCalendar] = useState<string>('all');
+    const [searchTerm, setSearchTerm] = useState<string>('');
     const [cardFilter, setCardFilter] = useState<string | null>(null);
     const [cardChangeFilter, setCardChangeFilter] = useState<string | null>(null);
     const [cardInventoryFilter, setCardInventoryFilter] = useState<{key: keyof InventoryItem, value: string} | null>(null);
@@ -116,7 +119,7 @@ const App: React.FC = () => {
         setCardChangeFilter(null);
     }, []);
 
-    const handleSetDatePreset = useCallback((preset: 'today' | 'week' | 'month' | 'year') => {
+    const handleSetDatePreset = useCallback((preset: 'today' | 'yesterday' | 'week' | 'month' | 'year') => {
         setSelectedMonth('');
         setSelectedYear('');
         const now = new Date();
@@ -125,6 +128,11 @@ const App: React.FC = () => {
             case 'today':
                 start = startOfDay(now);
                 end = endOfDay(now);
+                break;
+            case 'yesterday':
+                const yesterday = subDays(now, 1);
+                start = startOfDay(yesterday);
+                end = endOfDay(yesterday);
                 break;
             case 'week':
                 end = now;
@@ -213,9 +221,25 @@ const App: React.FC = () => {
             const isDateInRange = !dateRange.start || !dateRange.end || isWithinInterval(eventDate, { start: dateRange.start, end: dateRange.end });
             const isZoneMatch = selectedZone === 'all' || event.zone === selectedZone;
             const isMunicipioMatch = selectedMunicipio === 'all' || event.municipio === selectedMunicipio;
-            return isDateInRange && isZoneMatch && isMunicipioMatch;
+            
+            const searchLower = searchTerm.toLowerCase().trim();
+            if (searchLower === '') {
+                return isDateInRange && isZoneMatch && isMunicipioMatch;
+            }
+            
+            // Normalize by removing colons and all whitespace for a more robust search
+            const normalizedSearchTerm = searchLower.replace(/:/g, '').replace(/\s/g, '');
+
+            const isSearchMatch = 
+                (event.poleIdExterno || '').toLowerCase().replace(/:/g, '').replace(/\s/g, '').includes(normalizedSearchTerm) ||
+                (event.streetlightIdExterno || '').toLowerCase().replace(/:/g, '').replace(/\s/g, '').includes(normalizedSearchTerm) ||
+                (event.componente || '').toLowerCase().includes(searchLower) ||
+                (event.designacionTipo || '').toLowerCase().includes(searchLower) ||
+                (event.cabinetIdExterno || '').toLowerCase().includes(searchLower);
+
+            return isDateInRange && isZoneMatch && isMunicipioMatch && isSearchMatch;
         });
-    }, [changeEvents, dateRange, selectedZone, selectedMunicipio]);
+    }, [changeEvents, dateRange, selectedZone, selectedMunicipio, searchTerm]);
 
     const displayInventory = useMemo(() => {
         return inventory.filter(item => {
@@ -383,7 +407,7 @@ const App: React.FC = () => {
     [displayInventory]);
 
     const faltaPodaInventoryCount = useMemo(() => 
-        displayInventory.filter(item => item.situacion?.toUpperCase().trim() === 'FALTA PODA').length,
+        displayInventory.filter(item => item.situacion?.toUpperCase().trim() === 'FALTA Poda').length,
     [displayInventory]);
 
     const faltaLineaInventoryCount = useMemo(() => 
@@ -947,6 +971,7 @@ const App: React.FC = () => {
                                     availableCalendars={availableCalendars}
                                     selectedCalendar={selectedCalendar}
                                     setSelectedCalendar={setSelectedCalendar}
+                                    setSearchTerm={setSearchTerm}
                                 />
                             </div>
                         </div>
@@ -1032,7 +1057,40 @@ const App: React.FC = () => {
                                             <ChangesByZoneChart data={baseFilteredChangeEvents} />
                                         </div>
                                     </div>
-                                    <CollapsibleSection title="Registro de Cambios">
+                                    <CollapsibleSection 
+                                        title="Registro de Cambios"
+                                        defaultOpen={true}
+                                        extraHeaderContent={
+                                            <div className="relative flex items-center">
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 absolute left-3 text-gray-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                                </svg>
+                                                <input
+                                                    type="text"
+                                                    placeholder="Buscar en Cambios..."
+                                                    value={searchTerm}
+                                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                                    onClick={(e) => e.stopPropagation()}
+                                                    className="w-64 bg-gray-700 border border-gray-600 rounded-md py-2 pl-10 pr-10 text-white focus:ring-cyan-500 focus:border-cyan-500 transition-colors"
+                                                    aria-label="Buscar en tabla de cambios"
+                                                />
+                                                {searchTerm && (
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setSearchTerm('');
+                                                        }}
+                                                        className="absolute right-0 top-0 h-full px-3 flex items-center text-gray-400 hover:text-white transition-colors"
+                                                        aria-label="Limpiar búsqueda"
+                                                    >
+                                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                                        </svg>
+                                                    </button>
+                                                )}
+                                            </div>
+                                        }
+                                    >
                                         <ChangeEventTable events={displayChangeEvents} />
                                     </CollapsibleSection>
                                 </>

@@ -1,10 +1,9 @@
-
 import React from 'react';
 
 interface FilterControlsProps {
     dateRange: { start: Date | null; end: Date | null };
     setDateRange: (range: { start: Date | null; end: Date | null }) => void;
-    handleSetDatePreset: (preset: 'today' | 'week' | 'month' | 'year') => void;
+    handleSetDatePreset: (preset: 'today' | 'yesterday' | 'week' | 'month' | 'year') => void;
     selectedZone: string;
     setSelectedZone: (zone: string) => void;
     selectedMunicipio: string;
@@ -25,6 +24,7 @@ interface FilterControlsProps {
     availableCalendars: string[];
     selectedCalendar: string;
     setSelectedCalendar: (calendar: string) => void;
+    setSearchTerm: (term: string) => void;
 }
 
 const meses = [
@@ -66,6 +66,7 @@ const FilterControls: React.FC<FilterControlsProps> = ({
     availableCalendars,
     selectedCalendar,
     setSelectedCalendar,
+    setSearchTerm,
 }) => {
     const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>, part: 'start' | 'end') => {
         const value = e.target.value ? new Date(e.target.value) : null;
@@ -204,6 +205,7 @@ const FilterControls: React.FC<FilterControlsProps> = ({
 
             <div className="flex flex-wrap gap-2 pt-4 border-t border-gray-700">
                  <button onClick={() => handleSetDatePreset('today')} className="bg-gray-700 hover:bg-cyan-600 text-sm font-medium py-1 px-3 rounded-md transition-colors">Hoy</button>
+                 <button onClick={() => handleSetDatePreset('yesterday')} className="bg-gray-700 hover:bg-cyan-600 text-sm font-medium py-1 px-3 rounded-md transition-colors">Ayer</button>
                  <button onClick={() => handleSetDatePreset('week')} className="bg-gray-700 hover:bg-cyan-600 text-sm font-medium py-1 px-3 rounded-md transition-colors">Últimos 7 días</button>
                  <button onClick={() => handleSetDatePreset('month')} className="bg-gray-700 hover:bg-cyan-600 text-sm font-medium py-1 px-3 rounded-md transition-colors">Este Mes</button>
                  <button onClick={() => handleSetDatePreset('year')} className="bg-gray-700 hover:bg-cyan-600 text-sm font-medium py-1 px-3 rounded-md transition-colors">Este Año</button>
@@ -216,6 +218,7 @@ const FilterControls: React.FC<FilterControlsProps> = ({
                     setSelectedYear('');
                     setSelectedPower('all');
                     setSelectedCalendar('all');
+                    setSearchTerm('');
                  }} className="ml-auto bg-gray-700 hover:bg-red-600 text-sm font-medium py-1 px-3 rounded-md transition-colors">Limpiar Filtros</button>
             </div>
         </div>

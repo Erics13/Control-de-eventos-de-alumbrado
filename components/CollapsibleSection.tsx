@@ -1,5 +1,3 @@
-
-
 import React, { useState, ReactNode } from 'react';
 
 interface CollapsibleSectionProps {
@@ -9,6 +7,7 @@ interface CollapsibleSectionProps {
     isOpen?: boolean;
     onToggle?: () => void;
     onExport?: () => void;
+    extraHeaderContent?: ReactNode;
 }
 
 const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({ 
@@ -18,6 +17,7 @@ const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
     isOpen: controlledIsOpen,
     onToggle,
     onExport,
+    extraHeaderContent,
 }) => {
     const [internalIsOpen, setInternalIsOpen] = useState(defaultOpen);
 
@@ -54,6 +54,7 @@ const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
             >
                 <h3 className="text-lg font-semibold text-cyan-400">{title}</h3>
                 <div className="flex items-center gap-4">
+                    {extraHeaderContent}
                     {onExport && (
                         <button
                             onClick={handleExportClick}

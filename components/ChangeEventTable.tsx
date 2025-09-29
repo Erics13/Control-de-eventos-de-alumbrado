@@ -45,6 +45,13 @@ const ChangeEventTable: React.FC<{ events: ChangeEvent[] }> = ({ events }) => {
         if (!sortConfig || sortConfig.key !== key) return null;
         return sortConfig.direction === 'ascending' ? '▲' : '▼';
     };
+
+    const handleRowClick = (event: ChangeEvent) => {
+        if (event.lat && event.lon) {
+            const url = `https://www.google.com/maps?q=${event.lat},${event.lon}`;
+            window.open(url, '_blank', 'noopener,noreferrer');
+        }
+    };
     
     const columns: { key: keyof ChangeEvent; label: string }[] = [
         { key: 'fechaRetiro', label: 'Fecha Retiro' },
@@ -76,20 +83,28 @@ const ChangeEventTable: React.FC<{ events: ChangeEvent[] }> = ({ events }) => {
                         </tr>
                     </thead>
                     <tbody className="bg-gray-800 divide-y divide-gray-700">
-                        {paginatedEvents.map((event) => (
-                            <tr key={event.uniqueId} className="hover:bg-gray-700/50">
-                                <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{event.fechaRetiro.toLocaleString()}</td>
-                                <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{event.componente}</td>
-                                <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{event.poleIdExterno}</td>
-                                <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{event.streetlightIdExterno}</td>
-                                <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{event.municipio}</td>
-                                <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{event.zone}</td>
-                                <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{event.condicion}</td>
-                                <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{event.horasFuncionamiento.toLocaleString()}</td>
-                                <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{event.recuentoConmutacion.toLocaleString()}</td>
-                                <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-400 truncate max-w-xs">{event.designacionTipo}</td>
-                            </tr>
-                        ))}
+                        {paginatedEvents.map((event) => {
+                            const isClickable = event.lat != null && event.lon != null;
+                            return (
+                                <tr 
+                                    key={event.uniqueId}
+                                    onClick={() => handleRowClick(event)}
+                                    className={`${isClickable ? 'cursor-pointer hover:bg-gray-700/50' : ''} transition-colors duration-150`}
+                                    title={isClickable ? `Ver ubicación de ${event.poleIdExterno} en el mapa` : ''}
+                                >
+                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{event.fechaRetiro.toLocaleString()}</td>
+                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{event.componente}</td>
+                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{event.poleIdExterno}</td>
+                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{event.streetlightIdExterno}</td>
+                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{event.municipio}</td>
+                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{event.zone}</td>
+                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{event.condicion}</td>
+                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{event.horasFuncionamiento.toLocaleString()}</td>
+                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{event.recuentoConmutacion.toLocaleString()}</td>
+                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-400 truncate max-w-xs">{event.designacionTipo}</td>
+                                </tr>
+                            );
+                        })}
                     </tbody>
                 </table>
             </div>
