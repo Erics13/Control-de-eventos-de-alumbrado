@@ -1139,15 +1139,13 @@ const App: React.FC = () => {
                                                 <ServiceSummaryTable data={serviceSummaryData} />
                                             </CollapsibleSection>
                                         </div>
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                            <div id="inventory-zone-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-4">
-                                                <h3 className="text-lg font-semibold text-cyan-400 mb-3">Inventario por Zona</h3>
-                                                <InventoryByZoneChart data={finalDisplayInventory} />
-                                            </div>
-                                            <div id="inventory-municipio-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-4">
-                                                <h3 className="text-lg font-semibold text-cyan-400 mb-3">Inventario por Municipio</h3>
-                                                <InventoryByMunicipioChart data={finalDisplayInventory} />
-                                            </div>
+                                        <div id="inventory-zone-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-4">
+                                            <h3 className="text-lg font-semibold text-cyan-400 mb-3">Inventario por Zona</h3>
+                                            <InventoryByZoneChart data={finalDisplayInventory} />
+                                        </div>
+                                        <div id="inventory-municipio-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-4">
+                                            <h3 className="text-lg font-semibold text-cyan-400 mb-3">Inventario por Municipio</h3>
+                                            <InventoryByMunicipioChart data={finalDisplayInventory} />
                                         </div>
                                     </div>
                                     <CollapsibleSection title="Listado de Inventario">

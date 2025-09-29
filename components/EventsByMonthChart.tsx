@@ -49,6 +49,8 @@ const EventsByMonthChart: React.FC<EventsByMonthChartProps> = ({ data }) => {
                     <Tooltip
                         contentStyle={{ backgroundColor: '#1A202C', border: '1px solid #2D3748' }}
                         labelStyle={{ color: '#E2E8F0' }}
+                        itemStyle={{ color: '#E2E8F0' }}
+                        cursor={{ fill: 'transparent' }}
                     />
                     <Legend wrapperStyle={{ color: '#E2E8F0', fontSize: '14px' }}/>
                     <Bar dataKey="eventos" name="Total de Eventos" fill="#14b8a6" isAnimationActive={false}>
