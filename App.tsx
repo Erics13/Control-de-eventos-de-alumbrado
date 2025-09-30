@@ -37,6 +37,8 @@ import CabinetSummaryTable from './components/CabinetSummaryTable';
 import ServiceSummaryTable from './components/ServiceSummaryTable';
 import CollapsibleSection from './components/CollapsibleSection';
 import { exportToCsv } from './utils/export';
+import InauguratedByZoneChart from './components/InauguratedByZoneChart';
+import InaugurationsByYearZoneChart from './components/InaugurationsByYearZoneChart';
 
 const ERROR_DESC_LOW_CURRENT = "La corriente medida es menor que lo esperado o no hay corriente que fluya a través de la combinación de driver y lámpara.";
 const ERROR_DESC_HIGH_CURRENT = "La corriente medida para la combinación de driver y lámpara es mayor que la esperada.";
@@ -654,6 +656,8 @@ const App: React.FC = () => {
                 await addChartToPdf('pdf-inventory-indicators', 'Indicadores de Inventario');
                 await addChartToPdf('pdf-inventory-zone-chart', 'Inventario por Zona');
                 await addChartToPdf('pdf-inventory-municipio-chart', 'Inventario por Municipio');
+                await addChartToPdf('pdf-inaugurated-zone-chart', 'Luminarias Inauguradas por Zona');
+                await addChartToPdf('pdf-inaugurations-year-zone-chart', 'Inauguraciones por Año y Zona');
 
                 // Power Summary Table with autoTable
                 const { powerData, locationColumns, columnTotals, grandTotal } = (() => {
@@ -808,6 +812,8 @@ const App: React.FC = () => {
                     </div>
                     <div id="pdf-inventory-zone-chart" className="bg-gray-800 p-4 rounded-xl"><InventoryByZoneChart data={finalDisplayInventory} /></div>
                     <div id="pdf-inventory-municipio-chart" className="bg-gray-800 p-4 rounded-xl"><InventoryByMunicipioChart data={finalDisplayInventory} /></div>
+                    <div id="pdf-inaugurated-zone-chart" className="bg-gray-800 p-4 rounded-xl"><InauguratedByZoneChart data={finalDisplayInventory} /></div>
+                    <div id="pdf-inaugurations-year-zone-chart" className="bg-gray-800 p-4 rounded-xl"><InaugurationsByYearZoneChart data={finalDisplayInventory} /></div>
                 </div>
             )}
             <Header
@@ -1146,6 +1152,14 @@ const App: React.FC = () => {
                                         <div id="inventory-municipio-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-4">
                                             <h3 className="text-lg font-semibold text-cyan-400 mb-3">Inventario por Municipio</h3>
                                             <InventoryByMunicipioChart data={finalDisplayInventory} />
+                                        </div>
+                                        <div id="inaugurated-zone-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-4">
+                                            <h3 className="text-lg font-semibold text-cyan-400 mb-3">Luminarias Inauguradas por Zona</h3>
+                                            <InauguratedByZoneChart data={finalDisplayInventory} />
+                                        </div>
+                                        <div id="inaugurations-by-year-zone-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-4">
+                                            <h3 className="text-lg font-semibold text-cyan-400 mb-3">Inauguraciones por Año y Zona</h3>
+                                            <InaugurationsByYearZoneChart data={finalDisplayInventory} />
                                         </div>
                                     </div>
                                     <CollapsibleSection title="Listado de Inventario">

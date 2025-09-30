@@ -52,6 +52,7 @@ const InventoryTable: React.FC<{ items: InventoryItem[] }> = ({ items }) => {
         { key: 'dimmingCalendar', label: 'Calendario' },
         { key: 'horasFuncionamiento', label: 'Horas Func.' },
         { key: 'fechaInstalacion', label: 'Fecha Instalación' },
+        { key: 'fechaInauguracion', label: 'Fecha Inauguración' },
         { key: 'estado', label: 'Estado' },
     ];
 
@@ -81,6 +82,7 @@ const InventoryTable: React.FC<{ items: InventoryItem[] }> = ({ items }) => {
                                 <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{item.dimmingCalendar || 'N/A'}</td>
                                 <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{item.horasFuncionamiento?.toLocaleString() ?? 'N/A'}</td>
                                 <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{item.fechaInstalacion ? item.fechaInstalacion.toLocaleDateString() : 'N/A'}</td>
+                                <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{item.fechaInauguracion ? item.fechaInauguracion.toLocaleDateString() : 'N/A'}</td>
                                 <td className="px-4 py-4 whitespace-nowrap text-sm">
                                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${item.estado?.toLowerCase() === 'conectado' ? 'bg-green-900 text-green-300' : 'bg-yellow-900 text-yellow-300'}`}>
                                         {item.estado || 'N/A'}

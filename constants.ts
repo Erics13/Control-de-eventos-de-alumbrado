@@ -45,19 +45,41 @@ export const FAILURE_CATEGORY_TRANSLATIONS: Record<string, string> = {
     'Information': 'Información',
 };
 
-const PALETTE = [
+const FAILURE_CATEGORY_PALETTE = [
     '#ef4444', '#f97316', '#eab308', '#84cc16', '#22c55e',
     '#14b8a6', '#06b6d4', '#3b82f6', '#8b5cf6', '#d946ef',
     '#ec4899', '#78716c'
 ];
 
-const categoryColorMap = new Map<string, string>();
-let colorIndex = 0;
+const failureCategoryColorMap = new Map<string, string>();
+let failureCategoryColorIndex = 0;
 
 export const getCategoryColor = (category: string): string => {
-    if (!categoryColorMap.has(category)) {
-        categoryColorMap.set(category, PALETTE[colorIndex % PALETTE.length]);
-        colorIndex++;
+    if (!failureCategoryColorMap.has(category)) {
+        failureCategoryColorMap.set(category, FAILURE_CATEGORY_PALETTE[failureCategoryColorIndex % FAILURE_CATEGORY_PALETTE.length]);
+        failureCategoryColorIndex++;
     }
-    return categoryColorMap.get(category)!;
+    return failureCategoryColorMap.get(category)!;
+};
+
+const ZONE_PALETTE = [
+    '#3b82f6', // ZONA A - blue
+    '#ef4444', // ZONA B - red
+    '#f97316', // ZONA B1 - orange
+    '#eab308', // ZONA B2 - yellow
+    '#84cc16', // ZONA B3 - lime
+    '#14b8a6', // ZONA C - teal
+    '#8b5cf6', // ZONA D - violet
+    '#ec4899', // pink for any others
+    '#78716c'  // gray for any others
+];
+const zoneColorMap = new Map<string, string>();
+let zoneColorIndex = 0;
+
+export const getZoneColor = (zone: string): string => {
+    if (!zoneColorMap.has(zone)) {
+        zoneColorMap.set(zone, ZONE_PALETTE[zoneColorIndex % ZONE_PALETTE.length]);
+        zoneColorIndex++;
+    }
+    return zoneColorMap.get(zone)!;
 };
