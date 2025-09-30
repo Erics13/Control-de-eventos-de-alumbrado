@@ -46,7 +46,7 @@ const ChangeEventTable: React.FC<{ events: ChangeEvent[] }> = ({ events }) => {
         return sortConfig.direction === 'ascending' ? '▲' : '▼';
     };
 
-    const handleRowClick = (event: ChangeEvent) => {
+    const handleMapClick = (event: ChangeEvent) => {
         if (event.lat && event.lon) {
             const url = `https://www.google.com/maps?q=${event.lat},${event.lon}`;
             window.open(url, '_blank', 'noopener,noreferrer');
@@ -80,17 +80,18 @@ const ChangeEventTable: React.FC<{ events: ChangeEvent[] }> = ({ events }) => {
                                     </button>
                                 </th>
                             ))}
+                             <th scope="col" className="px-4 py-3 text-center text-xs font-medium text-gray-300 uppercase tracking-wider">
+                                Mapa
+                            </th>
                         </tr>
                     </thead>
                     <tbody className="bg-gray-800 divide-y divide-gray-700">
                         {paginatedEvents.map((event) => {
-                            const isClickable = event.lat != null && event.lon != null;
+                            const hasLocation = event.lat != null && event.lon != null;
                             return (
                                 <tr 
                                     key={event.uniqueId}
-                                    onClick={() => handleRowClick(event)}
-                                    className={`${isClickable ? 'cursor-pointer hover:bg-gray-700/50' : ''} transition-colors duration-150`}
-                                    title={isClickable ? `Ver ubicación de ${event.poleIdExterno} en el mapa` : ''}
+                                    className="hover:bg-gray-700/50 transition-colors duration-150"
                                 >
                                     <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{event.fechaRetiro.toLocaleString()}</td>
                                     <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{event.componente}</td>
@@ -102,6 +103,20 @@ const ChangeEventTable: React.FC<{ events: ChangeEvent[] }> = ({ events }) => {
                                     <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{event.horasFuncionamiento.toLocaleString()}</td>
                                     <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{event.recuentoConmutacion.toLocaleString()}</td>
                                     <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-400 truncate max-w-xs">{event.designacionTipo}</td>
+                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-center">
+                                        {hasLocation ? (
+                                            <button
+                                                onClick={() => handleMapClick(event)}
+                                                className="p-2 text-gray-400 hover:text-cyan-400 hover:bg-gray-700 rounded-full transition-colors"
+                                                title={`Ver ubicación de ${event.poleIdExterno} en el mapa`}
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                                    <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
+                                                </svg>
+                                                <span className="sr-only">Ver en mapa</span>
+                                            </button>
+                                        ) : null}
+                                    </td>
                                 </tr>
                             );
                         })}
