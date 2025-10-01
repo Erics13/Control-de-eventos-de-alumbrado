@@ -51,7 +51,7 @@ declare global {
     }
 }
 
-type ActiveTab = 'eventos' | 'cambios' | 'inventario';
+export type ActiveTab = 'eventos' | 'cambios' | 'inventario';
 
 const TabButton: React.FC<{
     tabId: ActiveTab;
@@ -954,6 +954,7 @@ const App: React.FC = () => {
                            <h2 className="text-xl font-bold text-cyan-400 mb-4">Filtros y Análisis</h2>
                             <div className="border-t border-gray-700 pt-4">
                                 <FilterControls
+                                    activeTab={activeTab}
                                     dateRange={dateRange}
                                     setDateRange={setDateRange}
                                     handleSetDatePreset={handleSetDatePreset}

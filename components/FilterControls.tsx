@@ -1,6 +1,8 @@
 import React from 'react';
+import type { ActiveTab } from '../App';
 
 interface FilterControlsProps {
+    activeTab: ActiveTab;
     dateRange: { start: Date | null; end: Date | null };
     setDateRange: (range: { start: Date | null; end: Date | null }) => void;
     handleSetDatePreset: (preset: 'today' | 'yesterday' | 'week' | 'month' | 'year') => void;
@@ -43,6 +45,7 @@ const meses = [
 ];
 
 const FilterControls: React.FC<FilterControlsProps> = ({
+    activeTab,
     dateRange,
     setDateRange,
     handleSetDatePreset,
@@ -131,76 +134,88 @@ const FilterControls: React.FC<FilterControlsProps> = ({
                         className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500"
                     />
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                    <div>
-                        <label htmlFor="month-select" className="block text-sm font-medium text-gray-400 mb-1">Mes</label>
-                        <select
-                            id="month-select"
-                            value={selectedMonth}
-                            onChange={(e) => setSelectedMonth(e.target.value)}
-                            disabled={availableYears.length === 0}
-                            className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500 disabled:opacity-50"
-                        >
-                            <option value="">...</option>
-                            {meses.map(mes => (
-                                <option key={mes.value} value={mes.value}>{mes.label.substring(0,3)}</option>
-                            ))}
-                        </select>
-                    </div>
-                    <div>
-                        <label htmlFor="year-select" className="block text-sm font-medium text-gray-400 mb-1">Año</label>
-                        <select
-                            id="year-select"
-                            value={selectedYear}
-                            onChange={(e) => setSelectedYear(e.target.value)}
-                            disabled={availableYears.length === 0}
-                            className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500 disabled:opacity-50"
-                        >
-                            <option value="">...</option>
-                            {availableYears.map(year => (
-                                <option key={year} value={year}>{year}</option>
-                            ))}
-                        </select>
-                    </div>
-                </div>
-                 <div>
-                    <label htmlFor="category-select" className="block text-sm font-medium text-gray-400 mb-1">Categoría Falla</label>
-                    <select
-                        id="category-select"
-                        value={selectedCategory}
-                        onChange={(e) => setSelectedCategory(e.target.value)}
-                        className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500"
-                    >
-                        <option value="all">Todas</option>
-                        {failureCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
-                    </select>
-                </div>
-                <div>
-                    <label htmlFor="power-select" className="block text-sm font-medium text-gray-400 mb-1">Potencia</label>
-                    <select
-                        id="power-select"
-                        value={selectedPower}
-                        onChange={(e) => setSelectedPower(e.target.value)}
-                        disabled={availablePowers.length === 0}
-                        className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500 disabled:opacity-50"
-                    >
-                        <option value="all">Todas</option>
-                        {availablePowers.map(p => <option key={p} value={p}>{p}W</option>)}
-                    </select>
-                </div>
-                <div>
-                    <label htmlFor="calendar-select" className="block text-sm font-medium text-gray-400 mb-1">Calendario</label>
-                    <select
-                        id="calendar-select"
-                        value={selectedCalendar}
-                        onChange={(e) => setSelectedCalendar(e.target.value)}
-                        disabled={availableCalendars.length === 0}
-                        className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500 disabled:opacity-50"
-                    >
-                        <option value="all">Todos</option>
-                        {availableCalendars.map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                </div>
+
+                {/* Eventos Tab Specific */}
+                {activeTab === 'eventos' && (
+                    <>
+                        <div className="grid grid-cols-2 gap-2">
+                            <div>
+                                <label htmlFor="month-select" className="block text-sm font-medium text-gray-400 mb-1">Mes</label>
+                                <select
+                                    id="month-select"
+                                    value={selectedMonth}
+                                    onChange={(e) => setSelectedMonth(e.target.value)}
+                                    disabled={availableYears.length === 0}
+                                    className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500 disabled:opacity-50"
+                                >
+                                    <option value="">...</option>
+                                    {meses.map(mes => (
+                                        <option key={mes.value} value={mes.value}>{mes.label.substring(0,3)}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label htmlFor="year-select" className="block text-sm font-medium text-gray-400 mb-1">Año</label>
+                                <select
+                                    id="year-select"
+                                    value={selectedYear}
+                                    onChange={(e) => setSelectedYear(e.target.value)}
+                                    disabled={availableYears.length === 0}
+                                    className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500 disabled:opacity-50"
+                                >
+                                    <option value="">...</option>
+                                    {availableYears.map(year => (
+                                        <option key={year} value={year}>{year}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
+                         <div>
+                            <label htmlFor="category-select" className="block text-sm font-medium text-gray-400 mb-1">Categoría Falla</label>
+                            <select
+                                id="category-select"
+                                value={selectedCategory}
+                                onChange={(e) => setSelectedCategory(e.target.value)}
+                                className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500"
+                            >
+                                <option value="all">Todas</option>
+                                {failureCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                            </select>
+                        </div>
+                    </>
+                )}
+
+                {/* Inventario Tab Specific */}
+                {activeTab === 'inventario' && (
+                    <>
+                        <div>
+                            <label htmlFor="power-select" className="block text-sm font-medium text-gray-400 mb-1">Potencia</label>
+                            <select
+                                id="power-select"
+                                value={selectedPower}
+                                onChange={(e) => setSelectedPower(e.target.value)}
+                                disabled={availablePowers.length === 0}
+                                className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500 disabled:opacity-50"
+                            >
+                                <option value="all">Todas</option>
+                                {availablePowers.map(p => <option key={p} value={p}>{p}W</option>)}
+                            </select>
+                        </div>
+                        <div>
+                            <label htmlFor="calendar-select" className="block text-sm font-medium text-gray-400 mb-1">Calendario</label>
+                            <select
+                                id="calendar-select"
+                                value={selectedCalendar}
+                                onChange={(e) => setSelectedCalendar(e.target.value)}
+                                disabled={availableCalendars.length === 0}
+                                className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500 disabled:opacity-50"
+                            >
+                                <option value="all">Todos</option>
+                                {availableCalendars.map(c => <option key={c} value={c}>{c}</option>)}
+                            </select>
+                        </div>
+                    </>
+                )}
             </div>
 
             <div className="flex flex-wrap gap-2 pt-4 border-t border-gray-700">
