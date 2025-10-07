@@ -40,6 +40,7 @@ import { exportToCsv } from './utils/export';
 import InauguratedByZoneChart from './components/InauguratedByZoneChart';
 import InaugurationsByYearZoneChart from './components/InaugurationsByYearZoneChart';
 import FailurePercentageTable from './components/FailurePercentageTable';
+import OperatingHoursSummaryTable from './components/OperatingHoursSummaryTable';
 
 const ERROR_DESC_LOW_CURRENT = "La corriente medida es menor que lo esperado o no hay corriente que fluya a través de la combinación de driver y lámpara.";
 const ERROR_DESC_HIGH_CURRENT = "La corriente medida para la combinación de driver y lámpara es mayor que la esperada.";
@@ -697,6 +698,32 @@ const App: React.FC = () => {
 
         return { powerData, locationColumns, columnTotals, grandTotal };
     }, [finalDisplayInventory]);
+    
+    const operatingHoursSummary = useMemo(() => {
+        const items = finalDisplayInventory;
+        if (items.length === 0) {
+            return [];
+        }
+
+        const RANGE_STEP = 5000;
+        const countsByRange = items.reduce((acc, item) => {
+            if (item.horasFuncionamiento != null && item.horasFuncionamiento >= 0) {
+                const rangeIndex = Math.floor(item.horasFuncionamiento / RANGE_STEP);
+                const rangeStart = rangeIndex * RANGE_STEP;
+                const rangeEnd = rangeStart + RANGE_STEP - 1;
+                const rangeLabel = `${rangeStart.toLocaleString()} - ${rangeEnd.toLocaleString()} hs`;
+                
+                acc[rangeLabel] = (acc[rangeLabel] || 0) + 1;
+            }
+            return acc;
+        }, {} as Record<string, number>);
+
+        return Object.entries(countsByRange).map(([range, count]) => ({
+            range,
+            count,
+        }));
+    }, [finalDisplayInventory]);
+
 
     // --- Export Handlers ---
     const handleExportCabinetSummary = useCallback(() => {
@@ -772,6 +799,23 @@ const App: React.FC = () => {
         }));
         exportToCsv(dataToExport, 'fallas_por_municipio.csv');
     }, [failureDataByMunicipio]);
+    
+    const handleExportOperatingHoursSummary = useCallback(() => {
+        if (operatingHoursSummary.length === 0) return;
+        
+        const dataToExport = operatingHoursSummary
+            .sort((a, b) => {
+                const valA = parseInt(a.range.split(' ')[0].replace(/,/g, ''));
+                const valB = parseInt(b.range.split(' ')[0].replace(/,/g, ''));
+                return valA - valB;
+            })
+            .map(item => ({
+                'Rango de Horas': item.range,
+                'Cantidad de Luminarias': item.count,
+            }));
+
+        exportToCsv(dataToExport, 'resumen_horas_funcionamiento.csv');
+    }, [operatingHoursSummary]);
     
     const handleExportPDF = async () => {
         if (allEvents.length === 0 && changeEvents.length === 0 && inventory.length === 0) {
@@ -1313,6 +1357,12 @@ const App: React.FC = () => {
                                             onExport={handleExportPowerSummaryByMunicipio}
                                         >
                                             <PowerSummaryTable summaryData={powerSummaryByMunicipio} />
+                                        </CollapsibleSection>
+                                        <CollapsibleSection 
+                                            title="Resumen de Horas de Funcionamiento"
+                                            onExport={handleExportOperatingHoursSummary}
+                                        >
+                                            <OperatingHoursSummaryTable data={operatingHoursSummary} />
                                         </CollapsibleSection>
                                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                                             <CollapsibleSection 
