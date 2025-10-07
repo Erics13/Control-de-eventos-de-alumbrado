@@ -35,6 +35,8 @@ export const MUNICIPIO_TO_ZONE_MAP: Record<string, string> = {
 };
 
 export const ALL_ZONES: string[] = Array.from(new Set(Object.values(MUNICIPIO_TO_ZONE_MAP))).sort();
+export const ZONE_ORDER = ['ZONA A', 'ZONA B', 'ZONA B1', 'ZONA B2', 'ZONA B3', 'ZONA C', 'ZONA D'];
+
 
 export const FAILURE_CATEGORY_TRANSLATIONS: Record<string, string> = {
     'Unreachable': 'Inaccesible',

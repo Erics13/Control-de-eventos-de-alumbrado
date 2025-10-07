@@ -15,7 +15,7 @@ import { format } from 'date-fns/format';
 import { es } from 'date-fns/locale/es';
 import { useLuminaireData } from './hooks/useLuminaireData';
 import type { LuminaireEvent, InventoryItem } from './types';
-import { ALL_ZONES, MUNICIPIO_TO_ZONE_MAP } from './constants';
+import { ALL_ZONES, MUNICIPIO_TO_ZONE_MAP, ZONE_ORDER } from './constants';
 import Header from './components/Header';
 import FileUpload from './components/FileUpload';
 import DashboardCard from './components/DashboardCard';
@@ -39,6 +39,7 @@ import CollapsibleSection from './components/CollapsibleSection';
 import { exportToCsv } from './utils/export';
 import InauguratedByZoneChart from './components/InauguratedByZoneChart';
 import InaugurationsByYearZoneChart from './components/InaugurationsByYearZoneChart';
+import FailurePercentageTable from './components/FailurePercentageTable';
 
 const ERROR_DESC_LOW_CURRENT = "La corriente medida es menor que lo esperado o no hay corriente que fluya a través de la combinación de driver y lámpara.";
 const ERROR_DESC_HIGH_CURRENT = "La corriente medida para la combinación de driver y lámpara es mayor que la esperada.";
@@ -482,6 +483,91 @@ const App: React.FC = () => {
         );
     }, [allEvents]);
 
+    const inventoryCountByZone = useMemo(() => {
+        return inventory.reduce((acc, item) => {
+            if (item.zone) {
+                acc[item.zone] = (acc[item.zone] || 0) + 1;
+            }
+            return acc;
+        }, {} as Record<string, number>);
+    }, [inventory]);
+
+    const inventoryCountByMunicipio = useMemo(() => {
+        return inventory.reduce((acc, item) => {
+            if (item.municipio) {
+                acc[item.municipio] = (acc[item.municipio] || 0) + 1;
+            }
+            return acc;
+        }, {} as Record<string, number>);
+    }, [inventory]);
+
+    const failureDataByZone = useMemo(() => {
+        if (Object.keys(inventoryCountByZone).length === 0) {
+            return [];
+        }
+
+        const zoneEventCounts = baseFilteredEvents.reduce((acc, event) => {
+            acc[event.zone] = (acc[event.zone] || 0) + 1;
+            return acc;
+        }, {} as Record<string, number>);
+        
+        const zonesWithInventory = Object.keys(inventoryCountByZone);
+
+        const unsortedData = zonesWithInventory.map(zoneName => {
+            const eventos = zoneEventCounts[zoneName] || 0;
+            const totalInventario = inventoryCountByZone[zoneName];
+            const porcentaje = totalInventario > 0 ? (eventos / totalInventario) * 100 : 0;
+            return {
+                name: zoneName,
+                eventos,
+                totalInventario,
+                porcentaje,
+            };
+        });
+        
+        return unsortedData.sort((a, b) => {
+            const indexA = ZONE_ORDER.indexOf(a.name);
+            const indexB = ZONE_ORDER.indexOf(b.name);
+            
+            if (indexA !== -1 && indexB !== -1) {
+                return indexA - indexB; // Both are in the order list
+            }
+            if (indexA !== -1) {
+                return -1; // A is in the list, B is not, so A comes first
+            }
+            if (indexB !== -1) {
+                return 1; // B is in the list, A is not, so B comes first
+            }
+            return a.name.localeCompare(b.name); // Neither are in the list, sort alphabetically
+        });
+    }, [baseFilteredEvents, inventoryCountByZone]);
+
+    const failureDataByMunicipio = useMemo(() => {
+        if (Object.keys(inventoryCountByMunicipio).length === 0) {
+            return [];
+        }
+
+        const municipioEventCounts = baseFilteredEvents.reduce((acc, event) => {
+            acc[event.municipio] = (acc[event.municipio] || 0) + 1;
+            return acc;
+        }, {} as Record<string, number>);
+        
+        const municipiosWithInventory = Object.keys(inventoryCountByMunicipio);
+
+        return municipiosWithInventory.map(municipioName => {
+            const eventos = municipioEventCounts[municipioName] || 0;
+            const totalInventario = inventoryCountByMunicipio[municipioName];
+            const porcentaje = totalInventario > 0 ? (eventos / totalInventario) * 100 : 0;
+            return {
+                name: municipioName,
+                eventos,
+                totalInventario,
+                porcentaje,
+            };
+        })
+        .sort((a, b) => b.porcentaje - a.porcentaje); // Sort by percentage descending
+    }, [baseFilteredEvents, inventoryCountByMunicipio]);
+
     // --- Lifted Summary Data Calculations ---
     const cabinetSummaryData = useMemo(() => {
         const cabinetCounts = finalDisplayInventory.reduce((acc, item) => {
@@ -567,6 +653,51 @@ const App: React.FC = () => {
         return { powerData, locationColumns, columnTotals, grandTotal };
     }, [finalDisplayInventory, selectedZone]);
 
+    const powerSummaryByMunicipio = useMemo(() => {
+        const items = finalDisplayInventory;
+        if (items.length === 0) {
+            return { powerData: [], locationColumns: [], columnTotals: {}, grandTotal: 0 };
+        }
+
+        const locationColumns: string[] = Array.from(new Set<string>(items.map(item => item.municipio).filter((m): m is string => !!m))).sort();
+        const powers: number[] = Array.from(new Set<number>(items.map(item => item.potenciaNominal).filter((p): p is number => p != null))).sort((a, b) => a - b);
+        
+        const powerMap = new Map<number, Record<string, number>>();
+
+        for (const item of items) {
+            if (item.potenciaNominal != null) {
+                if (!powerMap.has(item.potenciaNominal)) {
+                    powerMap.set(item.potenciaNominal, {});
+                }
+                const powerRow = powerMap.get(item.potenciaNominal)!;
+                const location = item.municipio;
+                if (location) {
+                    powerRow[location] = (powerRow[location] || 0) + 1;
+                }
+            }
+        }
+        
+        const powerData = powers.map(power => {
+            const rowData = powerMap.get(power) || {};
+            const total = locationColumns.reduce((sum, loc) => sum + (rowData[loc] || 0), 0);
+            return {
+                power: `${power}W`,
+                ...rowData,
+                total: total,
+            };
+        });
+        
+        const columnTotals: Record<string, number> = {};
+        let grandTotal = 0;
+        locationColumns.forEach(loc => {
+            const total = powerData.reduce((sum, row) => sum + ((row as any)[loc] || 0), 0);
+            columnTotals[loc] = total;
+            grandTotal += total;
+        });
+
+        return { powerData, locationColumns, columnTotals, grandTotal };
+    }, [finalDisplayInventory]);
+
     // --- Export Handlers ---
     const handleExportCabinetSummary = useCallback(() => {
         exportToCsv(cabinetSummaryData, 'resumen_gabinetes.csv');
@@ -598,6 +729,49 @@ const App: React.FC = () => {
 
         exportToCsv(exportData, 'resumen_potencias.csv');
     }, [powerSummary]);
+
+    const handleExportPowerSummaryByMunicipio = useCallback(() => {
+        const { powerData, locationColumns, columnTotals, grandTotal } = powerSummaryByMunicipio;
+        if (powerData.length === 0) return;
+
+        const exportData = powerData.map(row => {
+            const flatRow: Record<string, any> = { Potencia: row.power };
+            locationColumns.forEach(loc => {
+                flatRow[loc] = (row as any)[loc] || 0;
+            });
+            flatRow['Total'] = row.total;
+            return flatRow;
+        });
+
+        const totalsRow: Record<string, any> = { Potencia: 'Total General' };
+        locationColumns.forEach(loc => {
+            totalsRow[loc] = columnTotals[loc] || 0;
+        });
+        totalsRow['Total'] = grandTotal;
+        exportData.push(totalsRow);
+
+        exportToCsv(exportData, 'resumen_potencias_por_municipio.csv');
+    }, [powerSummaryByMunicipio]);
+
+    const handleExportFailureByZone = useCallback(() => {
+        const dataToExport = failureDataByZone.map(item => ({
+            'Zona': item.name,
+            'Porcentaje Fallas (%)': item.porcentaje.toFixed(2),
+            'Total Fallas': item.eventos,
+            'Total Inventario': item.totalInventario,
+        }));
+        exportToCsv(dataToExport, 'fallas_por_zona.csv');
+    }, [failureDataByZone]);
+
+    const handleExportFailureByMunicipio = useCallback(() => {
+        const dataToExport = failureDataByMunicipio.map(item => ({
+            'Municipio': item.name,
+            'Porcentaje Fallas (%)': item.porcentaje.toFixed(2),
+            'Total Fallas': item.eventos,
+            'Total Inventario': item.totalInventario,
+        }));
+        exportToCsv(dataToExport, 'fallas_por_municipio.csv');
+    }, [failureDataByMunicipio]);
     
     const handleExportPDF = async () => {
         if (allEvents.length === 0 && changeEvents.length === 0 && inventory.length === 0) {
@@ -743,8 +917,8 @@ const App: React.FC = () => {
                 await addChartToPdf('pdf-event-indicators', 'Indicadores de Eventos');
                 await addChartToPdf('pdf-category-chart', 'Eventos por Categoría');
                 await addChartToPdf('pdf-special-events-chart', 'Eventos por Hurto, Vandalismo y Caídas');
-                await addChartToPdf('pdf-zone-chart', 'Eventos por Zona');
-                await addChartToPdf('pdf-municipio-chart', 'Eventos por Municipio');
+                await addChartToPdf('pdf-zone-chart', 'Porcentaje de Fallas por Zona');
+                await addChartToPdf('pdf-municipio-chart', 'Porcentaje de Fallas por Municipio');
                 
                 const dateStr = new Date().toISOString().split('T')[0];
                 const zoneStr = selectedZone !== 'all' ? `_${selectedZone.replace(/\s+/g, '_')}` : '';
@@ -778,8 +952,8 @@ const App: React.FC = () => {
                     </div>
                     <div id="pdf-category-chart" className="bg-gray-800 p-4 rounded-xl"><FailureByCategoryChart data={baseFilteredEvents} /></div>
                     <div id="pdf-special-events-chart" className="bg-gray-800 p-4 rounded-xl"><SpecialEventsChart data={baseFilteredEvents} /></div>
-                    <div id="pdf-zone-chart" className="bg-gray-800 p-4 rounded-xl"><FailureByZoneChart data={baseFilteredEvents} /></div>
-                    <div id="pdf-municipio-chart" className="bg-gray-800 p-4 rounded-xl"><FailureByMunicipioChart data={baseFilteredEvents} /></div>
+                    <div id="pdf-zone-chart" className="bg-gray-800 p-4 rounded-xl"><FailureByZoneChart data={failureDataByZone} /></div>
+                    <div id="pdf-municipio-chart" className="bg-gray-800 p-4 rounded-xl"><FailureByMunicipioChart data={failureDataByMunicipio} /></div>
                     {/* Cambios */}
                     <div id="pdf-change-indicators" className="bg-gray-800 p-4 rounded-xl">
                          <div className="grid grid-cols-4 gap-4">
@@ -998,7 +1172,7 @@ const App: React.FC = () => {
                     {loading && <div className="text-center p-8"><p>Cargando datos...</p></div>}
                     
                     {!loading && !noDataLoaded && (
-                        <div className="space-y-4">
+                        <div className="space-y-6">
                             {activeTab === 'eventos' && allEvents.length > 0 && (
                                 <>
                                     <div className="bg-gray-800 shadow-lg rounded-xl p-4">
@@ -1024,13 +1198,19 @@ const App: React.FC = () => {
                                         </div>
                                     </div>
                                     <div id="zone-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-4">
-                                        <h3 className="text-lg font-semibold text-cyan-400 mb-3">Eventos por Zona</h3>
-                                        <FailureByZoneChart data={baseFilteredEvents} />
+                                        <h3 className="text-lg font-semibold text-cyan-400 mb-3">Porcentaje de Fallas por Zona (% del Inventario)</h3>
+                                        <FailureByZoneChart data={failureDataByZone} />
                                     </div>
+                                    <CollapsibleSection title="Detalle de Fallas por Zona" onExport={handleExportFailureByZone}>
+                                        <FailurePercentageTable data={failureDataByZone} locationHeader="Zona" />
+                                    </CollapsibleSection>
                                     <div id="municipio-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-4">
-                                        <h3 className="text-lg font-semibold text-cyan-400 mb-3">Eventos por Municipio</h3>
-                                        <FailureByMunicipioChart data={baseFilteredEvents} />
+                                        <h3 className="text-lg font-semibold text-cyan-400 mb-3">Porcentaje de Fallas por Municipio (% del Inventario)</h3>
+                                        <FailureByMunicipioChart data={failureDataByMunicipio} />
                                     </div>
+                                    <CollapsibleSection title="Detalle de Fallas por Municipio" onExport={handleExportFailureByMunicipio}>
+                                        <FailurePercentageTable data={failureDataByMunicipio} locationHeader="Municipio" />
+                                    </CollapsibleSection>
                                     <div id="events-by-month-container" className="bg-gray-800 shadow-lg rounded-xl p-4">
                                         <h3 className="text-lg font-semibold text-cyan-400 mb-3">Volumen de Eventos por Mes</h3>
                                         <EventsByMonthChart data={baseFilteredEvents} />
@@ -1127,6 +1307,12 @@ const App: React.FC = () => {
                                             onExport={handleExportPowerSummary}
                                         >
                                             <PowerSummaryTable summaryData={powerSummary} />
+                                        </CollapsibleSection>
+                                        <CollapsibleSection 
+                                            title="Resumen de Potencias por Municipio"
+                                            onExport={handleExportPowerSummaryByMunicipio}
+                                        >
+                                            <PowerSummaryTable summaryData={powerSummaryByMunicipio} />
                                         </CollapsibleSection>
                                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                                             <CollapsibleSection 
