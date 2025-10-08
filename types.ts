@@ -1,4 +1,3 @@
-
 export interface LuminaireEvent {
   uniqueEventId: string;
   id: string;
@@ -12,6 +11,7 @@ export interface LuminaireEvent {
   description: string;
   lat?: number;
   lon?: number;
+  sourceFile?: string;
 }
 
 export interface ChangeEvent {
@@ -29,6 +29,15 @@ export interface ChangeEvent {
   componente: string;
   designacionTipo: string;
   cabinetIdExterno: string;
+  sourceFile?: string;
+}
+
+export interface EnergyReading {
+  olcId: number;
+  energia: number;
+  ultimoContacto: Date;
+  cabinetIdExterno: string;
+  sourceFile?: string;
 }
 
 export interface InventoryItem {
@@ -47,7 +56,7 @@ export interface InventoryItem {
   olcHardwareDir?: string;
   dimmingCalendar?: string;
   ultimoInforme?: Date;
-  olcIdExterno?: string;
+  olcIdExterno?: number;
   luminaireIdExterno?: string;
   horasFuncionamiento?: number;
   recuentoConmutacion?: number;
@@ -56,4 +65,5 @@ export interface InventoryItem {
   cabinetLon?: number;
   potenciaNominal?: number;
   designacionTipo?: string;
+  sourceFile?: string;
 }

@@ -1,4 +1,5 @@
 
+
 import React, { useState, useMemo } from 'react';
 
 interface OperatingHoursSummary {
@@ -22,9 +23,14 @@ const OperatingHoursSummaryTable: React.FC<OperatingHoursSummaryTableProps> = ({
         if (sortConfig !== null) {
             sortableItems.sort((a, b) => {
                 if (sortConfig.key === 'range') {
-                    // Sort numerically based on the start of the range
-                    const valA = parseInt(a.range.split(' ')[0].replace(/,/g, ''));
-                    const valB = parseInt(b.range.split(' ')[0].replace(/,/g, ''));
+                    const getRangeStart = (rangeStr: string): number => {
+                        if (rangeStr.startsWith('>')) {
+                            return Infinity;
+                        }
+                        return parseInt(rangeStr.split(' ')[0].replace(/,/g, ''), 10);
+                    };
+                    const valA = getRangeStart(a.range);
+                    const valB = getRangeStart(b.range);
                     if (valA < valB) return sortConfig.direction === 'ascending' ? -1 : 1;
                     if (valA > valB) return sortConfig.direction === 'ascending' ? 1 : -1;
                     return 0;

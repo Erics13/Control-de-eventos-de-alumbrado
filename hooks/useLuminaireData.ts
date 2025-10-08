@@ -1,33 +1,38 @@
-
-
 import { useState, useEffect, useCallback } from 'react';
 import { openDB, DBSchema, IDBPDatabase, deleteDB } from 'idb';
-import type { LuminaireEvent, ChangeEvent, InventoryItem } from '../types';
+import type { LuminaireEvent, ChangeEvent, InventoryItem, EnergyReading } from '../types';
 import { MUNICIPIO_TO_ZONE_MAP, FAILURE_CATEGORY_TRANSLATIONS } from '../constants';
+import { parse } from 'date-fns/parse';
 
 // --- IndexedDB Logic ---
 const DB_NAME = 'LuminaireDataDB';
-const DB_VERSION = 2; // Incremented version for schema change
+const DB_VERSION = 4;
 const LUMINAIRE_EVENTS_STORE = 'luminaireEvents';
 const CHANGE_EVENTS_STORE = 'changeEvents';
-const INVENTORY_STORE = 'inventory'; // New store for inventory
+const INVENTORY_STORE = 'inventory'; 
+const ENERGY_READINGS_STORE = 'energyReadings';
 const METADATA_STORE = 'metadata';
 
 interface LuminaireDB extends DBSchema {
   [LUMINAIRE_EVENTS_STORE]: {
     key: string;
     value: LuminaireEvent;
-    indexes: { date: Date };
+    indexes: { date: Date; sourceFile: string; };
   };
   [CHANGE_EVENTS_STORE]: {
     key: string;
     value: ChangeEvent;
-    indexes: { fechaRetiro: Date };
+    indexes: { fechaRetiro: Date; sourceFile: string; };
   };
   [INVENTORY_STORE]: {
     key: string;
     value: InventoryItem;
-    indexes: { municipio: string };
+    indexes: { municipio: string; sourceFile: string; };
+  };
+  [ENERGY_READINGS_STORE]: {
+    key: number;
+    value: EnergyReading;
+    indexes: { ultimoContacto: Date; sourceFile: string; };
   };
   [METADATA_STORE]: {
       key: string;
@@ -40,21 +45,39 @@ let dbPromise: Promise<IDBPDatabase<LuminaireDB>> | null = null;
 const getDb = () => {
     if (!dbPromise) {
         dbPromise = openDB<LuminaireDB>(DB_NAME, DB_VERSION, {
-            upgrade(db, oldVersion) {
-                if (!db.objectStoreNames.contains(LUMINAIRE_EVENTS_STORE)) {
+            upgrade(db, oldVersion, newVersion, transaction) {
+                if (oldVersion < 1) {
                     const luminaireStore = db.createObjectStore(LUMINAIRE_EVENTS_STORE, { keyPath: 'uniqueEventId' });
                     luminaireStore.createIndex('date', 'date');
-                }
-                if (!db.objectStoreNames.contains(CHANGE_EVENTS_STORE)) {
                     const changeStore = db.createObjectStore(CHANGE_EVENTS_STORE, { keyPath: 'uniqueId' });
                     changeStore.createIndex('fechaRetiro', 'fechaRetiro');
+                    db.createObjectStore(METADATA_STORE);
                 }
-                if (!db.objectStoreNames.contains(METADATA_STORE)) {
-                    db.createObjectStore(METADATA_STORE, { autoIncrement: true });
-                }
-                if (oldVersion < 2 && !db.objectStoreNames.contains(INVENTORY_STORE)) {
+                if (oldVersion < 2) {
                    const inventoryStore = db.createObjectStore(INVENTORY_STORE, { keyPath: 'streetlightIdExterno' });
                    inventoryStore.createIndex('municipio', 'municipio');
+                }
+                if (oldVersion < 3) {
+                   const energyStore = db.createObjectStore(ENERGY_READINGS_STORE, { keyPath: 'olcId' });
+                   energyStore.createIndex('ultimoContacto', 'ultimoContacto');
+                }
+                 if (oldVersion < 4) {
+                    const luminaireStore = transaction.objectStore(LUMINAIRE_EVENTS_STORE);
+                    if (!luminaireStore.indexNames.contains('sourceFile')) {
+                        luminaireStore.createIndex('sourceFile', 'sourceFile');
+                    }
+                    const changeStore = transaction.objectStore(CHANGE_EVENTS_STORE);
+                    if (!changeStore.indexNames.contains('sourceFile')) {
+                        changeStore.createIndex('sourceFile', 'sourceFile');
+                    }
+                    const inventoryStore = transaction.objectStore(INVENTORY_STORE);
+                    if (!inventoryStore.indexNames.contains('sourceFile')) {
+                        inventoryStore.createIndex('sourceFile', 'sourceFile');
+                    }
+                    const energyStore = transaction.objectStore(ENERGY_READINGS_STORE);
+                     if (!energyStore.indexNames.contains('sourceFile')) {
+                        energyStore.createIndex('sourceFile', 'sourceFile');
+                    }
                 }
             },
         });
@@ -77,9 +100,19 @@ const getAllInventoryItems = async (): Promise<InventoryItem[]> => {
     return db.getAll(INVENTORY_STORE);
 }
 
-const getUploadedFileNames = async (): Promise<string[]> => {
+const getAllEnergyReadings = async (): Promise<EnergyReading[]> => {
     const db = await getDb();
-    return (await db.get(METADATA_STORE, 'uploadedFileNames')) || [];
+    return db.getAll(ENERGY_READINGS_STORE);
+};
+
+const getMetadata = async (key: string): Promise<any> => {
+    const db = await getDb();
+    return db.get(METADATA_STORE, key);
+}
+
+const setMetadata = async (key: string, value: any): Promise<void> => {
+     const db = await getDb();
+     await db.put(METADATA_STORE, value, key);
 }
 
 const bulkAddOrUpdate = async <T extends string>(storeName: T, items: any[]): Promise<void> => {
@@ -90,18 +123,10 @@ const bulkAddOrUpdate = async <T extends string>(storeName: T, items: any[]): Pr
     await tx.done;
 };
 
-const setDbFileNames = async (fileNames: string[]): Promise<void> => {
-    const db = await getDb();
-    await db.put(METADATA_STORE, fileNames, 'uploadedFileNames');
-}
-
 const clearAllData = async (): Promise<void> => {
-    // Close the existing database connection if it's open.
-    // This prevents errors on some browsers when trying to delete an open database.
     if (dbPromise) {
         const db = await dbPromise;
         db.close();
-        // Nullify the promise so that getDb() will re-initialize it after deletion.
         dbPromise = null;
     }
     await deleteDB(DB_NAME);
@@ -124,7 +149,7 @@ const parseCsvRow = (row: string, delimiter: string): string[] => {
     return columns;
 };
 
-const parseDate = (dateStr: string): Date | null => {
+const parseCustomDate = (dateStr: string): Date | null => {
     if (!dateStr || !dateStr.includes('/')) return null;
     const parts = dateStr.split(' ');
     if (parts.length < 2) return null;
@@ -151,33 +176,56 @@ export const useLuminaireData = () => {
     const [allEvents, setAllEvents] = useState<LuminaireEvent[]>([]);
     const [changeEvents, setChangeEvents] = useState<ChangeEvent[]>([]);
     const [inventory, setInventory] = useState<InventoryItem[]>([]);
+    const [energyDataToday, setEnergyDataToday] = useState<EnergyReading[]>([]);
+    const [energyDataYesterday, setEnergyDataYesterday] = useState<EnergyReading[]>([]);
     const [uploadedFileNames, setUploadedFileNames] = useState<string[]>([]);
     const [loading, setLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
 
-    useEffect(() => {
-        const loadDataFromDb = async () => {
-            setLoading(true);
-            try {
-                const [luminaireEvents, changeEvents, inventoryItems, fileNames] = await Promise.all([
-                    getAllLuminaireEvents(),
-                    getAllChangeEvents(),
-                    getAllInventoryItems(),
-                    getUploadedFileNames()
-                ]);
-                setAllEvents(luminaireEvents.reverse()); // Reverse for descending order
-                setChangeEvents(changeEvents.reverse());
-                setInventory(inventoryItems);
-                setUploadedFileNames(fileNames);
-            } catch (e) {
-                console.error("Failed to load data from IndexedDB", e);
-                setError("No se pudieron cargar los datos guardados.");
-            } finally {
-                setLoading(false);
+    const loadDataFromDb = useCallback(async () => {
+        setLoading(true);
+        try {
+            const [
+                luminaireEvents, 
+                changeEventsData, 
+                inventoryItems, 
+                allEnergyData,
+                fileNames,
+                todayEnergyFile,
+                yesterdayEnergyFile
+            ] = await Promise.all([
+                getAllLuminaireEvents(),
+                getAllChangeEvents(),
+                getAllInventoryItems(),
+                getAllEnergyReadings(),
+                getMetadata('uploadedFileNames'),
+                getMetadata('todayEnergyFile'),
+                getMetadata('yesterdayEnergyFile'),
+            ]);
+
+            setAllEvents(luminaireEvents.reverse());
+            setChangeEvents(changeEventsData.reverse());
+            setInventory(inventoryItems);
+            setUploadedFileNames(fileNames || []);
+
+            if (todayEnergyFile) {
+                setEnergyDataToday(allEnergyData.filter(d => d.sourceFile === todayEnergyFile));
             }
-        };
-        loadDataFromDb();
+            if (yesterdayEnergyFile) {
+                setEnergyDataYesterday(allEnergyData.filter(d => d.sourceFile === yesterdayEnergyFile));
+            }
+
+        } catch (e) {
+            console.error("Failed to load data from IndexedDB", e);
+            setError("No se pudieron cargar los datos guardados.");
+        } finally {
+            setLoading(false);
+        }
     }, []);
+
+    useEffect(() => {
+        loadDataFromDb();
+    }, [loadDataFromDb]);
 
     const addEventsFromCSV = (file: File) => {
         setLoading(true);
@@ -202,7 +250,7 @@ export const useLuminaireData = () => {
                     if (row.trim() === '') return;
                     const columns = parseCsvRow(row, delimiter);
                     if (columns.length < 14) return;
-                    const eventDate = parseDate(columns[13]?.trim());
+                    const eventDate = parseCustomDate(columns[13]?.trim());
                     if (!eventDate) return;
                     const uniqueEventId = columns[11]?.trim();
                     if (!uniqueEventId) return;
@@ -237,6 +285,7 @@ export const useLuminaireData = () => {
                         date: eventDate,
                         municipio, zone, status: eventStatus, description, failureCategory: finalFailureCategory,
                         lat: !isNaN(lat) ? lat : undefined, lon: !isNaN(lon) ? lon : undefined,
+                        sourceFile: file.name,
                     });
                 });
                 
@@ -250,7 +299,7 @@ export const useLuminaireData = () => {
 
                 if (!uploadedFileNames.includes(file.name)) {
                     const newFileNames = [...uploadedFileNames, file.name].sort();
-                    await setDbFileNames(newFileNames);
+                    await setMetadata('uploadedFileNames', newFileNames);
                     setUploadedFileNames(newFileNames);
                 }
             } catch (parseError) {
@@ -287,7 +336,7 @@ export const useLuminaireData = () => {
                     if (row.trim() === '') return;
                     const columns = parseCsvRow(row, delimiter);
                     if (columns.length < 12) return;
-                    const fechaRetiro = parseDate(columns[0]?.trim());
+                    const fechaRetiro = parseCustomDate(columns[0]?.trim());
                     if (!fechaRetiro) return;
                     const poleIdExterno = columns[2]?.trim();
                     if (!poleIdExterno) return;
@@ -313,6 +362,7 @@ export const useLuminaireData = () => {
                         componente: columns[9]?.trim(),
                         designacionTipo: columns[10]?.trim(),
                         cabinetIdExterno: columns[11]?.trim(),
+                        sourceFile: file.name,
                     });
                 });
                 
@@ -326,7 +376,7 @@ export const useLuminaireData = () => {
 
                 if (!uploadedFileNames.includes(file.name)) {
                     const newFileNames = [...uploadedFileNames, file.name].sort();
-                    await setDbFileNames(newFileNames);
+                    await setMetadata('uploadedFileNames', newFileNames);
                     setUploadedFileNames(newFileNames);
                 }
             } catch(err) {
@@ -377,6 +427,7 @@ export const useLuminaireData = () => {
                     const horasFuncionamiento = parseInt(columns[16]?.trim().replace(/\./g, ''), 10);
                     const recuentoConmutacion = parseInt(columns[17]?.trim().replace(/\./g, ''), 10);
                     const potenciaNominal = parseInt(columns[21]?.trim(), 10);
+                    const olcIdExterno = parseInt(columns[14]?.trim(), 10);
                     
                     parsedItems.push({
                         streetlightIdExterno,
@@ -387,14 +438,14 @@ export const useLuminaireData = () => {
                         nroCuenta: columns[4]?.trim(),
                         situacion: columns[5]?.trim(),
                         localidad: columns[6]?.trim(),
-                        fechaInstalacion: parseDate(columns[7]?.trim()) ?? undefined,
+                        fechaInstalacion: parseCustomDate(columns[7]?.trim()) ?? undefined,
                         marked: columns[8]?.trim(),
                         estado: columns[9]?.trim(),
-                        fechaInauguracion: parseDate(columns[10]?.trim()) ?? undefined,
+                        fechaInauguracion: parseCustomDate(columns[10]?.trim()) ?? undefined,
                         olcHardwareDir: columns[11]?.trim(),
                         dimmingCalendar: columns[12]?.trim(),
-                        ultimoInforme: parseDate(columns[13]?.trim()) ?? undefined,
-                        olcIdExterno: columns[14]?.trim(),
+                        ultimoInforme: parseCustomDate(columns[13]?.trim()) ?? undefined,
+                        olcIdExterno: !isNaN(olcIdExterno) ? olcIdExterno : undefined,
                         luminaireIdExterno: columns[15]?.trim(),
                         horasFuncionamiento: !isNaN(horasFuncionamiento) ? horasFuncionamiento : undefined,
                         recuentoConmutacion: !isNaN(recuentoConmutacion) ? recuentoConmutacion : undefined,
@@ -403,6 +454,7 @@ export const useLuminaireData = () => {
                         cabinetLon: !isNaN(cabinetLon) ? cabinetLon : undefined,
                         potenciaNominal: !isNaN(potenciaNominal) ? potenciaNominal : undefined,
                         designacionTipo: columns[22]?.trim(),
+                        sourceFile: file.name,
                     });
                 });
 
@@ -411,7 +463,7 @@ export const useLuminaireData = () => {
 
                 if (!uploadedFileNames.includes(file.name)) {
                     const newFileNames = [...uploadedFileNames, file.name].sort();
-                    await setDbFileNames(newFileNames);
+                    await setMetadata('uploadedFileNames', newFileNames);
                     setUploadedFileNames(newFileNames);
                 }
 
@@ -424,6 +476,88 @@ export const useLuminaireData = () => {
         };
         reader.readAsText(file);
     };
+
+    const processEnergyCSV = (file: File): Promise<EnergyReading[]> => {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const text = e.target?.result as string;
+                if (!text) {
+                    reject(new Error("El archivo CSV de energía está vacío."));
+                    return;
+                }
+
+                try {
+                    const lines = text.split('\n');
+                    const header = lines[0] || '';
+                    const rows = lines.slice(1);
+                    const delimiter = (header.match(/;/g) || []).length > (header.match(/,/g) || []).length ? ';' : ',';
+
+                    const parsedReadings: EnergyReading[] = [];
+                    rows.forEach((row) => {
+                        if (row.trim() === '') return;
+                        const columns = parseCsvRow(row, delimiter);
+                        if (columns.length < 4) return;
+                        
+                        const olcId = parseInt(columns[2]?.trim(), 10);
+                        if (!olcId || isNaN(olcId)) return;
+
+                        const energia = parseFloat(columns[1]?.trim().replace(/"/g, '').replace(/\./g, '').replace(',', '.'));
+                        if (isNaN(energia)) return;
+
+                        const ultimoContactoStr = columns[3]?.trim();
+                        const ultimoContacto = ultimoContactoStr ? parse(ultimoContactoStr, 'd/M/yy H:mm', new Date()) : null;
+                        if (!ultimoContacto || isNaN(ultimoContacto.getTime())) return;
+                        
+                        parsedReadings.push({
+                            olcId,
+                            energia,
+                            ultimoContacto,
+                            cabinetIdExterno: columns[0]?.trim(),
+                            sourceFile: file.name,
+                        });
+                    });
+                    resolve(parsedReadings);
+                } catch (err) {
+                    reject(err);
+                }
+            };
+            reader.onerror = () => reject(new Error("No se pudo leer el archivo."));
+            reader.readAsText(file);
+        });
+    };
+
+    const addEnergyData = async (file: File, type: 'today' | 'yesterday') => {
+        setLoading(true);
+        setError(null);
+        try {
+            const parsedReadings = await processEnergyCSV(file);
+            
+            await bulkAddOrUpdate(ENERGY_READINGS_STORE, parsedReadings);
+
+            if (type === 'today') {
+                await setMetadata('todayEnergyFile', file.name);
+                setEnergyDataToday(parsedReadings);
+            } else {
+                await setMetadata('yesterdayEnergyFile', file.name);
+                setEnergyDataYesterday(parsedReadings);
+            }
+            
+            if (!uploadedFileNames.includes(file.name)) {
+                const newFileNames = [...uploadedFileNames, file.name].sort();
+                await setMetadata('uploadedFileNames', newFileNames);
+                setUploadedFileNames(newFileNames);
+            }
+        } catch (err: any) {
+            console.error(`Error parsing energy CSV for ${type}`, err);
+            setError(`Error al procesar el archivo CSV de energía: ${err.message}`);
+        } finally {
+            setLoading(false);
+        }
+    };
+    
+    const addEnergyDataTodayFromCSV = (file: File) => addEnergyData(file, 'today');
+    const addEnergyDataYesterdayFromCSV = (file: File) => addEnergyData(file, 'yesterday');
 
     const addEventsFromJSON = (file: File) => {
         setLoading(true);
@@ -442,30 +576,44 @@ export const useLuminaireData = () => {
                 const luminaireEventsToProcess = data?.luminaireEvents || [];
                 const changeEventsToProcess = data?.changeEvents || [];
                 const inventoryToProcess = data?.inventory || [];
+                const energyToProcess = data?.energyReadings || []; // For backwards compatibility
                 const filesToProcess = data?.metadata?.fileNames || [];
+                const todayEnergyFile = data?.metadata?.todayEnergyFile;
+                const yesterdayEnergyFile = data?.metadata?.yesterdayEnergyFile;
 
-                const parsedLuminaireEvents: LuminaireEvent[] = luminaireEventsToProcess.map((d: any) => ({ ...d, date: new Date(d.date) }));
-                const parsedChangeEvents: ChangeEvent[] = changeEventsToProcess.map((d: any) => ({ ...d, fechaRetiro: new Date(d.fechaRetiro) }));
+                const parsedLuminaireEvents: LuminaireEvent[] = luminaireEventsToProcess.map((d: any) => ({ ...d, date: new Date(d.date), sourceFile: d.sourceFile || file.name }));
+                const parsedChangeEvents: ChangeEvent[] = changeEventsToProcess.map((d: any) => ({ ...d, fechaRetiro: new Date(d.fechaRetiro), sourceFile: d.sourceFile || file.name }));
                 const parsedInventory: InventoryItem[] = inventoryToProcess.map((d: any) => ({
                     ...d,
                     fechaInstalacion: d.fechaInstalacion ? new Date(d.fechaInstalacion) : undefined,
                     fechaInauguracion: d.fechaInauguracion ? new Date(d.fechaInauguracion) : undefined,
                     ultimoInforme: d.ultimoInforme ? new Date(d.ultimoInforme) : undefined,
+                    sourceFile: d.sourceFile || file.name,
                 }));
+                const parsedEnergyReadings: EnergyReading[] = energyToProcess.map((d: any) => ({ ...d, ultimoContacto: new Date(d.ultimoContacto), sourceFile: d.sourceFile || file.name }));
+                
+                const allEnergyReadingsFromDB = await getAllEnergyReadings();
+                const combinedEnergyReadings = [...allEnergyReadingsFromDB];
+                const existingOlcIds = new Set(allEnergyReadingsFromDB.map(r => r.olcId));
+                parsedEnergyReadings.forEach(r => {
+                    if (!existingOlcIds.has(r.olcId)) {
+                        combinedEnergyReadings.push(r);
+                    }
+                });
 
-                const newFileNames = Array.from(new Set([...uploadedFileNames, ...filesToProcess])).sort();
+                const newFileNames = Array.from(new Set([...uploadedFileNames, file.name, ...filesToProcess])).sort();
 
                 await Promise.all([
                     bulkAddOrUpdate(LUMINAIRE_EVENTS_STORE, parsedLuminaireEvents),
                     bulkAddOrUpdate(CHANGE_EVENTS_STORE, parsedChangeEvents),
                     bulkAddOrUpdate(INVENTORY_STORE, parsedInventory),
-                    setDbFileNames(newFileNames)
+                    bulkAddOrUpdate(ENERGY_READINGS_STORE, combinedEnergyReadings),
+                    setMetadata('uploadedFileNames', newFileNames),
+                    todayEnergyFile ? setMetadata('todayEnergyFile', todayEnergyFile) : Promise.resolve(),
+                    yesterdayEnergyFile ? setMetadata('yesterdayEnergyFile', yesterdayEnergyFile) : Promise.resolve(),
                 ]);
-
-                setAllEvents(await getAllLuminaireEvents());
-                setChangeEvents(await getAllChangeEvents());
-                setInventory(await getAllInventoryItems());
-                setUploadedFileNames(newFileNames);
+                
+                await loadDataFromDb();
 
             } catch (parseError: any) {
                 console.error("Error parsing JSON", parseError);
@@ -478,17 +626,28 @@ export const useLuminaireData = () => {
         reader.readAsText(file, 'UTF-8');
     };
     
-    const downloadDataAsJSON = useCallback(() => {
-        if (allEvents.length === 0 && changeEvents.length === 0 && inventory.length === 0) {
+    const downloadDataAsJSON = useCallback(async () => {
+        const allEnergy = await getAllEnergyReadings();
+        if (allEvents.length === 0 && changeEvents.length === 0 && inventory.length === 0 && allEnergy.length === 0) {
             alert("No hay datos para descargar.");
             return;
         }
         try {
+            const todayFile = await getMetadata('todayEnergyFile');
+            const yesterdayFile = await getMetadata('yesterdayEnergyFile');
+
             const dataToDownload = {
-                metadata: { exportDate: new Date().toISOString(), fileCount: uploadedFileNames.length, fileNames: uploadedFileNames },
+                metadata: { 
+                    exportDate: new Date().toISOString(), 
+                    fileCount: uploadedFileNames.length, 
+                    fileNames: uploadedFileNames,
+                    todayEnergyFile: todayFile,
+                    yesterdayEnergyFile: yesterdayFile,
+                },
                 luminaireEvents: allEvents,
                 changeEvents: changeEvents,
                 inventory: inventory,
+                energyReadings: allEnergy,
             };
             const jsonString = JSON.stringify(dataToDownload, null, 2);
             const blob = new Blob([jsonString], { type: 'application/json' });
@@ -504,21 +663,75 @@ export const useLuminaireData = () => {
             setError("No se pudo crear el archivo de respaldo.");
         }
     }, [allEvents, changeEvents, inventory, uploadedFileNames]);
+    
+    const deleteDataByFileName = useCallback(async (fileName: string) => {
+        setLoading(true);
+        setError(null);
+        try {
+            const db = await getDb();
+            
+            const todayFile = await getMetadata('todayEnergyFile');
+            const yesterdayFile = await getMetadata('yesterdayEnergyFile');
+            
+            const tx = db.transaction([LUMINAIRE_EVENTS_STORE, CHANGE_EVENTS_STORE, INVENTORY_STORE, ENERGY_READINGS_STORE, METADATA_STORE], 'readwrite');
+            
+            const stores = [LUMINAIRE_EVENTS_STORE, CHANGE_EVENTS_STORE, INVENTORY_STORE, ENERGY_READINGS_STORE];
+
+            for (const storeName of stores) {
+                const store = tx.objectStore(storeName as any);
+                const index = store.index('sourceFile');
+                let cursor = await index.openCursor(fileName);
+                while(cursor) {
+                    await cursor.delete();
+                    cursor = await cursor.continue();
+                }
+            }
+
+            const currentFiles = (await getMetadata('uploadedFileNames')) || [];
+            const newFiles = currentFiles.filter((f: string) => f !== fileName);
+            await tx.objectStore(METADATA_STORE).put(newFiles, 'uploadedFileNames');
+            
+            if (todayFile === fileName) {
+                await tx.objectStore(METADATA_STORE).delete('todayEnergyFile');
+            }
+             if (yesterdayFile === fileName) {
+                await tx.objectStore(METADATA_STORE).delete('yesterdayEnergyFile');
+            }
+            
+            await tx.done;
+
+            await loadDataFromDb();
+
+        } catch (err) {
+            console.error("Failed to delete data for file:", fileName, err);
+            setError(`Error al eliminar los datos del archivo ${fileName}.`);
+        } finally {
+            setLoading(false);
+        }
+    }, [loadDataFromDb]);
 
     const resetApplication = useCallback(async () => {
         if (window.confirm("¿Estás seguro de que quieres borrar todos los datos? Esta acción no se puede deshacer.")) {
             setLoading(true);
             try {
                 await clearAllData();
-                // Reload the page to ensure all state is cleared and data is re-fetched from the now-empty DB.
                 window.location.reload();
             } catch (e) {
                  console.error("Fallo al intentar reiniciar la aplicación", e);
                  setError("Error al intentar reiniciar la aplicación.");
-                 setLoading(false); // Only set loading to false on error, as success will reload.
+                 setLoading(false);
             }
         }
     }, []);
 
-    return { allEvents, changeEvents, inventory, uploadedFileNames, addEventsFromCSV, addChangeEventsFromCSV, addInventoryFromCSV, addEventsFromJSON, downloadDataAsJSON, resetApplication, loading, error };
+    return { 
+        allEvents, changeEvents, inventory, 
+        energyDataToday, energyDataYesterday,
+        uploadedFileNames, 
+        addEventsFromCSV, addChangeEventsFromCSV, addInventoryFromCSV, 
+        addEnergyDataTodayFromCSV, addEnergyDataYesterdayFromCSV,
+        addEventsFromJSON, downloadDataAsJSON, 
+        deleteDataByFileName, resetApplication, 
+        loading, error 
+    };
 };

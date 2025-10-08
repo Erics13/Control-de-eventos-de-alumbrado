@@ -1,5 +1,3 @@
-
-
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 // FIX: Changed date-fns submodule imports from default to named. This resolves the "not callable"
 // error, likely caused by an upgrade to date-fns v3+ which uses named exports for submodules.
@@ -14,7 +12,7 @@ import { endOfMonth } from 'date-fns/endOfMonth';
 import { format } from 'date-fns/format';
 import { es } from 'date-fns/locale/es';
 import { useLuminaireData } from './hooks/useLuminaireData';
-import type { LuminaireEvent, InventoryItem } from './types';
+import type { LuminaireEvent, InventoryItem, EnergyReading } from './types';
 import { ALL_ZONES, MUNICIPIO_TO_ZONE_MAP, ZONE_ORDER } from './constants';
 import Header from './components/Header';
 import FileUpload from './components/FileUpload';
@@ -41,6 +39,10 @@ import InauguratedByZoneChart from './components/InauguratedByZoneChart';
 import InaugurationsByYearZoneChart from './components/InaugurationsByYearZoneChart';
 import FailurePercentageTable from './components/FailurePercentageTable';
 import OperatingHoursSummaryTable from './components/OperatingHoursSummaryTable';
+import PermanentOnTable from './components/PermanentOnTable';
+import type { PermanentOnResult } from './components/PermanentOnTable';
+import EnergyConsumptionByZoneChart from './components/EnergyConsumptionByZoneChart';
+import EnergyConsumptionByMunicipioChart from './components/EnergyConsumptionByMunicipioChart';
 
 const ERROR_DESC_LOW_CURRENT = "La corriente medida es menor que lo esperado o no hay corriente que fluya a través de la combinación de driver y lámpara.";
 const ERROR_DESC_HIGH_CURRENT = "La corriente medida para la combinación de driver y lámpara es mayor que la esperada.";
@@ -53,7 +55,7 @@ declare global {
     }
 }
 
-export type ActiveTab = 'eventos' | 'cambios' | 'inventario';
+export type ActiveTab = 'eventos' | 'cambios' | 'inventario' | 'energia';
 
 const TabButton: React.FC<{
     tabId: ActiveTab;
@@ -83,7 +85,17 @@ const TabButton: React.FC<{
 
 
 const App: React.FC = () => {
-    const { allEvents, changeEvents, inventory, uploadedFileNames, addEventsFromCSV, addChangeEventsFromCSV, addInventoryFromCSV, addEventsFromJSON, downloadDataAsJSON, resetApplication, loading, error } = useLuminaireData();
+    const { 
+        allEvents, changeEvents, inventory, 
+        energyDataToday, energyDataYesterday,
+        uploadedFileNames, 
+        addEventsFromCSV, addChangeEventsFromCSV, addInventoryFromCSV, 
+        addEnergyDataTodayFromCSV, addEnergyDataYesterdayFromCSV,
+        addEventsFromJSON, downloadDataAsJSON, 
+        deleteDataByFileName, resetApplication, 
+        loading, error 
+    } = useLuminaireData();
+
     const [dateRange, setDateRange] = useState<{ start: Date | null; end: Date | null }>({ start: null, end: null });
     const [selectedZone, setSelectedZone] = useState<string>('all');
     const [selectedMunicipio, setSelectedMunicipio] = useState<string>('all');
@@ -164,31 +176,40 @@ const App: React.FC = () => {
         }
     }, [selectedMonth, selectedYear]);
     
-     useEffect(() => {
-        // If the active tab has no data, switch to the first available tab in the preferred order.
+    useEffect(() => {
         if (loading) return;
 
         const hasInventory = inventory.length > 0;
         const hasChanges = changeEvents.length > 0;
         const hasEvents = allEvents.length > 0;
+        const hasEnergy = energyDataToday.length > 0 && energyDataYesterday.length > 0;
 
-        if (activeTab === 'inventario' && !hasInventory) {
-            if (hasChanges) setActiveTab('cambios');
-            else if (hasEvents) setActiveTab('eventos');
-        } else if (activeTab === 'cambios' && !hasChanges) {
-            if (hasInventory) setActiveTab('inventario');
-            else if (hasEvents) setActiveTab('eventos');
-        } else if (activeTab === 'eventos' && !hasEvents) {
-            if (hasInventory) setActiveTab('inventario');
-            else if (hasChanges) setActiveTab('cambios');
+        const tabs: { id: ActiveTab; hasData: boolean }[] = [
+            { id: 'inventario', hasData: hasInventory },
+            { id: 'cambios', hasData: hasChanges },
+            { id: 'eventos', hasData: hasEvents },
+            { id: 'energia', hasData: hasEnergy }
+        ];
+        
+        const currentTab = tabs.find(t => t.id === activeTab);
+
+        if (currentTab && !currentTab.hasData) {
+            const firstAvailableTab = tabs.find(t => t.hasData);
+            if (firstAvailableTab) {
+                setActiveTab(firstAvailableTab.id as ActiveTab);
+            }
+        } else if (!hasInventory && !hasChanges && !hasEvents && !hasEnergy) {
+            // Default to inventory if nothing is loaded
+            setActiveTab('inventario');
         }
-    }, [inventory.length, changeEvents.length, allEvents.length, activeTab, loading]);
+    }, [inventory.length, changeEvents.length, allEvents.length, energyDataToday.length, energyDataYesterday.length, activeTab, loading]);
+
 
      const handleJsonFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
         if (file) {
             addEventsFromJSON(file);
-            event.target.value = ''; // Reset input to allow re-uploading the same file
+            event.target.value = '';
         }
     };
 
@@ -207,6 +228,28 @@ const App: React.FC = () => {
             event.target.value = '';
         }
     };
+
+    const handleEnergyTodayFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (file) {
+            addEnergyDataTodayFromCSV(file);
+            event.target.value = '';
+        }
+    };
+
+     const handleEnergyYesterdayFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (file) {
+            addEnergyDataYesterdayFromCSV(file);
+            event.target.value = '';
+        }
+    };
+
+    const handleDeleteData = useCallback(async (fileName: string) => {
+        if (window.confirm(`¿Estás seguro de que quieres borrar todos los datos del archivo "${fileName}"? Esta acción no se puede deshacer.`)) {
+            await deleteDataByFileName(fileName);
+        }
+    }, [deleteDataByFileName]);
 
     const baseFilteredEvents = useMemo(() => {
         return allEvents.filter(event => {
@@ -231,7 +274,6 @@ const App: React.FC = () => {
                 return isDateInRange && isZoneMatch && isMunicipioMatch;
             }
             
-            // Normalize by removing colons and all whitespace for a more robust search
             const normalizedSearchTerm = searchLower.replace(/:/g, '').replace(/\s/g, '');
 
             const isSearchMatch = 
@@ -247,7 +289,6 @@ const App: React.FC = () => {
 
     const displayInventory = useMemo(() => {
         return inventory.filter(item => {
-            // Use the later of the two dates for filtering
             const relevantDate = item.fechaInauguracion && item.fechaInstalacion 
                 ? (item.fechaInauguracion > item.fechaInstalacion ? item.fechaInauguracion : item.fechaInstalacion)
                 : item.fechaInauguracion || item.fechaInstalacion;
@@ -364,13 +405,11 @@ const App: React.FC = () => {
         allEvents.forEach(event => {
             years.add(format(event.date, 'yyyy'));
         });
-        // FIX: Explicitly typed sort parameters to resolve TS error with arithmetic operations.
         return Array.from(years).sort((a: string, b: string) => parseInt(b) - parseInt(a));
     }, [allEvents]);
     
     const availablePowers = useMemo(() => {
         const powers = new Set(inventory.map(i => i.potenciaNominal).filter((p): p is number => p != null));
-        // FIX: Explicitly typed sort parameters to resolve TS error with arithmetic operations.
         return Array.from(powers).sort((a: number, b: number) => a - b).map(String);
     }, [inventory]);
 
@@ -471,7 +510,6 @@ const App: React.FC = () => {
         if (allEvents.length === 0) {
             return [];
         }
-        // `allEvents` is sorted by date descending. We iterate from the end to find the oldest events first.
         const oldestEventsMap = new Map<string, LuminaireEvent>();
         for (let i = allEvents.length - 1; i >= 0; i--) {
             const event = allEvents[i];
@@ -531,15 +569,15 @@ const App: React.FC = () => {
             const indexB = ZONE_ORDER.indexOf(b.name);
             
             if (indexA !== -1 && indexB !== -1) {
-                return indexA - indexB; // Both are in the order list
+                return indexA - indexB;
             }
             if (indexA !== -1) {
-                return -1; // A is in the list, B is not, so A comes first
+                return -1;
             }
             if (indexB !== -1) {
-                return 1; // B is in the list, A is not, so B comes first
+                return 1;
             }
-            return a.name.localeCompare(b.name); // Neither are in the list, sort alphabetically
+            return a.name.localeCompare(b.name);
         });
     }, [baseFilteredEvents, inventoryCountByZone]);
 
@@ -566,7 +604,7 @@ const App: React.FC = () => {
                 porcentaje,
             };
         })
-        .sort((a, b) => b.porcentaje - a.porcentaje); // Sort by percentage descending
+        .sort((a, b) => b.porcentaje - a.porcentaje);
     }, [baseFilteredEvents, inventoryCountByMunicipio]);
 
     // --- Lifted Summary Data Calculations ---
@@ -706,12 +744,22 @@ const App: React.FC = () => {
         }
 
         const RANGE_STEP = 5000;
+        const MAX_HOURS = 100000;
+
         const countsByRange = items.reduce((acc, item) => {
             if (item.horasFuncionamiento != null && item.horasFuncionamiento >= 0) {
-                const rangeIndex = Math.floor(item.horasFuncionamiento / RANGE_STEP);
-                const rangeStart = rangeIndex * RANGE_STEP;
-                const rangeEnd = rangeStart + RANGE_STEP - 1;
-                const rangeLabel = `${rangeStart.toLocaleString()} - ${rangeEnd.toLocaleString()} hs`;
+                let rangeLabel;
+
+                if (item.horasFuncionamiento > MAX_HOURS) {
+                    rangeLabel = `> ${MAX_HOURS.toLocaleString()} hs`;
+                } else if (item.horasFuncionamiento <= RANGE_STEP) {
+                    rangeLabel = `0 - ${RANGE_STEP.toLocaleString()} hs`;
+                } else {
+                    const rangeIndex = Math.floor((item.horasFuncionamiento - 1) / RANGE_STEP);
+                    const rangeStart = rangeIndex * RANGE_STEP + 1;
+                    const rangeEnd = (rangeIndex + 1) * RANGE_STEP;
+                    rangeLabel = `${rangeStart.toLocaleString()} - ${rangeEnd.toLocaleString()} hs`;
+                }
                 
                 acc[rangeLabel] = (acc[rangeLabel] || 0) + 1;
             }
@@ -723,6 +771,109 @@ const App: React.FC = () => {
             count,
         }));
     }, [finalDisplayInventory]);
+    
+    // --- Energy Analysis ---
+    const olcToLocationMap = useMemo(() => {
+        const map = new Map<number, { zone: string, municipio: string }>();
+        inventory.forEach(item => {
+            if (item.olcIdExterno && item.zone && item.municipio) {
+                map.set(item.olcIdExterno, { zone: item.zone, municipio: item.municipio });
+            }
+        });
+        return map;
+    }, [inventory]);
+
+    const totalEnergyConsumption = useMemo(() => {
+        if (energyDataYesterday.length === 0 || energyDataToday.length === 0) {
+            return { byZone: [], byMunicipio: [] };
+        }
+        
+        const yesterdayEnergyMap = new Map(energyDataYesterday.map(e => [e.olcId, e.energia]));
+        
+        const consumptionByZone: Record<string, number> = {};
+        const consumptionByMunicipio: Record<string, number> = {};
+
+        const filteredEnergyReadings = energyDataToday.filter(reading => {
+            const location = olcToLocationMap.get(reading.olcId);
+            if (!location) return false;
+            const isZoneMatch = selectedZone === 'all' || location.zone === selectedZone;
+            const isMunicipioMatch = selectedMunicipio === 'all' || location.municipio === selectedMunicipio;
+            return isZoneMatch && isMunicipioMatch;
+        });
+
+        for (const currentReading of filteredEnergyReadings) {
+            const prevEnergia = yesterdayEnergyMap.get(currentReading.olcId);
+            const location = olcToLocationMap.get(currentReading.olcId);
+
+            if (prevEnergia !== undefined && location) {
+                const deltaKwh = currentReading.energia - prevEnergia;
+                if (deltaKwh > 0) {
+                    consumptionByZone[location.zone] = (consumptionByZone[location.zone] || 0) + deltaKwh;
+                    consumptionByMunicipio[location.municipio] = (consumptionByMunicipio[location.municipio] || 0) + deltaKwh;
+                }
+            }
+        }
+        
+        const byZone = Object.entries(consumptionByZone).map(([name, consumo]) => ({ name, consumo }));
+        const byMunicipio = Object.entries(consumptionByMunicipio).map(([name, consumo]) => ({ name, consumo }));
+        
+        return { byZone, byMunicipio };
+
+    }, [energyDataToday, energyDataYesterday, olcToLocationMap, selectedZone, selectedMunicipio]);
+
+    const permanentOnLuminaires = useMemo<PermanentOnResult[]>(() => {
+        if (energyDataYesterday.length === 0 || energyDataToday.length === 0 || inventory.length === 0) {
+            return [];
+        }
+
+        const yesterdayEnergyMap = new Map(energyDataYesterday.map(e => [e.olcId, e]));
+        const inventoryMap = new Map(inventory.map(i => [i.olcIdExterno, i]));
+        const results: PermanentOnResult[] = [];
+
+        const filteredEnergyReadings = energyDataToday.filter(reading => {
+             const luminaire = inventoryMap.get(reading.olcId);
+             if (!luminaire) return false;
+             const isZoneMatch = selectedZone === 'all' || luminaire.zone === selectedZone;
+             const isMunicipioMatch = selectedMunicipio === 'all' || luminaire.municipio === selectedMunicipio;
+             return isZoneMatch && isMunicipioMatch;
+        });
+
+        for (const currentReading of filteredEnergyReadings) {
+            const prevReading = yesterdayEnergyMap.get(currentReading.olcId);
+            const luminaire = inventoryMap.get(currentReading.olcId);
+
+            if (prevReading && luminaire && luminaire.potenciaNominal) {
+                const deltaHours = (currentReading.ultimoContacto.getTime() - prevReading.ultimoContacto.getTime()) / (1000 * 60 * 60);
+                if (deltaHours <= 0) continue;
+
+                const deltaKwh = currentReading.energia - prevReading.energia;
+                if (deltaKwh <= 0) continue;
+
+                const avgPower = (deltaKwh * 1000) / deltaHours; // convert kWh to W
+                const nominalPower = luminaire.potenciaNominal;
+                
+                // A normally operating luminaire runs ~12h/day, so its average power over 24h is ~50% of nominal.
+                // If the average power is >80% of nominal, it's likely on for much longer than it should be.
+                const permanentOnThreshold = nominalPower * 0.80;
+
+                if (avgPower > permanentOnThreshold) {
+                    results.push({
+                        streetlightIdExterno: luminaire.streetlightIdExterno,
+                        municipio: luminaire.municipio,
+                        zone: luminaire.zone,
+                        potenciaNominal: luminaire.potenciaNominal,
+                        olcIdExterno: luminaire.olcIdExterno,
+                        avgPower,
+                        deltaKwh,
+                        deltaHours,
+                        prevDate: prevReading.ultimoContacto,
+                        currDate: currentReading.ultimoContacto,
+                    });
+                }
+            }
+        }
+        return results;
+    }, [inventory, energyDataToday, energyDataYesterday, selectedZone, selectedMunicipio]);
 
 
     // --- Export Handlers ---
@@ -825,7 +976,6 @@ const App: React.FC = () => {
     
         setIsExportingPdf(true);
         
-        // Use a timeout to allow React to render the off-screen container
         setTimeout(async () => {
             try {
                 const { jsPDF } = window.jspdf;
@@ -847,7 +997,7 @@ const App: React.FC = () => {
                     const chartElement = document.getElementById(elementId);
                     if (!chartElement) return;
         
-                    const chartHeight = 100; // Estimated height, adjust if needed
+                    const chartHeight = 100;
                     if (yPos + chartHeight > doc.internal.pageSize.getHeight() - pageMargin) {
                         doc.addPage();
                         yPos = 20;
@@ -877,10 +1027,9 @@ const App: React.FC = () => {
                 await addChartToPdf('pdf-inaugurated-zone-chart', 'Luminarias Inauguradas por Zona');
                 await addChartToPdf('pdf-inaugurations-year-zone-chart', 'Inauguraciones por Año y Zona');
 
-                // Power Summary Table with autoTable
                 const { powerData, locationColumns, columnTotals, grandTotal } = (() => {
                     const items = finalDisplayInventory;
-                    const isGroupingByZone = true; // Always group by zone for the main report
+                    const isGroupingByZone = true;
                     const locationColumns: string[] = ALL_ZONES.filter(zone => items.some(item => item.zone === zone));
                     const powers: number[] = Array.from(new Set<number>(items.map(item => item.potenciaNominal).filter((p): p is number => p != null))).sort((a, b) => a - b);
                     const powerMap = new Map<number, Record<string, number>>();
@@ -907,13 +1056,10 @@ const App: React.FC = () => {
                 })();
 
                 if (powerData.length > 0) {
-                    // Estimate height to see if the table fits on the current page.
-                    // Row height estimation: 7pt font (2.5mm) + padding. Let's say 4mm per row.
-                    // Header/Footer height estimation: 8pt font. Let's say 5mm per row.
-                    const titleHeight = 8; // mm for title
-                    const titleSpacing = 8; // mm
-                    const estimatedTableRowHeight = 4; // mm
-                    const estimatedTableHeaderFooterHeight = 5; // mm
+                    const titleHeight = 8;
+                    const titleSpacing = 8;
+                    const estimatedTableRowHeight = 4;
+                    const estimatedTableHeaderFooterHeight = 5;
                     const estimatedTableHeight = (powerData.length * estimatedTableRowHeight) + (2 * estimatedTableHeaderFooterHeight);
                     const totalSpaceNeeded = titleHeight + titleSpacing + estimatedTableHeight;
 
@@ -922,7 +1068,7 @@ const App: React.FC = () => {
 
                     if (yPos + totalSpaceNeeded > pageBottom) {
                         doc.addPage();
-                        yPos = 20; // Reset yPos for the new page
+                        yPos = 20;
                     }
 
                     doc.setFontSize(14);
@@ -1041,124 +1187,89 @@ const App: React.FC = () => {
                 onToggleFilters={() => setIsFiltersVisible(v => !v)}
             />
             <main className="flex-grow container mx-auto px-4 md:px-8 pt-4 overflow-hidden flex flex-col">
-                {/* --- FIXED TOP SECTION --- */}
                 <div className="flex-shrink-0">
                     {isDataManagementVisible && (
                         <div id="data-management-panel" className="bg-gray-800 shadow-lg rounded-xl p-4 mb-4">
-                            <div>
+                             <div className="flex flex-col items-center">
                                 <h2 className="text-xl font-bold text-cyan-400 mb-2">Gestión de Datos</h2>
-                                <p className="text-gray-400 mb-4">
-                                    Carga nuevos datos de eventos, cambios o inventario desde archivos CSV, o gestiona respaldos de tu base de datos en formato JSON.
+                                <p className="text-gray-400 mb-4 text-center">
+                                    Cargue planillas de datos, gestione respaldos y exporte resultados. Para el análisis de consumo diario, cargue los archivos de energía de ayer y hoy.
                                 </p>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                                    <FileUpload onFileUpload={addEventsFromCSV} loading={loading} />
-                                    <div>
-                                        <input
-                                            type="file"
-                                            id="change-csv-upload-input"
-                                            accept=".csv"
-                                            onChange={handleChangesFileChange}
-                                            className="hidden"
-                                            disabled={loading}
-                                        />
-                                        <button
-                                            onClick={() => document.getElementById('change-csv-upload-input')?.click()}
-                                            disabled={loading}
-                                            className="w-full h-full bg-amber-600 hover:bg-amber-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-colors duration-300 flex items-center justify-center gap-3"
-                                        >
-                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h5M5.5 9.5L4 11m0 0l1.5 1.5M4 11h16m-5-5v5h5m-5-1.5l1.5 1.5m0 0L20 9.5" /></svg>
-                                            <span>Cargar CSV de Cambios</span>
+                                <div className="w-full max-w-6xl flex flex-col items-center gap-y-3">
+                                    {/* --- Fila 1: Carga de Planillas --- */}
+                                    <div className="w-full grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+                                        <FileUpload onFileUpload={addEventsFromCSV} loading={loading} />
+                                        
+                                        <input type="file" id="change-csv-upload-input" accept=".csv" onChange={handleChangesFileChange} className="hidden" disabled={loading} />
+                                        <button onClick={() => document.getElementById('change-csv-upload-input')?.click()} disabled={loading} className="w-full h-full bg-amber-600 hover:bg-amber-700 disabled:bg-gray-600 text-white font-bold py-3 px-4 rounded-lg transition-colors flex items-center justify-center gap-2 text-sm">
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h5M5.5 9.5L4 11m0 0l1.5 1.5M4 11h16m-5-5v5h5m-5-1.5l1.5 1.5m0 0L20 9.5" /></svg>
+                                            <span>Cargar Cambios</span>
+                                        </button>
+                                        
+                                        <input type="file" id="inventory-csv-upload-input" accept=".csv" onChange={handleInventoryFileChange} className="hidden" disabled={loading} />
+                                        <button onClick={() => document.getElementById('inventory-csv-upload-input')?.click()} disabled={loading} className="w-full h-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-600 text-white font-bold py-3 px-4 rounded-lg transition-colors flex items-center justify-center gap-2 text-sm">
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M7 3a1 1 0 000 2h6a1 1 0 100-2H7zM4 7a1 1 0 011-1h10a1 1 0 110 2H5a1 1 0 01-1-1zM2 11a2 2 0 012-2h12a2 2 0 012 2v4a2 2 0 01-2-2H4a2 2 0 01-2-2v-4z" /></svg>
+                                            <span>Cargar Inventario</span>
+                                        </button>
+
+                                        <input type="file" id="energy-yesterday-csv-upload-input" accept=".csv" onChange={handleEnergyYesterdayFileChange} className="hidden" disabled={loading} />
+                                        <button onClick={() => document.getElementById('energy-yesterday-csv-upload-input')?.click()} disabled={loading} className="w-full h-full bg-fuchsia-700 hover:bg-fuchsia-800 disabled:bg-gray-600 text-white font-bold py-3 px-4 rounded-lg transition-colors flex items-center justify-center gap-2 text-sm">
+                                             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                                            <span>Cargar Energía (Ayer)</span>
+                                        </button>
+
+                                        <input type="file" id="energy-today-csv-upload-input" accept=".csv" onChange={handleEnergyTodayFileChange} className="hidden" disabled={loading} />
+                                        <button onClick={() => document.getElementById('energy-today-csv-upload-input')?.click()} disabled={loading} className="w-full h-full bg-fuchsia-500 hover:bg-fuchsia-600 disabled:bg-gray-600 text-white font-bold py-3 px-4 rounded-lg transition-colors flex items-center justify-center gap-2 text-sm">
+                                             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                                            <span>Cargar Energía (Hoy)</span>
                                         </button>
                                     </div>
-                                    <div>
-                                        <input
-                                            type="file"
-                                            id="inventory-csv-upload-input"
-                                            accept=".csv"
-                                            onChange={handleInventoryFileChange}
-                                            className="hidden"
-                                            disabled={loading}
-                                        />
-                                        <button
-                                            onClick={() => document.getElementById('inventory-csv-upload-input')?.click()}
-                                            disabled={loading}
-                                            className="w-full h-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-colors duration-300 flex items-center justify-center gap-3"
-                                        >
-                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor"><path d="M7 3a1 1 0 000 2h6a1 1 0 100-2H7zM4 7a1 1 0 011-1h10a1 1 0 110 2H5a1 1 0 01-1-1zM2 11a2 2 0 012-2h12a2 2 0 012 2v4a2 2 0 01-2-2H4a2 2 0 01-2-2v-4z" /></svg>
-                                            <span>Cargar CSV de Inventario</span>
+                                    
+                                    {/* --- Fila 2: Respaldos --- */}
+                                     <div className="w-full grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        <button onClick={downloadDataAsJSON} disabled={loading || noDataLoaded} className="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white font-bold py-3 px-4 rounded-lg transition-colors flex items-center justify-center gap-2">
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
+                                            Descargar Respaldo JSON
                                         </button>
-                                    </div>
-                                    <div>
-                                        <input
-                                            type="file"
-                                            id="json-upload-input"
-                                            accept=".json"
-                                            onChange={handleJsonFileChange}
-                                            className="hidden"
-                                            disabled={loading}
-                                        />
-                                        <button
-                                            onClick={() => document.getElementById('json-upload-input')?.click()}
-                                            disabled={loading}
-                                            className="w-full h-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-colors duration-300 flex items-center justify-center gap-3"
-                                        >
-                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
+                                        <input type="file" id="json-upload-input" accept=".json" onChange={handleJsonFileChange} className="hidden" disabled={loading} />
+                                        <button onClick={() => document.getElementById('json-upload-input')?.click()} disabled={loading} className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white font-bold py-3 px-4 rounded-lg transition-colors flex items-center justify-center gap-2">
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
                                             <span>Cargar Respaldo JSON</span>
                                         </button>
                                     </div>
-                                    <button
-                                        onClick={downloadDataAsJSON}
-                                        disabled={loading || (allEvents.length === 0 && changeEvents.length === 0)}
-                                        className="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-colors duration-300 flex items-center justify-center gap-2">
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
-                                        Descargar Respaldo JSON
-                                    </button>
-                                    <button
-                                        onClick={handleExportPDF}
-                                        disabled={loading || isExportingPdf || (allEvents.length === 0 && changeEvents.length === 0 && inventory.length === 0)}
-                                        className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-colors duration-300 flex items-center justify-center gap-2">
-                                        {isExportingPdf ? (
-                                            <>
-                                                <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                                                Exportando...
-                                            </>
-                                        ) : (
-                                            <>
-                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10.75 2.75a.75.75 0 00-1.5 0v8.614L6.295 8.235a.75.75 0 10-1.09 1.03l4.25 4.5a.75.75 0 001.09 0l4.25-4.5a.75.75 0 00-1.09-1.03l-2.955 3.129V2.75z" /><path d="M3.5 12.75a.75.75 0 00-1.5 0v2.5A2.75 2.75 0 004.75 18h10.5A2.75 2.75 0 0018 15.25v-2.5a.75.75 0 00-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5z" /></svg>
-                                                Exportar a PDF
-                                            </>
-                                        )}
-                                    </button>
-                                    <button
-                                        onClick={resetApplication}
-                                        disabled={loading || (allEvents.length === 0 && changeEvents.length === 0 && inventory.length === 0)}
-                                        className="w-full bg-red-600 hover:bg-red-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-colors duration-300 flex items-center justify-center gap-2">
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 110 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" /></svg>
-                                        Reiniciar Aplicación
-                                    </button>
+
+                                    {/* --- Fila 3: Acciones Globales --- */}
+                                    <div className="w-full grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        <button onClick={handleExportPDF} disabled={loading || isExportingPdf || noDataLoaded} className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 text-white font-bold py-3 px-4 rounded-lg transition-colors flex items-center justify-center gap-2">
+                                            {isExportingPdf ? 'Exportando...' : 'Exportar a PDF'}
+                                        </button>
+                                        <button onClick={resetApplication} disabled={loading || noDataLoaded} className="w-full bg-red-600 hover:bg-red-700 disabled:bg-gray-600 text-white font-bold py-3 px-4 rounded-lg transition-colors flex items-center justify-center gap-2">
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 110 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" /></svg>
+                                            Reiniciar Aplicación
+                                        </button>
+                                    </div>
                                 </div>
                                 {error && <p className="text-red-400 mt-4">{error}</p>}
                                 {uploadedFileNames.length > 0 && (
-                                    <div className="mt-6 border-t border-gray-700 pt-4">
+                                    <div className="mt-6 border-t border-gray-700 pt-4 w-full max-w-6xl">
                                         <div className="flex justify-between items-center">
                                             <h3 className="text-lg font-semibold text-cyan-400">Planillas Cargadas ({uploadedFileNames.length})</h3>
                                             {uploadedFileNames.length > 1 && (
-                                                <button
-                                                    onClick={() => setIsFilelistVisible(!isFilelistVisible)}
-                                                    className="p-1 rounded-full hover:bg-gray-700 transition-colors focus:outline-none focus:ring-2 focus:ring-cyan-500"
-                                                    aria-expanded={isFilelistVisible}
-                                                    aria-controls="file-list"
-                                                >
-                                                    <svg xmlns="http://www.w3.org/2000/svg" className={`h-6 w-6 text-gray-400 transform transition-transform duration-300 ${ isFilelistVisible ? 'rotate-180' : '' }`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                                                    </svg>
-                                                    <span className="sr-only">{isFilelistVisible ? 'Ocultar lista' : 'Mostrar lista'}</span>
+                                                <button onClick={() => setIsFilelistVisible(!isFilelistVisible)} className="p-1 rounded-full hover:bg-gray-700 transition-colors focus:outline-none focus:ring-2 focus:ring-cyan-500" aria-expanded={isFilelistVisible} aria-controls="file-list">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" className={`h-6 w-6 text-gray-400 transform transition-transform duration-300 ${ isFilelistVisible ? 'rotate-180' : '' }`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
                                                 </button>
                                             )}
                                         </div>
                                         {isFilelistVisible && (
-                                            <ul id="file-list" className="list-disc list-inside text-gray-400 max-h-32 overflow-y-auto text-sm space-y-1 bg-gray-900/50 p-3 rounded-md mt-2">
-                                                {uploadedFileNames.map(name => <li key={name}>{name}</li>)}
+                                            <ul id="file-list" className="list-inside text-gray-400 max-h-32 overflow-y-auto text-sm space-y-2 bg-gray-900/50 p-3 rounded-md mt-2">
+                                                {uploadedFileNames.map(name => (
+                                                    <li key={name} className="flex justify-between items-center bg-gray-700/50 p-2 rounded">
+                                                        <span>{name}</span>
+                                                        <button onClick={() => handleDeleteData(name)} className="text-red-500 hover:text-red-400 p-1 rounded-full hover:bg-gray-600 transition-colors" title={`Eliminar datos de ${name}`}>
+                                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                                        </button>
+                                                    </li>
+                                                ))}
                                             </ul>
                                         )}
                                     </div>
@@ -1172,31 +1283,14 @@ const App: React.FC = () => {
                            <h2 className="text-xl font-bold text-cyan-400 mb-4">Filtros y Análisis</h2>
                             <div className="border-t border-gray-700 pt-4">
                                 <FilterControls
-                                    activeTab={activeTab}
-                                    dateRange={dateRange}
-                                    setDateRange={setDateRange}
-                                    handleSetDatePreset={handleSetDatePreset}
-                                    selectedZone={selectedZone}
-                                    setSelectedZone={setSelectedZone}
-                                    selectedMunicipio={selectedMunicipio}
-                                    setSelectedMunicipio={setSelectedMunicipio}
-                                    municipios={filteredMunicipios}
-                                    selectedCategory={selectedCategory}
-                                    setSelectedCategory={setSelectedCategory}
-                                    zones={zones.length > 0 ? zones : ALL_ZONES}
-                                    failureCategories={failureCategories}
-                                    availableYears={availableYears}
-                                    selectedMonth={selectedMonth}
-                                    setSelectedMonth={setSelectedMonth}
-                                    selectedYear={selectedYear}
-                                    setSelectedYear={setSelectedYear}
-                                    availablePowers={availablePowers}
-                                    selectedPower={selectedPower}
-                                    setSelectedPower={setSelectedPower}
-                                    availableCalendars={availableCalendars}
-                                    selectedCalendar={selectedCalendar}
-                                    setSelectedCalendar={setSelectedCalendar}
-                                    setSearchTerm={setSearchTerm}
+                                    activeTab={activeTab} dateRange={dateRange} setDateRange={setDateRange} handleSetDatePreset={handleSetDatePreset}
+                                    selectedZone={selectedZone} setSelectedZone={setSelectedZone} selectedMunicipio={selectedMunicipio}
+                                    setSelectedMunicipio={setSelectedMunicipio} municipios={filteredMunicipios} selectedCategory={selectedCategory}
+                                    setSelectedCategory={setSelectedCategory} zones={zones.length > 0 ? zones : ALL_ZONES} failureCategories={failureCategories}
+                                    availableYears={availableYears} selectedMonth={selectedMonth} setSelectedMonth={setSelectedMonth}
+                                    selectedYear={selectedYear} setSelectedYear={setSelectedYear} availablePowers={availablePowers}
+                                    selectedPower={selectedPower} setSelectedPower={setSelectedPower} availableCalendars={availableCalendars}
+                                    selectedCalendar={selectedCalendar} setSelectedCalendar={setSelectedCalendar} setSearchTerm={setSearchTerm}
                                 />
                             </div>
                         </div>
@@ -1207,6 +1301,7 @@ const App: React.FC = () => {
                              <TabButton tabId="inventario" title="Inventario" activeTab={activeTab} setActiveTab={setActiveTab} disabled={inventory.length === 0} />
                              <TabButton tabId="cambios" title="Cambios" activeTab={activeTab} setActiveTab={setActiveTab} disabled={changeEvents.length === 0} />
                              <TabButton tabId="eventos" title="Eventos" activeTab={activeTab} setActiveTab={setActiveTab} disabled={allEvents.length === 0} />
+                             <TabButton tabId="energia" title="Energía" activeTab={activeTab} setActiveTab={setActiveTab} disabled={energyDataToday.length === 0 || energyDataYesterday.length === 0} />
                         </nav>
                     </div>
                 </div>
@@ -1232,39 +1327,16 @@ const App: React.FC = () => {
                                         </div>
                                     </div>
                                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                                        <div id="category-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-4">
-                                            <h3 className="text-lg font-semibold text-cyan-400 mb-3">Eventos por Categoría</h3>
-                                            <FailureByCategoryChart data={baseFilteredEvents} />
-                                        </div>
-                                        <div id="special-events-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-4">
-                                            <h3 className="text-lg font-semibold text-cyan-400 mb-3">Eventos por Hurto, Vandalismo y Caídas</h3>
-                                            <SpecialEventsChart data={baseFilteredEvents} />
-                                        </div>
+                                        <div id="category-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-4"><h3 className="text-lg font-semibold text-cyan-400 mb-3">Eventos por Categoría</h3><FailureByCategoryChart data={baseFilteredEvents} /></div>
+                                        <div id="special-events-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-4"><h3 className="text-lg font-semibold text-cyan-400 mb-3">Eventos por Hurto, Vandalismo y Caídas</h3><SpecialEventsChart data={baseFilteredEvents} /></div>
                                     </div>
-                                    <div id="zone-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-4">
-                                        <h3 className="text-lg font-semibold text-cyan-400 mb-3">Porcentaje de Fallas por Zona (% del Inventario)</h3>
-                                        <FailureByZoneChart data={failureDataByZone} />
-                                    </div>
-                                    <CollapsibleSection title="Detalle de Fallas por Zona" onExport={handleExportFailureByZone}>
-                                        <FailurePercentageTable data={failureDataByZone} locationHeader="Zona" />
-                                    </CollapsibleSection>
-                                    <div id="municipio-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-4">
-                                        <h3 className="text-lg font-semibold text-cyan-400 mb-3">Porcentaje de Fallas por Municipio (% del Inventario)</h3>
-                                        <FailureByMunicipioChart data={failureDataByMunicipio} />
-                                    </div>
-                                    <CollapsibleSection title="Detalle de Fallas por Municipio" onExport={handleExportFailureByMunicipio}>
-                                        <FailurePercentageTable data={failureDataByMunicipio} locationHeader="Municipio" />
-                                    </CollapsibleSection>
-                                    <div id="events-by-month-container" className="bg-gray-800 shadow-lg rounded-xl p-4">
-                                        <h3 className="text-lg font-semibold text-cyan-400 mb-3">Volumen de Eventos por Mes</h3>
-                                        <EventsByMonthChart data={baseFilteredEvents} />
-                                    </div>
-                                    <CollapsibleSection title="Registro de Eventos de Falla">
-                                        <EventTable events={displayEvents} />
-                                    </CollapsibleSection>
-                                    <CollapsibleSection title="Eventos Reportados Más Antiguos por Zona">
-                                        <OldestEventsByZone data={oldestEventsByZone} />
-                                    </CollapsibleSection>
+                                    <div id="zone-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-4"><h3 className="text-lg font-semibold text-cyan-400 mb-3">Porcentaje de Fallas por Zona (% del Inventario)</h3><FailureByZoneChart data={failureDataByZone} /></div>
+                                    <CollapsibleSection title="Detalle de Fallas por Zona" onExport={handleExportFailureByZone}><FailurePercentageTable data={failureDataByZone} locationHeader="Zona" /></CollapsibleSection>
+                                    <div id="municipio-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-4"><h3 className="text-lg font-semibold text-cyan-400 mb-3">Porcentaje de Fallas por Municipio (% del Inventario)</h3><FailureByMunicipioChart data={failureDataByMunicipio} /></div>
+                                    <CollapsibleSection title="Detalle de Fallas por Municipio" onExport={handleExportFailureByMunicipio}><FailurePercentageTable data={failureDataByMunicipio} locationHeader="Municipio" /></CollapsibleSection>
+                                    <div id="events-by-month-container" className="bg-gray-800 shadow-lg rounded-xl p-4"><h3 className="text-lg font-semibold text-cyan-400 mb-3">Volumen de Eventos por Mes</h3><EventsByMonthChart data={baseFilteredEvents} /></div>
+                                    <CollapsibleSection title="Registro de Eventos de Falla"><EventTable events={displayEvents} /></CollapsibleSection>
+                                    <CollapsibleSection title="Eventos Reportados Más Antiguos por Zona"><OldestEventsByZone data={oldestEventsByZone} /></CollapsibleSection>
                                 </>
                             )}
                             
@@ -1282,48 +1354,8 @@ const App: React.FC = () => {
                                             <DashboardCard title="Por Hurto" value={hurtoChangesCount.toLocaleString()} onClick={() => handleCardChangeClick('hurtoChange')} isActive={cardChangeFilter === 'hurtoChange'}/>
                                         </div>
                                     </div>
-                                    <div className="grid grid-cols-1 gap-4">
-                                        <div id="changes-by-zone-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-4">
-                                            <h3 className="text-lg font-semibold text-cyan-400 mb-3">Cambios por Zona</h3>
-                                            <ChangesByZoneChart data={baseFilteredChangeEvents} />
-                                        </div>
-                                    </div>
-                                    <CollapsibleSection 
-                                        title="Registro de Cambios"
-                                        defaultOpen={true}
-                                        extraHeaderContent={
-                                            <div className="relative flex items-center">
-                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 absolute left-3 text-gray-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                                                </svg>
-                                                <input
-                                                    type="text"
-                                                    placeholder="Buscar en Cambios..."
-                                                    value={searchTerm}
-                                                    onChange={(e) => setSearchTerm(e.target.value)}
-                                                    onClick={(e) => e.stopPropagation()}
-                                                    className="w-64 bg-gray-700 border border-gray-600 rounded-md py-2 pl-10 pr-10 text-white focus:ring-cyan-500 focus:border-cyan-500 transition-colors"
-                                                    aria-label="Buscar en tabla de cambios"
-                                                />
-                                                {searchTerm && (
-                                                    <button
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            setSearchTerm('');
-                                                        }}
-                                                        className="absolute right-0 top-0 h-full px-3 flex items-center text-gray-400 hover:text-white transition-colors"
-                                                        aria-label="Limpiar búsqueda"
-                                                    >
-                                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                                                        </svg>
-                                                    </button>
-                                                )}
-                                            </div>
-                                        }
-                                    >
-                                        <ChangeEventTable events={displayChangeEvents} />
-                                    </CollapsibleSection>
+                                    <div className="grid grid-cols-1 gap-4"><div id="changes-by-zone-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-4"><h3 className="text-lg font-semibold text-cyan-400 mb-3">Cambios por Zona</h3><ChangesByZoneChart data={baseFilteredChangeEvents} /></div></div>
+                                    <CollapsibleSection title="Registro de Cambios" defaultOpen={true} extraHeaderContent={<div className="relative flex items-center"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 absolute left-3 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg><input type="text" placeholder="Buscar en Cambios..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} onClick={(e) => e.stopPropagation()} className="w-64 bg-gray-700 border border-gray-600 rounded-md py-2 pl-10 pr-10 text-white" />{searchTerm && (<button onClick={(e) => { e.stopPropagation(); setSearchTerm(''); }} className="absolute right-0 top-0 h-full px-3 flex items-center text-gray-400 hover:text-white"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg></button>)}</div>}><ChangeEventTable events={displayChangeEvents} /></CollapsibleSection>
                                 </>
                             )}
 
@@ -1346,71 +1378,42 @@ const App: React.FC = () => {
                                     </div>
                                     <div id="inventory-analysis-section" className="space-y-4">
                                         <h2 className="text-xl font-bold text-cyan-400">Análisis de Inventario</h2>
-                                        <CollapsibleSection 
-                                            title="Resumen de Potencias por Ubicación"
-                                            onExport={handleExportPowerSummary}
-                                        >
-                                            <PowerSummaryTable summaryData={powerSummary} />
-                                        </CollapsibleSection>
-                                        <CollapsibleSection 
-                                            title="Resumen de Potencias por Municipio"
-                                            onExport={handleExportPowerSummaryByMunicipio}
-                                        >
-                                            <PowerSummaryTable summaryData={powerSummaryByMunicipio} />
-                                        </CollapsibleSection>
-                                        <CollapsibleSection 
-                                            title="Resumen de Horas de Funcionamiento"
-                                            onExport={handleExportOperatingHoursSummary}
-                                        >
-                                            <OperatingHoursSummaryTable data={operatingHoursSummary} />
-                                        </CollapsibleSection>
+                                        <CollapsibleSection title="Resumen de Potencias por Ubicación" onExport={handleExportPowerSummary}><PowerSummaryTable summaryData={powerSummary} /></CollapsibleSection>
+                                        <CollapsibleSection title="Resumen de Potencias por Municipio" onExport={handleExportPowerSummaryByMunicipio}><PowerSummaryTable summaryData={powerSummaryByMunicipio} /></CollapsibleSection>
+                                        <CollapsibleSection title="Resumen de Horas de Funcionamiento" onExport={handleExportOperatingHoursSummary}><OperatingHoursSummaryTable data={operatingHoursSummary} /></CollapsibleSection>
                                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                                            <CollapsibleSection 
-                                                title="Resumen de Luminarias por Gabinete"
-                                                isOpen={isInventorySummariesOpen}
-                                                onToggle={() => setIsInventorySummariesOpen(v => !v)}
-                                                onExport={handleExportCabinetSummary}
-                                            >
-                                                <CabinetSummaryTable data={cabinetSummaryData} />
-                                            </CollapsibleSection>
-                                            <CollapsibleSection 
-                                                title="Resumen de Servicios de Alumbrado"
-                                                isOpen={isInventorySummariesOpen}
-                                                onToggle={() => setIsInventorySummariesOpen(v => !v)}
-                                                onExport={handleExportServiceSummary}
-                                            >
-                                                <ServiceSummaryTable data={serviceSummaryData} />
-                                            </CollapsibleSection>
+                                            <CollapsibleSection title="Resumen de Luminarias por Gabinete" isOpen={isInventorySummariesOpen} onToggle={() => setIsInventorySummariesOpen(v => !v)} onExport={handleExportCabinetSummary}><CabinetSummaryTable data={cabinetSummaryData} /></CollapsibleSection>
+                                            <CollapsibleSection title="Resumen de Servicios de Alumbrado" isOpen={isInventorySummariesOpen} onToggle={() => setIsInventorySummariesOpen(v => !v)} onExport={handleExportServiceSummary}><ServiceSummaryTable data={serviceSummaryData} /></CollapsibleSection>
                                         </div>
-                                        <div id="inventory-zone-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-4">
-                                            <h3 className="text-lg font-semibold text-cyan-400 mb-3">Inventario por Zona</h3>
-                                            <InventoryByZoneChart data={finalDisplayInventory} />
-                                        </div>
-                                        <div id="inventory-municipio-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-4">
-                                            <h3 className="text-lg font-semibold text-cyan-400 mb-3">Inventario por Municipio</h3>
-                                            <InventoryByMunicipioChart data={finalDisplayInventory} />
-                                        </div>
-                                        <div id="inaugurated-zone-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-4">
-                                            <h3 className="text-lg font-semibold text-cyan-400 mb-3">Luminarias Inauguradas por Zona</h3>
-                                            <InauguratedByZoneChart data={finalDisplayInventory} />
-                                        </div>
-                                        <div id="inaugurations-by-year-zone-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-4">
-                                            <h3 className="text-lg font-semibold text-cyan-400 mb-3">Inauguraciones por Año y Zona</h3>
-                                            <InaugurationsByYearZoneChart data={finalDisplayInventory} />
-                                        </div>
+                                        <div id="inventory-zone-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-4"><h3 className="text-lg font-semibold text-cyan-400 mb-3">Inventario por Zona</h3><InventoryByZoneChart data={finalDisplayInventory} /></div>
+                                        <div id="inventory-municipio-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-4"><h3 className="text-lg font-semibold text-cyan-400 mb-3">Inventario por Municipio</h3><InventoryByMunicipioChart data={finalDisplayInventory} /></div>
+                                        <div id="inaugurated-zone-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-4"><h3 className="text-lg font-semibold text-cyan-400 mb-3">Luminarias Inauguradas por Zona</h3><InauguratedByZoneChart data={finalDisplayInventory} /></div>
+                                        <div id="inaugurations-by-year-zone-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-4"><h3 className="text-lg font-semibold text-cyan-400 mb-3">Inauguraciones por Año y Zona</h3><InaugurationsByYearZoneChart data={finalDisplayInventory} /></div>
                                     </div>
-                                    <CollapsibleSection title="Listado de Inventario">
-                                        <InventoryTable items={finalDisplayInventory} />
-                                    </CollapsibleSection>
+                                    <CollapsibleSection title="Listado de Inventario"><InventoryTable items={finalDisplayInventory} /></CollapsibleSection>
                                 </>
                             )}
+
+                             {activeTab === 'energia' && (energyDataToday.length > 0 && energyDataYesterday.length > 0) && (
+                                <div className="space-y-6">
+                                    <h2 className="text-2xl font-bold text-cyan-400 mb-4">Análisis de Consumo Energético Diario</h2>
+                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                        <div className="bg-gray-800 shadow-lg rounded-xl p-4"><EnergyConsumptionByZoneChart data={totalEnergyConsumption.byZone} /></div>
+                                        <div className="bg-gray-800 shadow-lg rounded-xl p-4"><EnergyConsumptionByMunicipioChart data={totalEnergyConsumption.byMunicipio} /></div>
+                                    </div>
+                                    <CollapsibleSection title={`Análisis de Encendido Permanente (${permanentOnLuminaires.length})`} defaultOpen={true}>
+                                        <PermanentOnTable data={permanentOnLuminaires} />
+                                    </CollapsibleSection>
+                                </div>
+                             )}
+
                         </div>
                     )}
 
                     {noDataLoaded && (
                         <div className="text-center p-16 bg-gray-800 rounded-lg">
                             <h2 className="text-2xl font-semibold text-gray-300">No hay datos cargados</h2>
-                            <p className="text-gray-500 mt-2">Utilice los botones de "Gestión de Datos" para cargar planillas CSV y comenzar el análisis.</p>
+                            <p className="text-gray-500 mt-2">Utilice los botones de "Gestión de Datos" para cargar planillas y comenzar el análisis.</p>
                         </div>
                     )}
                 </div>
