@@ -595,24 +595,26 @@ export const useLuminaireData = () => {
                 const todayEnergyFile = data?.metadata?.todayEnergyFile;
                 const yesterdayEnergyFile = data?.metadata?.yesterdayEnergyFile;
 
-                const parsedLuminaireEvents: LuminaireEvent[] = luminaireEventsToProcess.map((d: any) => ({ ...d, date: new Date(d.date), sourceFile: d.sourceFile || file.name }));
-                const parsedChangeEvents: ChangeEvent[] = changeEventsToProcess.map((d: any) => ({ ...d, fechaRetiro: new Date(d.fechaRetiro), sourceFile: d.sourceFile || file.name }));
+                // Reconstruct Date objects from string representations from the JSON file.
+                // The spread operator (...d) correctly carries over all other properties, including the original `sourceFile`.
+                const parsedLuminaireEvents: LuminaireEvent[] = luminaireEventsToProcess.map((d: any) => ({ ...d, date: new Date(d.date) }));
+                const parsedChangeEvents: ChangeEvent[] = changeEventsToProcess.map((d: any) => ({ ...d, fechaRetiro: new Date(d.fechaRetiro) }));
                 const parsedInventory: InventoryItem[] = inventoryToProcess.map((d: any) => ({
                     ...d,
                     fechaInstalacion: d.fechaInstalacion ? new Date(d.fechaInstalacion) : undefined,
                     fechaInauguracion: d.fechaInauguracion ? new Date(d.fechaInauguracion) : undefined,
                     ultimoInforme: d.ultimoInforme ? new Date(d.ultimoInforme) : undefined,
-                    sourceFile: d.sourceFile || file.name,
                 }));
-                const parsedEnergyReadings: EnergyReading[] = energyToProcess.map((d: any) => ({ ...d, ultimoContacto: new Date(d.ultimoContacto), sourceFile: d.sourceFile || file.name }));
+                const parsedEnergyReadings: EnergyReading[] = energyToProcess.map((d: any) => ({ ...d, ultimoContacto: new Date(d.ultimoContacto) }));
                 
-                const newFileNames = Array.from(new Set([...uploadedFileNames, file.name, ...filesToProcess])).sort();
+                // The JSON backup file itself is not a data source, so don't add its name to the list.
+                // Only merge the file names that were part of the backup.
+                const newFileNames = Array.from(new Set([...uploadedFileNames, ...filesToProcess])).sort();
 
                 await Promise.all([
                     bulkAddOrUpdate(LUMINAIRE_EVENTS_STORE, parsedLuminaireEvents),
                     bulkAddOrUpdate(CHANGE_EVENTS_STORE, parsedChangeEvents),
                     bulkAddOrUpdate(INVENTORY_STORE, parsedInventory),
-                    // Use parsedEnergyReadings directly. `bulkAddOrUpdate` uses 'put' which will add or update records.
                     bulkAddOrUpdate(ENERGY_READINGS_STORE, parsedEnergyReadings),
                     setMetadata('uploadedFileNames', newFileNames),
                     todayEnergyFile ? setMetadata('todayEnergyFile', todayEnergyFile) : Promise.resolve(),

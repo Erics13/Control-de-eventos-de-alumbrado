@@ -275,11 +275,11 @@ const App: React.FC = () => {
         }
     };
 
-    const handleDeleteData = useCallback(async (fileName: string) => {
+    const handleDeleteData = async (fileName: string) => {
         if (window.confirm(`¿Estás seguro de que quieres borrar todos los datos del archivo "${fileName}"? Esta acción no se puede deshacer.`)) {
             await deleteDataByFileName(fileName);
         }
-    }, [deleteDataByFileName]);
+    };
 
     const baseFilteredEvents = useMemo(() => {
         return allEvents.filter(event => {
