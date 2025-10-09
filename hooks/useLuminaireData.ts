@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useCallback } from 'react';
 import { openDB, DBSchema, IDBPDatabase, deleteDB } from 'idb';
 import type { LuminaireEvent, ChangeEvent, InventoryItem, EnergyReading } from '../types';
@@ -426,8 +427,21 @@ export const useLuminaireData = () => {
                     const cabinetLon = parseFloat(columns[20]?.trim().replace(/"/g, '').replace(',', '.'));
                     const horasFuncionamiento = parseInt(columns[16]?.trim().replace(/\./g, ''), 10);
                     const recuentoConmutacion = parseInt(columns[17]?.trim().replace(/\./g, ''), 10);
-                    const potenciaNominal = parseInt(columns[21]?.trim(), 10);
                     const olcIdExterno = parseInt(columns[14]?.trim(), 10);
+
+                    // User specified that nominal power comes from "Luminaire type/Potencia nominal" (designacionTipo, column 22).
+                    // We need to parse it from a string like "Luminaria LED 75W".
+                    const designacionTipo = columns[22]?.trim();
+                    let potenciaNominal: number | undefined;
+                    if (designacionTipo) {
+                        const match = designacionTipo.match(/(\d+)\s*W/i);
+                        if (match && match[1]) {
+                            const parsedPower = parseInt(match[1], 10);
+                            if (!isNaN(parsedPower)) {
+                                potenciaNominal = parsedPower;
+                            }
+                        }
+                    }
                     
                     parsedItems.push({
                         streetlightIdExterno,
@@ -452,8 +466,8 @@ export const useLuminaireData = () => {
                         cabinetIdExterno: columns[18]?.trim(),
                         cabinetLat: !isNaN(cabinetLat) ? cabinetLat : undefined,
                         cabinetLon: !isNaN(cabinetLon) ? cabinetLon : undefined,
-                        potenciaNominal: !isNaN(potenciaNominal) ? potenciaNominal : undefined,
-                        designacionTipo: columns[22]?.trim(),
+                        potenciaNominal,
+                        designacionTipo,
                         sourceFile: file.name,
                     });
                 });
@@ -576,7 +590,7 @@ export const useLuminaireData = () => {
                 const luminaireEventsToProcess = data?.luminaireEvents || [];
                 const changeEventsToProcess = data?.changeEvents || [];
                 const inventoryToProcess = data?.inventory || [];
-                const energyToProcess = data?.energyReadings || []; // For backwards compatibility
+                const energyToProcess = data?.energyReadings || [];
                 const filesToProcess = data?.metadata?.fileNames || [];
                 const todayEnergyFile = data?.metadata?.todayEnergyFile;
                 const yesterdayEnergyFile = data?.metadata?.yesterdayEnergyFile;
@@ -592,22 +606,14 @@ export const useLuminaireData = () => {
                 }));
                 const parsedEnergyReadings: EnergyReading[] = energyToProcess.map((d: any) => ({ ...d, ultimoContacto: new Date(d.ultimoContacto), sourceFile: d.sourceFile || file.name }));
                 
-                const allEnergyReadingsFromDB = await getAllEnergyReadings();
-                const combinedEnergyReadings = [...allEnergyReadingsFromDB];
-                const existingOlcIds = new Set(allEnergyReadingsFromDB.map(r => r.olcId));
-                parsedEnergyReadings.forEach(r => {
-                    if (!existingOlcIds.has(r.olcId)) {
-                        combinedEnergyReadings.push(r);
-                    }
-                });
-
                 const newFileNames = Array.from(new Set([...uploadedFileNames, file.name, ...filesToProcess])).sort();
 
                 await Promise.all([
                     bulkAddOrUpdate(LUMINAIRE_EVENTS_STORE, parsedLuminaireEvents),
                     bulkAddOrUpdate(CHANGE_EVENTS_STORE, parsedChangeEvents),
                     bulkAddOrUpdate(INVENTORY_STORE, parsedInventory),
-                    bulkAddOrUpdate(ENERGY_READINGS_STORE, combinedEnergyReadings),
+                    // Use parsedEnergyReadings directly. `bulkAddOrUpdate` uses 'put' which will add or update records.
+                    bulkAddOrUpdate(ENERGY_READINGS_STORE, parsedEnergyReadings),
                     setMetadata('uploadedFileNames', newFileNames),
                     todayEnergyFile ? setMetadata('todayEnergyFile', todayEnergyFile) : Promise.resolve(),
                     yesterdayEnergyFile ? setMetadata('yesterdayEnergyFile', yesterdayEnergyFile) : Promise.resolve(),

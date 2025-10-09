@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 // FIX: Changed date-fns submodule imports from default to named. This resolves the "not callable"
 // error, likely caused by an upgrade to date-fns v3+ which uses named exports for submodules.
@@ -43,6 +44,35 @@ import PermanentOnTable from './components/PermanentOnTable';
 import type { PermanentOnResult } from './components/PermanentOnTable';
 import EnergyConsumptionByZoneChart from './components/EnergyConsumptionByZoneChart';
 import EnergyConsumptionByMunicipioChart from './components/EnergyConsumptionByMunicipioChart';
+
+// Helper function to calculate approximate night hours for a given date in Uruguay.
+// This is a simplified model using a cosine approximation based on solstices.
+const getNightHours = (date: Date): number => {
+    // Day of the year for winter solstice (longest night) is around 172 (June 21).
+    const winterSolsticeDayOfYear = 172;
+    const LONGEST_NIGHT = 14.16; // ~14h 10m
+    const SHORTEST_NIGHT = 9.66; // ~9h 40m
+
+    // Function to get day of the year (1-366)
+    const dayOfYear = (d: Date) => {
+        const start = new Date(d.getFullYear(), 0, 0);
+        const diff = d.getTime() - start.getTime();
+        const oneDay = 1000 * 60 * 60 * 24;
+        return Math.floor(diff / oneDay);
+    };
+
+    const day = dayOfYear(date);
+    
+    // Using a cosine function to approximate the sinusoidal change in daylight hours.
+    const avgNightHours = (LONGEST_NIGHT + SHORTEST_NIGHT) / 2;
+    const amplitude = (LONGEST_NIGHT - SHORTEST_NIGHT) / 2;
+    
+    // The period of the cosine wave is ~365.25 days.
+    const nightHours = avgNightHours + amplitude * Math.cos(2 * Math.PI * (day - winterSolsticeDayOfYear) / 365.25);
+
+    return nightHours;
+};
+
 
 const ERROR_DESC_LOW_CURRENT = "La corriente medida es menor que lo esperado o no hay corriente que fluya a través de la combinación de driver y lámpara.";
 const ERROR_DESC_HIGH_CURRENT = "La corriente medida para la combinación de driver y lámpara es mayor que la esperada.";
@@ -788,7 +818,8 @@ const App: React.FC = () => {
             return { byZone: [], byMunicipio: [] };
         }
         
-        const yesterdayEnergyMap = new Map(energyDataYesterday.map(e => [e.olcId, e.energia]));
+        // FIX: Explicitly type Map for type safety.
+        const yesterdayEnergyMap = new Map<number, number>(energyDataYesterday.map(e => [e.olcId, e.energia]));
         
         const consumptionByZone: Record<string, number> = {};
         const consumptionByMunicipio: Record<string, number> = {};
@@ -826,8 +857,14 @@ const App: React.FC = () => {
             return [];
         }
 
-        const yesterdayEnergyMap = new Map(energyDataYesterday.map(e => [e.olcId, e]));
-        const inventoryMap = new Map(inventory.map(i => [i.olcIdExterno, i]));
+        // FIX: Explicitly type Maps and filter undefined keys for type safety.
+        const yesterdayEnergyMap = new Map<number, EnergyReading>(energyDataYesterday.map(e => [e.olcId, e]));
+        const inventoryMap = new Map<number, InventoryItem>();
+        inventory.forEach(i => {
+            if (i.olcIdExterno != null) {
+                inventoryMap.set(i.olcIdExterno, i);
+            }
+        });
         const results: PermanentOnResult[] = [];
 
         const filteredEnergyReadings = energyDataToday.filter(reading => {
@@ -868,6 +905,9 @@ const App: React.FC = () => {
                         deltaHours,
                         prevDate: prevReading.ultimoContacto,
                         currDate: currentReading.ultimoContacto,
+                        energiaAyer: prevReading.energia,
+                        energiaHoy: currentReading.energia,
+                        horasNocturnas: getNightHours(currentReading.ultimoContacto),
                     });
                 }
             }

@@ -12,6 +12,9 @@ export interface PermanentOnResult {
     deltaHours: number;
     prevDate: Date;
     currDate: Date;
+    energiaAyer: number;
+    energiaHoy: number;
+    horasNocturnas: number;
 }
 
 interface PermanentOnTableProps {
@@ -69,10 +72,13 @@ const PermanentOnTable: React.FC<PermanentOnTableProps> = ({ data }) => {
         { key: 'olcIdExterno', label: 'ID OLC' },
         { key: 'potenciaNominal', label: 'Pot. Nominal (W)' },
         { key: 'avgPower', label: 'Pot. Calculada (W)' },
-        { key: 'deltaKwh', label: 'Consumo (kWh)' },
-        { key: 'deltaHours', label: 'Horas' },
-        { key: 'prevDate', label: 'Fecha Anterior' },
-        { key: 'currDate', label: 'Fecha Actual' },
+        { key: 'prevDate', label: 'Fecha Medición Ayer' },
+        { key: 'energiaAyer', label: 'Energía Medida Ayer (kWh)' },
+        { key: 'currDate', label: 'Fecha Medición Hoy' },
+        { key: 'energiaHoy', label: 'Energía Medida Hoy (kWh)' },
+        { key: 'deltaHours', label: 'Intervalo Medido (hs)' },
+        { key: 'deltaKwh', label: 'Consumo Intervalo (kWh)' },
+        { key: 'horasNocturnas', label: 'Horas Noche (estimado)' },
     ];
 
     if (data.length === 0) {
@@ -104,10 +110,13 @@ const PermanentOnTable: React.FC<PermanentOnTableProps> = ({ data }) => {
                                 <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{item.olcIdExterno ?? 'N/A'}</td>
                                 <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{item.potenciaNominal?.toFixed(0) ?? 'N/A'}</td>
                                 <td className="px-4 py-4 whitespace-nowrap text-sm font-bold text-red-400">{item.avgPower.toFixed(2)}</td>
-                                <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{item.deltaKwh.toFixed(3)}</td>
-                                <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{item.deltaHours.toFixed(2)}</td>
                                 <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{item.prevDate.toLocaleString()}</td>
+                                <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{item.energiaAyer.toFixed(3)}</td>
                                 <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{item.currDate.toLocaleString()}</td>
+                                <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{item.energiaHoy.toFixed(3)}</td>
+                                <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{item.deltaHours.toFixed(2)}</td>
+                                <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{item.deltaKwh.toFixed(3)}</td>
+                                <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{item.horasNocturnas.toFixed(2)}</td>
                             </tr>
                         ))}
                     </tbody>
