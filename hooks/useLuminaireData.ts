@@ -155,6 +155,21 @@ const parseCustomDate = (dateStr: string): Date | null => {
     return isNaN(date.getTime()) ? null : date;
 };
 
+/**
+ * Parses a string number that might use '.' as a thousands separator and ',' as a decimal.
+ * @param numStr The string to parse.
+ * @returns A number or undefined if parsing fails.
+ */
+const parseSpanishNumber = (numStr: string | undefined): number | undefined => {
+    if (!numStr) return undefined;
+    // 1. Remove thousand separators (.)
+    // 2. Replace decimal comma (,) with a period (.)
+    const cleanedStr = numStr.trim().replace(/\./g, '').replace(/,/g, '.');
+    const parsed = parseFloat(cleanedStr);
+    return isNaN(parsed) ? undefined : parsed;
+};
+
+
 // --- React Hook ---
 export const useLuminaireData = () => {
     const [allEvents, setAllEvents] = useState<LuminaireEvent[]>([]);
@@ -323,8 +338,8 @@ export const useLuminaireData = () => {
                         fechaRetiro,
                         condicion: columns[1]?.trim(),
                         poleIdExterno,
-                        horasFuncionamiento: parseInt(columns[3]?.trim(), 10) || 0,
-                        recuentoConmutacion: parseInt(columns[4]?.trim(), 10) || 0,
+                        horasFuncionamiento: parseSpanishNumber(columns[3]?.trim()) ?? 0,
+                        recuentoConmutacion: parseSpanishNumber(columns[4]?.trim()) ?? 0,
                         municipio, zone,
                         lat: !isNaN(lat) ? lat : undefined, lon: !isNaN(lon) ? lon : undefined,
                         streetlightIdExterno: columns[8]?.trim(),
@@ -394,18 +409,7 @@ export const useLuminaireData = () => {
                     const lon = parseFloat(columns[3]?.trim().replace(/"/g, '').replace(',', '.'));
                     const cabinetLat = parseFloat(columns[20]?.trim().replace(/"/g, '').replace(',', '.'));
                     const cabinetLon = parseFloat(columns[21]?.trim().replace(/"/g, '').replace(',', '.'));
-                    const horasFuncionamiento = parseInt(columns[17]?.trim().replace(/\./g, ''), 10);
-                    const recuentoConmutacion = parseInt(columns[18]?.trim().replace(/\./g, ''), 10);
                     const olcIdExterno = parseInt(columns[15]?.trim(), 10);
-                    
-                    const potenciaNominalStr = columns[22]?.trim();
-                    let potenciaNominal: number | undefined;
-                    if (potenciaNominalStr) {
-                        const parsedPower = parseFloat(potenciaNominalStr.replace(',', '.'));
-                        if (!isNaN(parsedPower)) {
-                            potenciaNominal = parsedPower;
-                        }
-                    }
                     
                     parsedItems.push({
                         streetlightIdExterno,
@@ -425,12 +429,12 @@ export const useLuminaireData = () => {
                         ultimoInforme: parseCustomDate(columns[13]?.trim()) ?? undefined,
                         olcIdExterno: !isNaN(olcIdExterno) ? olcIdExterno : undefined,
                         luminaireIdExterno: columns[16]?.trim(),
-                        horasFuncionamiento: !isNaN(horasFuncionamiento) ? horasFuncionamiento : undefined,
-                        recuentoConmutacion: !isNaN(recuentoConmutacion) ? recuentoConmutacion : undefined,
+                        horasFuncionamiento: parseSpanishNumber(columns[17]),
+                        recuentoConmutacion: parseSpanishNumber(columns[18]),
                         cabinetIdExterno: columns[19]?.trim(),
                         cabinetLat: !isNaN(cabinetLat) ? cabinetLat : undefined,
                         cabinetLon: !isNaN(cabinetLon) ? cabinetLon : undefined,
-                        potenciaNominal,
+                        potenciaNominal: parseSpanishNumber(columns[22]),
                         designacionTipo: columns[23]?.trim(),
                         sourceFile: file.name,
                     });
