@@ -620,7 +620,7 @@ const App: React.FC = () => {
 
     // --- Lifted Summary Data Calculations ---
     const cabinetSummaryData = useMemo(() => {
-        const cabinetCounts = finalDisplayInventory.reduce((acc, item) => {
+        const cabinetCounts = inventory.reduce((acc, item) => {
             if (item.cabinetIdExterno) {
                 acc[item.cabinetIdExterno] = (acc[item.cabinetIdExterno] || 0) + 1;
             }
@@ -630,10 +630,10 @@ const App: React.FC = () => {
         return Object.entries(cabinetCounts)
             .map(([cabinetId, luminaireCount]) => ({ cabinetId, luminaireCount }))
             .filter(item => item.cabinetId && item.cabinetId !== '-' && item.cabinetId.trim() !== '');
-    }, [finalDisplayInventory]);
+    }, [inventory]);
 
     const serviceSummaryData = useMemo(() => {
-        const serviceMap = finalDisplayInventory.reduce((acc, item) => {
+        const serviceMap = inventory.reduce((acc, item) => {
             if (item.nroCuenta && item.nroCuenta.trim() !== '' && item.nroCuenta.trim() !== '-') {
                 const cuenta = item.nroCuenta.trim();
                 if (!acc.has(cuenta)) {
@@ -651,7 +651,7 @@ const App: React.FC = () => {
             luminaireCount: data.luminaireCount,
             totalPower: data.totalPower
         }));
-    }, [finalDisplayInventory]);
+    }, [inventory]);
 
     const powerSummary = useMemo(() => {
         const items = finalDisplayInventory;
@@ -703,53 +703,8 @@ const App: React.FC = () => {
         return { powerData, locationColumns, columnTotals, grandTotal };
     }, [finalDisplayInventory, selectedZone]);
 
-    const powerSummaryByMunicipio = useMemo(() => {
-        const items = finalDisplayInventory;
-        if (items.length === 0) {
-            return { powerData: [], locationColumns: [], columnTotals: {}, grandTotal: 0 };
-        }
-
-        const locationColumns: string[] = Array.from(new Set<string>(items.map(item => item.municipio).filter((m): m is string => !!m))).sort();
-        const powers: number[] = Array.from(new Set<number>(items.map(item => item.potenciaNominal).filter((p): p is number => p != null))).sort((a, b) => a - b);
-        
-        const powerMap = new Map<number, Record<string, number>>();
-
-        for (const item of items) {
-            if (item.potenciaNominal != null) {
-                if (!powerMap.has(item.potenciaNominal)) {
-                    powerMap.set(item.potenciaNominal, {});
-                }
-                const powerRow = powerMap.get(item.potenciaNominal)!;
-                const location = item.municipio;
-                if (location) {
-                    powerRow[location] = (powerRow[location] || 0) + 1;
-                }
-            }
-        }
-        
-        const powerData = powers.map(power => {
-            const rowData = powerMap.get(power) || {};
-            const total = locationColumns.reduce((sum, loc) => sum + (rowData[loc] || 0), 0);
-            return {
-                power: `${power}W`,
-                ...rowData,
-                total: total,
-            };
-        });
-        
-        const columnTotals: Record<string, number> = {};
-        let grandTotal = 0;
-        locationColumns.forEach(loc => {
-            const total = powerData.reduce((sum, row) => sum + ((row as any)[loc] || 0), 0);
-            columnTotals[loc] = total;
-            grandTotal += total;
-        });
-
-        return { powerData, locationColumns, columnTotals, grandTotal };
-    }, [finalDisplayInventory]);
-    
     const operatingHoursSummary = useMemo(() => {
-        const items = finalDisplayInventory;
+        const items = inventory; // Use full inventory for this summary
         if (items.length === 0) {
             return [];
         }
@@ -762,14 +717,14 @@ const App: React.FC = () => {
                 let rangeLabel;
 
                 if (item.horasFuncionamiento > MAX_HOURS) {
-                    rangeLabel = `> ${MAX_HOURS.toLocaleString()} hs`;
+                    rangeLabel = `> ${MAX_HOURS.toLocaleString('es-ES')} hs`;
                 } else if (item.horasFuncionamiento <= RANGE_STEP) {
-                    rangeLabel = `0 - ${RANGE_STEP.toLocaleString()} hs`;
+                    rangeLabel = `0 - ${RANGE_STEP.toLocaleString('es-ES')} hs`;
                 } else {
                     const rangeIndex = Math.floor((item.horasFuncionamiento - 1) / RANGE_STEP);
                     const rangeStart = rangeIndex * RANGE_STEP + 1;
                     const rangeEnd = (rangeIndex + 1) * RANGE_STEP;
-                    rangeLabel = `${rangeStart.toLocaleString()} - ${rangeEnd.toLocaleString()} hs`;
+                    rangeLabel = `${rangeStart.toLocaleString('es-ES')} - ${rangeEnd.toLocaleString('es-ES')} hs`;
                 }
                 
                 acc[rangeLabel] = (acc[rangeLabel] || 0) + 1;
@@ -781,7 +736,7 @@ const App: React.FC = () => {
             range,
             count,
         }));
-    }, [finalDisplayInventory]);
+    }, [inventory]);
     
     // --- Export Handlers ---
     const handleExportCabinetSummary = useCallback(() => {
@@ -814,29 +769,6 @@ const App: React.FC = () => {
 
         exportToCsv(exportData, 'resumen_potencias.csv');
     }, [powerSummary]);
-
-    const handleExportPowerSummaryByMunicipio = useCallback(() => {
-        const { powerData, locationColumns, columnTotals, grandTotal } = powerSummaryByMunicipio;
-        if (powerData.length === 0) return;
-
-        const exportData = powerData.map(row => {
-            const flatRow: Record<string, any> = { Potencia: row.power };
-            locationColumns.forEach(loc => {
-                flatRow[loc] = (row as any)[loc] || 0;
-            });
-            flatRow['Total'] = row.total;
-            return flatRow;
-        });
-
-        const totalsRow: Record<string, any> = { Potencia: 'Total General' };
-        locationColumns.forEach(loc => {
-            totalsRow[loc] = columnTotals[loc] || 0;
-        });
-        totalsRow['Total'] = grandTotal;
-        exportData.push(totalsRow);
-
-        exportToCsv(exportData, 'resumen_potencias_por_municipio.csv');
-    }, [powerSummaryByMunicipio]);
 
     const handleExportFailureByZone = useCallback(() => {
         const { data: dataToExport, categories } = failureDataByZone;
@@ -1292,12 +1224,16 @@ const App: React.FC = () => {
                                     </div>
                                     <div id="inventory-analysis-section" className="space-y-4">
                                         <h2 className="text-xl font-bold text-cyan-400">Análisis de Inventario</h2>
-                                        <CollapsibleSection title="Resumen de Potencias por Ubicación" onExport={handleExportPowerSummary}><PowerSummaryTable summaryData={powerSummary} /></CollapsibleSection>
-                                        <CollapsibleSection title="Resumen de Potencias por Municipio" onExport={handleExportPowerSummaryByMunicipio}><PowerSummaryTable summaryData={powerSummaryByMunicipio} /></CollapsibleSection>
-                                        <CollapsibleSection title="Resumen de Horas de Funcionamiento" onExport={handleExportOperatingHoursSummary}><OperatingHoursSummaryTable data={operatingHoursSummary} /></CollapsibleSection>
+                                        <CollapsibleSection 
+                                            title={selectedZone === 'all' ? "Resumen de Potencias por Zona" : "Resumen de Potencias por Municipio"}
+                                            onExport={handleExportPowerSummary}
+                                        >
+                                            <PowerSummaryTable summaryData={powerSummary} />
+                                        </CollapsibleSection>
+                                        <CollapsibleSection title="Resumen de Horas de Funcionamiento (Total)" onExport={handleExportOperatingHoursSummary}><OperatingHoursSummaryTable data={operatingHoursSummary} /></CollapsibleSection>
                                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                                            <CollapsibleSection title="Resumen de Luminarias por Gabinete" isOpen={isInventorySummariesOpen} onToggle={() => setIsInventorySummariesOpen(v => !v)} onExport={handleExportCabinetSummary}><CabinetSummaryTable data={cabinetSummaryData} /></CollapsibleSection>
-                                            <CollapsibleSection title="Resumen de Servicios de Alumbrado" isOpen={isInventorySummariesOpen} onToggle={() => setIsInventorySummariesOpen(v => !v)} onExport={handleExportServiceSummary}><ServiceSummaryTable data={serviceSummaryData} /></CollapsibleSection>
+                                            <CollapsibleSection title="Resumen de Luminarias por Gabinete (Total)" isOpen={isInventorySummariesOpen} onToggle={() => setIsInventorySummariesOpen(v => !v)} onExport={handleExportCabinetSummary}><CabinetSummaryTable data={cabinetSummaryData} /></CollapsibleSection>
+                                            <CollapsibleSection title="Resumen de Servicios de Alumbrado (Total)" isOpen={isInventorySummariesOpen} onToggle={() => setIsInventorySummariesOpen(v => !v)} onExport={handleExportServiceSummary}><ServiceSummaryTable data={serviceSummaryData} /></CollapsibleSection>
                                         </div>
                                         <div id="inventory-zone-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-4"><h3 className="text-lg font-semibold text-cyan-400 mb-3">Inventario por Zona</h3><InventoryByZoneChart data={finalDisplayInventory} /></div>
                                         <div id="inventory-municipio-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-4"><h3 className="text-lg font-semibold text-cyan-400 mb-3">Inventario por Municipio</h3><InventoryByMunicipioChart data={finalDisplayInventory} /></div>

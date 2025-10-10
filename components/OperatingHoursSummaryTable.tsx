@@ -1,5 +1,3 @@
-
-
 import React, { useState, useMemo } from 'react';
 
 interface OperatingHoursSummary {
@@ -27,7 +25,8 @@ const OperatingHoursSummaryTable: React.FC<OperatingHoursSummaryTableProps> = ({
                         if (rangeStr.startsWith('>')) {
                             return Infinity;
                         }
-                        return parseInt(rangeStr.split(' ')[0].replace(/,/g, ''), 10);
+                        // Remove all non-digit characters to handle both '.' and ',' as separators
+                        return parseInt(rangeStr.split(' ')[0].replace(/\D/g, ''), 10);
                     };
                     const valA = getRangeStart(a.range);
                     const valB = getRangeStart(b.range);

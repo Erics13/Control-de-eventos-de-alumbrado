@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useCallback } from 'react';
 import { openDB, DBSchema, IDBPDatabase, deleteDB } from 'idb';
 import type { LuminaireEvent, ChangeEvent, InventoryItem } from '../types';
@@ -280,7 +279,7 @@ export const useLuminaireData = () => {
             }
         };
         reader.onerror = () => { setError("No se pudo leer el archivo."); setLoading(false); };
-        reader.readAsText(file);
+        reader.readAsText(file, 'UTF-8');
     };
     
     const addChangeEventsFromCSV = (file: File) => {
@@ -356,7 +355,7 @@ export const useLuminaireData = () => {
                 setLoading(false);
             }
         };
-        reader.readAsText(file);
+        reader.readAsText(file, 'UTF-8');
     };
 
     const addInventoryFromCSV = (file: File) => {
@@ -381,7 +380,7 @@ export const useLuminaireData = () => {
                 rows.forEach((row, index) => {
                     if (row.trim() === '') return;
                     const columns = parseCsvRow(row, delimiter);
-                    if (columns.length < 23) return;
+                    if (columns.length < 24) return;
                     const streetlightIdExterno = columns[1]?.trim();
                     if (!streetlightIdExterno) return;
 
@@ -390,25 +389,21 @@ export const useLuminaireData = () => {
                     if (municipioUpper === 'DESAFECTADOS' || municipioUpper === 'OBRA NUEVA' || municipioUpper === 'N/A') return;
 
                     const zone = MUNICIPIO_TO_ZONE_MAP[municipioUpper] || 'Desconocida';
+                    
                     const lat = parseFloat(columns[2]?.trim().replace(/"/g, '').replace(',', '.'));
                     const lon = parseFloat(columns[3]?.trim().replace(/"/g, '').replace(',', '.'));
-                    const cabinetLat = parseFloat(columns[19]?.trim().replace(/"/g, '').replace(',', '.'));
-                    const cabinetLon = parseFloat(columns[20]?.trim().replace(/"/g, '').replace(',', '.'));
-                    const horasFuncionamiento = parseInt(columns[16]?.trim().replace(/\./g, ''), 10);
-                    const recuentoConmutacion = parseInt(columns[17]?.trim().replace(/\./g, ''), 10);
-                    const olcIdExterno = parseInt(columns[14]?.trim(), 10);
-
-                    // User specified that nominal power comes from "Luminaire type/Potencia nominal" (designacionTipo, column 22).
-                    // We need to parse it from a string like "Luminaria LED 75W".
-                    const designacionTipo = columns[22]?.trim();
+                    const cabinetLat = parseFloat(columns[20]?.trim().replace(/"/g, '').replace(',', '.'));
+                    const cabinetLon = parseFloat(columns[21]?.trim().replace(/"/g, '').replace(',', '.'));
+                    const horasFuncionamiento = parseInt(columns[17]?.trim().replace(/\./g, ''), 10);
+                    const recuentoConmutacion = parseInt(columns[18]?.trim().replace(/\./g, ''), 10);
+                    const olcIdExterno = parseInt(columns[15]?.trim(), 10);
+                    
+                    const potenciaNominalStr = columns[22]?.trim();
                     let potenciaNominal: number | undefined;
-                    if (designacionTipo) {
-                        const match = designacionTipo.match(/(\d+)\s*W/i);
-                        if (match && match[1]) {
-                            const parsedPower = parseInt(match[1], 10);
-                            if (!isNaN(parsedPower)) {
-                                potenciaNominal = parsedPower;
-                            }
+                    if (potenciaNominalStr) {
+                        const parsedPower = parseFloat(potenciaNominalStr.replace(',', '.'));
+                        if (!isNaN(parsedPower)) {
+                            potenciaNominal = parsedPower;
                         }
                     }
                     
@@ -429,14 +424,14 @@ export const useLuminaireData = () => {
                         dimmingCalendar: columns[12]?.trim(),
                         ultimoInforme: parseCustomDate(columns[13]?.trim()) ?? undefined,
                         olcIdExterno: !isNaN(olcIdExterno) ? olcIdExterno : undefined,
-                        luminaireIdExterno: columns[15]?.trim(),
+                        luminaireIdExterno: columns[16]?.trim(),
                         horasFuncionamiento: !isNaN(horasFuncionamiento) ? horasFuncionamiento : undefined,
                         recuentoConmutacion: !isNaN(recuentoConmutacion) ? recuentoConmutacion : undefined,
-                        cabinetIdExterno: columns[18]?.trim(),
+                        cabinetIdExterno: columns[19]?.trim(),
                         cabinetLat: !isNaN(cabinetLat) ? cabinetLat : undefined,
                         cabinetLon: !isNaN(cabinetLon) ? cabinetLon : undefined,
                         potenciaNominal,
-                        designacionTipo,
+                        designacionTipo: columns[23]?.trim(),
                         sourceFile: file.name,
                     });
                 });
@@ -457,7 +452,7 @@ export const useLuminaireData = () => {
                 setLoading(false);
             }
         };
-        reader.readAsText(file);
+        reader.readAsText(file, 'UTF-8');
     };
 
     const addEventsFromJSON = (file: File) => {
