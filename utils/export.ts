@@ -1,47 +1,32 @@
+// This file requires the xlsx library to be loaded globally, e.g., from a CDN.
+declare var XLSX: any;
 
-
-// Helper to ensure values with commas, quotes, or newlines are handled correctly.
-const escapeCsvValue = (value: any): string => {
-    if (value == null) {
-        return '';
-    }
-    const stringValue = String(value);
-    // If the value contains a comma, a quote, or a newline, wrap it in double quotes
-    if (stringValue.includes('"') || stringValue.includes(',') || stringValue.includes('\n')) {
-        // Escape existing double quotes by doubling them
-        return `"${stringValue.replace(/"/g, '""')}"`;
-    }
-    return stringValue;
-};
-
-
-export const exportToCsv = (data: any[], filename: string): void => {
-    if (!Array.isArray(data) || data.length === 0) {
-        console.error("Export to CSV failed: data is empty or not an array.");
+/**
+ * Exports an array of objects to an XLSX file.
+ * @param data The array of data to export.
+ * @param filename The name of the file to be downloaded.
+ */
+export const exportToXlsx = (data: any[], filename: string): void => {
+    if (typeof XLSX === 'undefined') {
+        console.error("XLSX library is not loaded. Please make sure it's included in your HTML.");
+        alert("La función de exportación no está disponible. La librería XLSX no se pudo cargar.");
         return;
     }
     
-    const headers = Object.keys(data[0]);
-    const csvRows = [headers.join(',')]; // Header row
-
-    for (const row of data) {
-        const values = headers.map(header => escapeCsvValue(row[header]));
-        csvRows.push(values.join(','));
+    if (!Array.isArray(data) || data.length === 0) {
+        console.warn("Export to XLSX aborted: data is empty or not an array.");
+        return;
     }
-
-    const csvString = csvRows.join('\n');
-    // Add BOM for Excel to recognize UTF-8 characters correctly
-    const blob = new Blob([`\uFEFF${csvString}`], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
     
-    const url = URL.createObjectURL(blob);
-    link.setAttribute('href', url);
-    link.setAttribute('download', filename);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    
-    // Clean up
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    try {
+        const worksheet = XLSX.utils.json_to_sheet(data);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "Datos");
+        
+        // Trigger the download
+        XLSX.writeFile(workbook, filename, { bookType: 'xlsx', type: 'binary' });
+    } catch (error) {
+        console.error("Error exporting to XLSX:", error);
+        alert("Ocurrió un error al generar el archivo XLSX.");
+    }
 };

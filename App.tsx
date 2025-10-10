@@ -34,7 +34,7 @@ import PowerSummaryTable from './components/PowerSummaryTable';
 import CabinetSummaryTable from './components/CabinetSummaryTable';
 import ServiceSummaryTable from './components/ServiceSummaryTable';
 import CollapsibleSection from './components/CollapsibleSection';
-import { exportToCsv } from './utils/export';
+import { exportToXlsx } from './utils/export';
 import InauguratedByZoneChart from './components/InauguratedByZoneChart';
 import InaugurationsByYearZoneChart from './components/InaugurationsByYearZoneChart';
 import FailurePercentageTable from './components/FailurePercentageTable';
@@ -742,13 +742,21 @@ const App: React.FC = () => {
     }, [inventory]);
     
     // --- Export Handlers ---
+    const generateExportFilename = useCallback((baseName: string): string => {
+        const dateStr = new Date().toISOString().split('T')[0];
+        const zoneStr = selectedZone !== 'all' ? `_${selectedZone.replace(/\s+/g, '_')}` : '';
+        const municipioStr = selectedMunicipio !== 'all' ? `_${selectedMunicipio.replace(/\s+/g, '_')}` : '';
+
+        return `${baseName}${zoneStr}${municipioStr}_${dateStr}.xlsx`;
+    }, [selectedZone, selectedMunicipio]);
+
     const handleExportCabinetSummary = useCallback(() => {
-        exportToCsv(cabinetSummaryData, 'resumen_gabinetes.csv');
-    }, [cabinetSummaryData]);
+        exportToXlsx(cabinetSummaryData, generateExportFilename('resumen_gabinetes'));
+    }, [cabinetSummaryData, generateExportFilename]);
 
     const handleExportServiceSummary = useCallback(() => {
-        exportToCsv(serviceSummaryData, 'resumen_servicios.csv');
-    }, [serviceSummaryData]);
+        exportToXlsx(serviceSummaryData, generateExportFilename('resumen_servicios'));
+    }, [serviceSummaryData, generateExportFilename]);
 
     const handleExportPowerSummary = useCallback(() => {
         const { powerData, locationColumns, columnTotals, grandTotal } = powerSummary;
@@ -770,14 +778,14 @@ const App: React.FC = () => {
         totalsRow['Total'] = grandTotal;
         exportData.push(totalsRow);
 
-        exportToCsv(exportData, 'resumen_potencias.csv');
-    }, [powerSummary]);
+        exportToXlsx(exportData, generateExportFilename('resumen_potencias'));
+    }, [powerSummary, generateExportFilename]);
 
     const handleExportFailureByZone = useCallback(() => {
         const { data: dataToExport, categories } = failureDataByZone;
         if (dataToExport.length === 0) return;
 
-        const csvData = dataToExport.map(item => {
+        const dataForSheet = dataToExport.map(item => {
             const row: Record<string, any> = {
                 'Zona': item.name,
                 'Porcentaje Fallas (%)': item.porcentaje.toFixed(2),
@@ -790,14 +798,14 @@ const App: React.FC = () => {
             return row;
         });
 
-        exportToCsv(csvData, 'fallas_por_zona.csv');
-    }, [failureDataByZone]);
+        exportToXlsx(dataForSheet, generateExportFilename('fallas_por_zona'));
+    }, [failureDataByZone, generateExportFilename]);
 
     const handleExportFailureByMunicipio = useCallback(() => {
         const { data: dataToExport, categories } = failureDataByMunicipio;
         if (dataToExport.length === 0) return;
         
-        const csvData = dataToExport.map(item => {
+        const dataForSheet = dataToExport.map(item => {
             const row: Record<string, any> = {
                 'Municipio': item.name,
                 'Porcentaje Fallas (%)': item.porcentaje.toFixed(2),
@@ -810,16 +818,20 @@ const App: React.FC = () => {
             return row;
         });
 
-        exportToCsv(csvData, 'fallas_por_municipio.csv');
-    }, [failureDataByMunicipio]);
+        exportToXlsx(dataForSheet, generateExportFilename('fallas_por_municipio'));
+    }, [failureDataByMunicipio, generateExportFilename]);
     
     const handleExportOperatingHoursSummary = useCallback(() => {
         if (operatingHoursSummary.length === 0) return;
         
         const dataToExport = operatingHoursSummary
             .sort((a, b) => {
-                const valA = parseInt(a.range.split(' ')[0].replace(/,/g, ''));
-                const valB = parseInt(b.range.split(' ')[0].replace(/,/g, ''));
+                const getRangeStart = (rangeStr: string): number => {
+                    if (rangeStr.startsWith('>')) return Infinity;
+                    return parseInt(rangeStr.split(' ')[0].replace(/\D/g, ''), 10);
+                };
+                const valA = getRangeStart(a.range);
+                const valB = getRangeStart(b.range);
                 return valA - valB;
             })
             .map(item => ({
@@ -827,8 +839,8 @@ const App: React.FC = () => {
                 'Cantidad de Luminarias': item.count,
             }));
 
-        exportToCsv(dataToExport, 'resumen_horas_funcionamiento.csv');
-    }, [operatingHoursSummary]);
+        exportToXlsx(dataToExport, generateExportFilename('resumen_horas_funcionamiento'));
+    }, [operatingHoursSummary, generateExportFilename]);
     
     const handleExportPDF = async () => {
         if (allEvents.length === 0 && changeEvents.length === 0 && inventory.length === 0) {
