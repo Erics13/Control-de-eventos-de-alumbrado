@@ -376,13 +376,16 @@ const App: React.FC = () => {
     }, [selectedZone, filteredMunicipios, selectedMunicipio]);
 
     const availableYears = useMemo(() => {
-        if (allEvents.length === 0) return [];
+        if (allEvents.length === 0 && changeEvents.length === 0) return [];
         const years = new Set<string>();
         allEvents.forEach(event => {
             years.add(format(event.date, 'yyyy'));
         });
+        changeEvents.forEach(event => {
+            years.add(format(event.fechaRetiro, 'yyyy'));
+        });
         return Array.from(years).sort((a: string, b: string) => parseInt(b) - parseInt(a));
-    }, [allEvents]);
+    }, [allEvents, changeEvents]);
     
     const availablePowers = useMemo(() => {
         const powers = new Set(inventory.map(i => i.potenciaNominal).filter((p): p is number => p != null));
@@ -426,7 +429,7 @@ const App: React.FC = () => {
     [displayInventory]);
 
     const faltaPodaInventoryCount = useMemo(() => 
-        displayInventory.filter(item => item.situacion?.toUpperCase().trim() === 'FALTA Poda').length,
+        displayInventory.filter(item => item.situacion?.toUpperCase().trim() === 'FALTA PODA').length,
     [displayInventory]);
 
     const faltaLineaInventoryCount = useMemo(() => 

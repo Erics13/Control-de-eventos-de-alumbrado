@@ -135,8 +135,8 @@ const FilterControls: React.FC<FilterControlsProps> = ({
                     />
                 </div>
 
-                {/* Eventos Tab Specific */}
-                {activeTab === 'eventos' && (
+                {/* Eventos & Cambios Tab Specific */}
+                {(activeTab === 'eventos' || activeTab === 'cambios') && (
                     <>
                         <div className="grid grid-cols-2 gap-2">
                             <div>
@@ -170,19 +170,22 @@ const FilterControls: React.FC<FilterControlsProps> = ({
                                 </select>
                             </div>
                         </div>
-                         <div>
-                            <label htmlFor="category-select" className="block text-sm font-medium text-gray-400 mb-1">Categoría Falla</label>
-                            <select
-                                id="category-select"
-                                value={selectedCategory}
-                                onChange={(e) => setSelectedCategory(e.target.value)}
-                                className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500"
-                            >
-                                <option value="all">Todas</option>
-                                {failureCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
-                            </select>
-                        </div>
                     </>
+                )}
+
+                {activeTab === 'eventos' && (
+                     <div>
+                        <label htmlFor="category-select" className="block text-sm font-medium text-gray-400 mb-1">Categoría Falla</label>
+                        <select
+                            id="category-select"
+                            value={selectedCategory}
+                            onChange={(e) => setSelectedCategory(e.target.value)}
+                            className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500"
+                        >
+                            <option value="all">Todas</option>
+                            {failureCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                        </select>
+                    </div>
                 )}
 
                 {/* Inventario Tab Specific */}
