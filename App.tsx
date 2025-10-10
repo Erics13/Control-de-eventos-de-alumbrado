@@ -13,7 +13,7 @@ import { endOfMonth } from 'date-fns/endOfMonth';
 import { format } from 'date-fns/format';
 import { es } from 'date-fns/locale/es';
 import { useLuminaireData } from './hooks/useLuminaireData';
-import type { LuminaireEvent, InventoryItem, EnergyReading } from './types';
+import type { LuminaireEvent, InventoryItem } from './types';
 import { ALL_ZONES, MUNICIPIO_TO_ZONE_MAP, ZONE_ORDER } from './constants';
 import Header from './components/Header';
 import FileUpload from './components/FileUpload';
@@ -40,39 +40,6 @@ import InauguratedByZoneChart from './components/InauguratedByZoneChart';
 import InaugurationsByYearZoneChart from './components/InaugurationsByYearZoneChart';
 import FailurePercentageTable from './components/FailurePercentageTable';
 import OperatingHoursSummaryTable from './components/OperatingHoursSummaryTable';
-import PermanentOnTable from './components/PermanentOnTable';
-import type { PermanentOnResult } from './components/PermanentOnTable';
-import EnergyConsumptionByZoneChart from './components/EnergyConsumptionByZoneChart';
-import EnergyConsumptionByMunicipioChart from './components/EnergyConsumptionByMunicipioChart';
-
-// Helper function to calculate approximate night hours for a given date in Uruguay.
-// This is a simplified model using a cosine approximation based on solstices.
-const getNightHours = (date: Date): number => {
-    // Day of the year for winter solstice (longest night) is around 172 (June 21).
-    const winterSolsticeDayOfYear = 172;
-    const LONGEST_NIGHT = 14.16; // ~14h 10m
-    const SHORTEST_NIGHT = 9.66; // ~9h 40m
-
-    // Function to get day of the year (1-366)
-    const dayOfYear = (d: Date) => {
-        const start = new Date(d.getFullYear(), 0, 0);
-        const diff = d.getTime() - start.getTime();
-        const oneDay = 1000 * 60 * 60 * 24;
-        return Math.floor(diff / oneDay);
-    };
-
-    const day = dayOfYear(date);
-    
-    // Using a cosine function to approximate the sinusoidal change in daylight hours.
-    const avgNightHours = (LONGEST_NIGHT + SHORTEST_NIGHT) / 2;
-    const amplitude = (LONGEST_NIGHT - SHORTEST_NIGHT) / 2;
-    
-    // The period of the cosine wave is ~365.25 days.
-    const nightHours = avgNightHours + amplitude * Math.cos(2 * Math.PI * (day - winterSolsticeDayOfYear) / 365.25);
-
-    return nightHours;
-};
-
 
 const ERROR_DESC_LOW_CURRENT = "La corriente medida es menor que lo esperado o no hay corriente que fluya a través de la combinación de driver y lámpara.";
 const ERROR_DESC_HIGH_CURRENT = "La corriente medida para la combinación de driver y lámpara es mayor que la esperada.";
@@ -85,7 +52,7 @@ declare global {
     }
 }
 
-export type ActiveTab = 'eventos' | 'cambios' | 'inventario' | 'energia';
+export type ActiveTab = 'eventos' | 'cambios' | 'inventario';
 
 const TabButton: React.FC<{
     tabId: ActiveTab;
@@ -117,10 +84,8 @@ const TabButton: React.FC<{
 const App: React.FC = () => {
     const { 
         allEvents, changeEvents, inventory, 
-        energyDataToday, energyDataYesterday,
         uploadedFileNames, 
         addEventsFromCSV, addChangeEventsFromCSV, addInventoryFromCSV, 
-        addEnergyDataTodayFromCSV, addEnergyDataYesterdayFromCSV,
         addEventsFromJSON, downloadDataAsJSON, 
         deleteDataByFileName, resetApplication, 
         loading, error 
@@ -212,13 +177,11 @@ const App: React.FC = () => {
         const hasInventory = inventory.length > 0;
         const hasChanges = changeEvents.length > 0;
         const hasEvents = allEvents.length > 0;
-        const hasEnergy = energyDataToday.length > 0 && energyDataYesterday.length > 0;
 
         const tabs: { id: ActiveTab; hasData: boolean }[] = [
             { id: 'inventario', hasData: hasInventory },
             { id: 'cambios', hasData: hasChanges },
             { id: 'eventos', hasData: hasEvents },
-            { id: 'energia', hasData: hasEnergy }
         ];
         
         const currentTab = tabs.find(t => t.id === activeTab);
@@ -228,11 +191,11 @@ const App: React.FC = () => {
             if (firstAvailableTab) {
                 setActiveTab(firstAvailableTab.id as ActiveTab);
             }
-        } else if (!hasInventory && !hasChanges && !hasEvents && !hasEnergy) {
+        } else if (!hasInventory && !hasChanges && !hasEvents) {
             // Default to inventory if nothing is loaded
             setActiveTab('inventario');
         }
-    }, [inventory.length, changeEvents.length, allEvents.length, energyDataToday.length, energyDataYesterday.length, activeTab, loading]);
+    }, [inventory.length, changeEvents.length, allEvents.length, activeTab, loading]);
 
 
      const handleJsonFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -255,22 +218,6 @@ const App: React.FC = () => {
         const file = event.target.files?.[0];
         if(file) {
             addInventoryFromCSV(file);
-            event.target.value = '';
-        }
-    };
-
-    const handleEnergyTodayFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-        const file = event.target.files?.[0];
-        if (file) {
-            addEnergyDataTodayFromCSV(file);
-            event.target.value = '';
-        }
-    };
-
-     const handleEnergyYesterdayFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-        const file = event.target.files?.[0];
-        if (file) {
-            addEnergyDataYesterdayFromCSV(file);
             event.target.value = '';
         }
     };
@@ -802,120 +749,6 @@ const App: React.FC = () => {
         }));
     }, [finalDisplayInventory]);
     
-    // --- Energy Analysis ---
-    const olcToLocationMap = useMemo(() => {
-        const map = new Map<number, { zone: string, municipio: string }>();
-        inventory.forEach(item => {
-            if (item.olcIdExterno && item.zone && item.municipio) {
-                map.set(item.olcIdExterno, { zone: item.zone, municipio: item.municipio });
-            }
-        });
-        return map;
-    }, [inventory]);
-
-    const totalEnergyConsumption = useMemo(() => {
-        if (energyDataYesterday.length === 0 || energyDataToday.length === 0) {
-            return { byZone: [], byMunicipio: [] };
-        }
-        
-        // FIX: Explicitly type Map for type safety.
-        const yesterdayEnergyMap = new Map<number, number>(energyDataYesterday.map(e => [e.olcId, e.energia]));
-        
-        const consumptionByZone: Record<string, number> = {};
-        const consumptionByMunicipio: Record<string, number> = {};
-
-        const filteredEnergyReadings = energyDataToday.filter(reading => {
-            const location = olcToLocationMap.get(reading.olcId);
-            if (!location) return false;
-            const isZoneMatch = selectedZone === 'all' || location.zone === selectedZone;
-            const isMunicipioMatch = selectedMunicipio === 'all' || location.municipio === selectedMunicipio;
-            return isZoneMatch && isMunicipioMatch;
-        });
-
-        for (const currentReading of filteredEnergyReadings) {
-            const prevEnergia = yesterdayEnergyMap.get(currentReading.olcId);
-            const location = olcToLocationMap.get(currentReading.olcId);
-
-            if (prevEnergia !== undefined && location) {
-                const deltaKwh = currentReading.energia - prevEnergia;
-                if (deltaKwh > 0) {
-                    consumptionByZone[location.zone] = (consumptionByZone[location.zone] || 0) + deltaKwh;
-                    consumptionByMunicipio[location.municipio] = (consumptionByMunicipio[location.municipio] || 0) + deltaKwh;
-                }
-            }
-        }
-        
-        const byZone = Object.entries(consumptionByZone).map(([name, consumo]) => ({ name, consumo }));
-        const byMunicipio = Object.entries(consumptionByMunicipio).map(([name, consumo]) => ({ name, consumo }));
-        
-        return { byZone, byMunicipio };
-
-    }, [energyDataToday, energyDataYesterday, olcToLocationMap, selectedZone, selectedMunicipio]);
-
-    const permanentOnLuminaires = useMemo<PermanentOnResult[]>(() => {
-        if (energyDataYesterday.length === 0 || energyDataToday.length === 0 || inventory.length === 0) {
-            return [];
-        }
-
-        // FIX: Explicitly type Maps and filter undefined keys for type safety.
-        const yesterdayEnergyMap = new Map<number, EnergyReading>(energyDataYesterday.map(e => [e.olcId, e]));
-        const inventoryMap = new Map<number, InventoryItem>();
-        inventory.forEach(i => {
-            if (i.olcIdExterno != null) {
-                inventoryMap.set(i.olcIdExterno, i);
-            }
-        });
-        const results: PermanentOnResult[] = [];
-
-        const filteredEnergyReadings = energyDataToday.filter(reading => {
-             const luminaire = inventoryMap.get(reading.olcId);
-             if (!luminaire) return false;
-             const isZoneMatch = selectedZone === 'all' || luminaire.zone === selectedZone;
-             const isMunicipioMatch = selectedMunicipio === 'all' || luminaire.municipio === selectedMunicipio;
-             return isZoneMatch && isMunicipioMatch;
-        });
-
-        for (const currentReading of filteredEnergyReadings) {
-            const prevReading = yesterdayEnergyMap.get(currentReading.olcId);
-            const luminaire = inventoryMap.get(currentReading.olcId);
-
-            if (prevReading && luminaire && luminaire.potenciaNominal) {
-                const deltaHours = (currentReading.ultimoContacto.getTime() - prevReading.ultimoContacto.getTime()) / (1000 * 60 * 60);
-                if (deltaHours <= 0) continue;
-
-                const deltaKwh = currentReading.energia - prevReading.energia;
-                if (deltaKwh <= 0) continue;
-
-                const avgPower = (deltaKwh * 1000) / deltaHours; // convert kWh to W
-                const nominalPower = luminaire.potenciaNominal;
-                
-                // A normally operating luminaire runs ~12h/day, so its average power over 24h is ~50% of nominal.
-                // If the average power is >80% of nominal, it's likely on for much longer than it should be.
-                const permanentOnThreshold = nominalPower * 0.80;
-
-                if (avgPower > permanentOnThreshold) {
-                    results.push({
-                        streetlightIdExterno: luminaire.streetlightIdExterno,
-                        municipio: luminaire.municipio,
-                        zone: luminaire.zone,
-                        potenciaNominal: luminaire.potenciaNominal,
-                        olcIdExterno: luminaire.olcIdExterno,
-                        avgPower,
-                        deltaKwh,
-                        deltaHours,
-                        prevDate: prevReading.ultimoContacto,
-                        currDate: currentReading.ultimoContacto,
-                        energiaAyer: prevReading.energia,
-                        energiaHoy: currentReading.energia,
-                        horasNocturnas: getNightHours(currentReading.ultimoContacto),
-                    });
-                }
-            }
-        }
-        return results;
-    }, [inventory, energyDataToday, energyDataYesterday, selectedZone, selectedMunicipio]);
-
-
     // --- Export Handlers ---
     const handleExportCabinetSummary = useCallback(() => {
         exportToCsv(cabinetSummaryData, 'resumen_gabinetes.csv');
@@ -1233,11 +1066,11 @@ const App: React.FC = () => {
                              <div className="flex flex-col items-center">
                                 <h2 className="text-xl font-bold text-cyan-400 mb-2">Gestión de Datos</h2>
                                 <p className="text-gray-400 mb-4 text-center">
-                                    Cargue planillas de datos, gestione respaldos y exporte resultados. Para el análisis de consumo diario, cargue los archivos de energía de ayer y hoy.
+                                    Cargue planillas de datos, gestione respaldos y exporte resultados.
                                 </p>
-                                <div className="w-full max-w-6xl flex flex-col items-center gap-y-3">
+                                <div className="w-full max-w-4xl flex flex-col items-center gap-y-3">
                                     {/* --- Fila 1: Carga de Planillas --- */}
-                                    <div className="w-full grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+                                    <div className="w-full grid grid-cols-1 md:grid-cols-3 gap-3">
                                         <FileUpload onFileUpload={addEventsFromCSV} loading={loading} />
                                         
                                         <input type="file" id="change-csv-upload-input" accept=".csv" onChange={handleChangesFileChange} className="hidden" disabled={loading} />
@@ -1250,18 +1083,6 @@ const App: React.FC = () => {
                                         <button onClick={() => document.getElementById('inventory-csv-upload-input')?.click()} disabled={loading} className="w-full h-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-600 text-white font-bold py-3 px-4 rounded-lg transition-colors flex items-center justify-center gap-2 text-sm">
                                             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M7 3a1 1 0 000 2h6a1 1 0 100-2H7zM4 7a1 1 0 011-1h10a1 1 0 110 2H5a1 1 0 01-1-1zM2 11a2 2 0 012-2h12a2 2 0 012 2v4a2 2 0 01-2-2H4a2 2 0 01-2-2v-4z" /></svg>
                                             <span>Cargar Inventario</span>
-                                        </button>
-
-                                        <input type="file" id="energy-yesterday-csv-upload-input" accept=".csv" onChange={handleEnergyYesterdayFileChange} className="hidden" disabled={loading} />
-                                        <button onClick={() => document.getElementById('energy-yesterday-csv-upload-input')?.click()} disabled={loading} className="w-full h-full bg-fuchsia-700 hover:bg-fuchsia-800 disabled:bg-gray-600 text-white font-bold py-3 px-4 rounded-lg transition-colors flex items-center justify-center gap-2 text-sm">
-                                             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-                                            <span>Cargar Energía (Ayer)</span>
-                                        </button>
-
-                                        <input type="file" id="energy-today-csv-upload-input" accept=".csv" onChange={handleEnergyTodayFileChange} className="hidden" disabled={loading} />
-                                        <button onClick={() => document.getElementById('energy-today-csv-upload-input')?.click()} disabled={loading} className="w-full h-full bg-fuchsia-500 hover:bg-fuchsia-600 disabled:bg-gray-600 text-white font-bold py-3 px-4 rounded-lg transition-colors flex items-center justify-center gap-2 text-sm">
-                                             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-                                            <span>Cargar Energía (Hoy)</span>
                                         </button>
                                     </div>
                                     
@@ -1341,7 +1162,6 @@ const App: React.FC = () => {
                              <TabButton tabId="inventario" title="Inventario" activeTab={activeTab} setActiveTab={setActiveTab} disabled={inventory.length === 0} />
                              <TabButton tabId="cambios" title="Cambios" activeTab={activeTab} setActiveTab={setActiveTab} disabled={changeEvents.length === 0} />
                              <TabButton tabId="eventos" title="Eventos" activeTab={activeTab} setActiveTab={setActiveTab} disabled={allEvents.length === 0} />
-                             <TabButton tabId="energia" title="Energía" activeTab={activeTab} setActiveTab={setActiveTab} disabled={energyDataToday.length === 0 || energyDataYesterday.length === 0} />
                         </nav>
                     </div>
                 </div>
@@ -1433,19 +1253,6 @@ const App: React.FC = () => {
                                     <CollapsibleSection title="Listado de Inventario"><InventoryTable items={finalDisplayInventory} /></CollapsibleSection>
                                 </>
                             )}
-
-                             {activeTab === 'energia' && (energyDataToday.length > 0 && energyDataYesterday.length > 0) && (
-                                <div className="space-y-6">
-                                    <h2 className="text-2xl font-bold text-cyan-400 mb-4">Análisis de Consumo Energético Diario</h2>
-                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                                        <div className="bg-gray-800 shadow-lg rounded-xl p-4"><EnergyConsumptionByZoneChart data={totalEnergyConsumption.byZone} /></div>
-                                        <div className="bg-gray-800 shadow-lg rounded-xl p-4"><EnergyConsumptionByMunicipioChart data={totalEnergyConsumption.byMunicipio} /></div>
-                                    </div>
-                                    <CollapsibleSection title={`Análisis de Encendido Permanente (${permanentOnLuminaires.length})`} defaultOpen={true}>
-                                        <PermanentOnTable data={permanentOnLuminaires} />
-                                    </CollapsibleSection>
-                                </div>
-                             )}
 
                         </div>
                     )}

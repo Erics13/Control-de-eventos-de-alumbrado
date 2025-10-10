@@ -32,14 +32,6 @@ export interface ChangeEvent {
   sourceFile?: string;
 }
 
-export interface EnergyReading {
-  olcId: number;
-  energia: number;
-  ultimoContacto: Date;
-  cabinetIdExterno: string;
-  sourceFile?: string;
-}
-
 export interface InventoryItem {
   streetlightIdExterno: string;
   municipio: string;
