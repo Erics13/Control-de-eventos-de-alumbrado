@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo } from 'react';
 
 interface FailureData {
@@ -6,28 +5,48 @@ interface FailureData {
     porcentaje: number;
     eventos: number;
     totalInventario: number;
+    [key: string]: any; // For dynamic category keys
 }
 
 interface FailurePercentageTableProps {
     data: FailureData[];
+    categories: string[];
     locationHeader: 'Zona' | 'Municipio';
 }
 
-type SortKey = keyof FailureData;
+type SortKey = keyof FailureData | string;
 
-const FailurePercentageTable: React.FC<FailurePercentageTableProps> = ({ data, locationHeader }) => {
+const FailurePercentageTable: React.FC<FailurePercentageTableProps> = ({ data, categories, locationHeader }) => {
     const [sortConfig, setSortConfig] = useState<{ key: SortKey; direction: 'ascending' | 'descending' } | null>({ key: 'porcentaje', direction: 'descending' });
     const [currentPage, setCurrentPage] = useState(1);
     const itemsPerPage = 10;
+    
+    const columns = useMemo(() => {
+        const staticColumns: { key: SortKey, label: string }[] = [
+            { key: 'name', label: locationHeader },
+            { key: 'porcentaje', label: 'Fallas (%)' },
+            { key: 'eventos', label: 'Total Fallas' },
+            { key: 'totalInventario', label: 'Total Inventario' },
+        ];
+        const dynamicColumns: { key: SortKey, label: string }[] = categories.map(cat => ({
+            key: cat,
+            label: cat
+        }));
+        return [...staticColumns, ...dynamicColumns];
+    }, [locationHeader, categories]);
+
 
     const sortedItems = useMemo(() => {
         let sortableItems = [...data];
         if (sortConfig !== null) {
             sortableItems.sort((a, b) => {
-                if (a[sortConfig.key] < b[sortConfig.key]) {
+                const valA = a[sortConfig.key];
+                const valB = b[sortConfig.key];
+                
+                if (valA < valB) {
                     return sortConfig.direction === 'ascending' ? -1 : 1;
                 }
-                if (a[sortConfig.key] > b[sortConfig.key]) {
+                if (valA > valB) {
                     return sortConfig.direction === 'ascending' ? 1 : -1;
                 }
                 return 0;
@@ -57,13 +76,6 @@ const FailurePercentageTable: React.FC<FailurePercentageTableProps> = ({ data, l
         return sortConfig.direction === 'ascending' ? '▲' : '▼';
     };
 
-    const columns: { key: SortKey; label: string }[] = [
-        { key: 'name', label: locationHeader },
-        { key: 'porcentaje', label: 'Porcentaje Fallas (%)' },
-        { key: 'eventos', label: 'Total Fallas' },
-        { key: 'totalInventario', label: 'Total Inventario' },
-    ];
-
     if (data.length === 0) {
         return <div className="flex items-center justify-center h-40 text-gray-500">No hay datos de fallas para mostrar con los filtros actuales.</div>;
     }
@@ -75,8 +87,8 @@ const FailurePercentageTable: React.FC<FailurePercentageTableProps> = ({ data, l
                     <thead className="bg-gray-700/50">
                         <tr>
                             {columns.map(({ key, label }) => (
-                                <th key={key} scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                                    <button onClick={() => requestSort(key)} className="flex items-center gap-2">
+                                <th key={key} scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                                    <button onClick={() => requestSort(key)} className="flex items-center gap-1">
                                         {label}
                                         <span className="text-cyan-400">{getSortIndicator(key)}</span>
                                     </button>
@@ -86,11 +98,12 @@ const FailurePercentageTable: React.FC<FailurePercentageTableProps> = ({ data, l
                     </thead>
                     <tbody className="bg-gray-800 divide-y divide-gray-700">
                         {paginatedItems.map((item) => (
-                            <tr key={item.name} className="hover:bg-gray-700/50">
-                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-300">{item.name}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300 font-bold">{item.porcentaje.toFixed(2)}%</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{item.eventos.toLocaleString()}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{item.totalInventario.toLocaleString()}</td>
+                             <tr key={item.name} className="hover:bg-gray-700/50">
+                                {columns.map(({ key }) => (
+                                    <td key={key} className={`px-4 py-4 whitespace-nowrap text-sm ${key === 'name' ? 'font-medium text-gray-300' : 'text-gray-400'}`}>
+                                        {key === 'porcentaje' ? `${item.porcentaje.toFixed(2)}%` : (item[key] ?? 0).toLocaleString()}
+                                    </td>
+                                ))}
                             </tr>
                         ))}
                     </tbody>

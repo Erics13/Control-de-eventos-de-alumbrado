@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 // FIX: Changed date-fns submodule imports from default to named. This resolves the "not callable"
 // error, likely caused by an upgrade to date-fns v3+ which uses named exports for submodules.
@@ -517,72 +516,107 @@ const App: React.FC = () => {
         }, {} as Record<string, number>);
     }, [inventory]);
 
+    const filteredFailureCategories = useMemo(() => {
+        return Array.from(new Set(baseFilteredEvents
+            .map(e => e.failureCategory)
+            .filter((c): c is string => !!c)
+        )).sort();
+    }, [baseFilteredEvents]);
+
     const failureDataByZone = useMemo(() => {
         if (Object.keys(inventoryCountByZone).length === 0) {
-            return [];
+            return { data: [], categories: [] };
         }
 
         const zoneEventCounts = baseFilteredEvents.reduce((acc, event) => {
-            acc[event.zone] = (acc[event.zone] || 0) + 1;
+            const zone = event.zone;
+            if (!acc[zone]) {
+                acc[zone] = { total: 0, categories: {} };
+            }
+            acc[zone].total++;
+            if (event.failureCategory) {
+                acc[zone].categories[event.failureCategory] = (acc[zone].categories[event.failureCategory] || 0) + 1;
+            }
             return acc;
-        }, {} as Record<string, number>);
+        }, {} as Record<string, { total: number; categories: Record<string, number> }>);
         
         const zonesWithInventory = Object.keys(inventoryCountByZone);
 
         const unsortedData = zonesWithInventory.map(zoneName => {
-            const eventos = zoneEventCounts[zoneName] || 0;
+            const eventData = zoneEventCounts[zoneName] || { total: 0, categories: {} };
+            const eventos = eventData.total;
             const totalInventario = inventoryCountByZone[zoneName];
             const porcentaje = totalInventario > 0 ? (eventos / totalInventario) * 100 : 0;
+            
+            const categoryCounts: Record<string, number> = {};
+            filteredFailureCategories.forEach(cat => {
+                categoryCounts[cat] = eventData.categories[cat] || 0;
+            });
+
             return {
                 name: zoneName,
                 eventos,
                 totalInventario,
                 porcentaje,
+                ...categoryCounts,
             };
         });
         
-        return unsortedData.sort((a, b) => {
+        const sortedData = unsortedData.sort((a, b) => {
             const indexA = ZONE_ORDER.indexOf(a.name);
             const indexB = ZONE_ORDER.indexOf(b.name);
             
-            if (indexA !== -1 && indexB !== -1) {
-                return indexA - indexB;
-            }
-            if (indexA !== -1) {
-                return -1;
-            }
-            if (indexB !== -1) {
-                return 1;
-            }
+            if (indexA !== -1 && indexB !== -1) return indexA - indexB;
+            if (indexA !== -1) return -1;
+            if (indexB !== -1) return 1;
             return a.name.localeCompare(b.name);
         });
-    }, [baseFilteredEvents, inventoryCountByZone]);
+        
+        return { data: sortedData, categories: filteredFailureCategories };
+    }, [baseFilteredEvents, inventoryCountByZone, filteredFailureCategories]);
 
     const failureDataByMunicipio = useMemo(() => {
         if (Object.keys(inventoryCountByMunicipio).length === 0) {
-            return [];
+            return { data: [], categories: [] };
         }
 
         const municipioEventCounts = baseFilteredEvents.reduce((acc, event) => {
-            acc[event.municipio] = (acc[event.municipio] || 0) + 1;
+            const municipio = event.municipio;
+             if (!acc[municipio]) {
+                acc[municipio] = { total: 0, categories: {} };
+            }
+            acc[municipio].total++;
+            if (event.failureCategory) {
+                acc[municipio].categories[event.failureCategory] = (acc[municipio].categories[event.failureCategory] || 0) + 1;
+            }
             return acc;
-        }, {} as Record<string, number>);
+        }, {} as Record<string, { total: number; categories: Record<string, number> }>);
         
         const municipiosWithInventory = Object.keys(inventoryCountByMunicipio);
 
-        return municipiosWithInventory.map(municipioName => {
-            const eventos = municipioEventCounts[municipioName] || 0;
+        const data = municipiosWithInventory.map(municipioName => {
+            const eventData = municipioEventCounts[municipioName] || { total: 0, categories: {} };
+            const eventos = eventData.total;
             const totalInventario = inventoryCountByMunicipio[municipioName];
             const porcentaje = totalInventario > 0 ? (eventos / totalInventario) * 100 : 0;
+
+            const categoryCounts: Record<string, number> = {};
+            filteredFailureCategories.forEach(cat => {
+                categoryCounts[cat] = eventData.categories[cat] || 0;
+            });
+
             return {
                 name: municipioName,
                 eventos,
                 totalInventario,
                 porcentaje,
+                ...categoryCounts,
             };
         })
         .sort((a, b) => b.porcentaje - a.porcentaje);
-    }, [baseFilteredEvents, inventoryCountByMunicipio]);
+        
+        return { data, categories: filteredFailureCategories };
+    }, [baseFilteredEvents, inventoryCountByMunicipio, filteredFailureCategories]);
 
     // --- Lifted Summary Data Calculations ---
     const cabinetSummaryData = useMemo(() => {
@@ -805,23 +839,43 @@ const App: React.FC = () => {
     }, [powerSummaryByMunicipio]);
 
     const handleExportFailureByZone = useCallback(() => {
-        const dataToExport = failureDataByZone.map(item => ({
-            'Zona': item.name,
-            'Porcentaje Fallas (%)': item.porcentaje.toFixed(2),
-            'Total Fallas': item.eventos,
-            'Total Inventario': item.totalInventario,
-        }));
-        exportToCsv(dataToExport, 'fallas_por_zona.csv');
+        const { data: dataToExport, categories } = failureDataByZone;
+        if (dataToExport.length === 0) return;
+
+        const csvData = dataToExport.map(item => {
+            const row: Record<string, any> = {
+                'Zona': item.name,
+                'Porcentaje Fallas (%)': item.porcentaje.toFixed(2),
+                'Total Fallas': item.eventos,
+                'Total Inventario': item.totalInventario,
+            };
+            categories.forEach(cat => {
+                row[cat] = item[cat] || 0;
+            });
+            return row;
+        });
+
+        exportToCsv(csvData, 'fallas_por_zona.csv');
     }, [failureDataByZone]);
 
     const handleExportFailureByMunicipio = useCallback(() => {
-        const dataToExport = failureDataByMunicipio.map(item => ({
-            'Municipio': item.name,
-            'Porcentaje Fallas (%)': item.porcentaje.toFixed(2),
-            'Total Fallas': item.eventos,
-            'Total Inventario': item.totalInventario,
-        }));
-        exportToCsv(dataToExport, 'fallas_por_municipio.csv');
+        const { data: dataToExport, categories } = failureDataByMunicipio;
+        if (dataToExport.length === 0) return;
+        
+        const csvData = dataToExport.map(item => {
+            const row: Record<string, any> = {
+                'Municipio': item.name,
+                'Porcentaje Fallas (%)': item.porcentaje.toFixed(2),
+                'Total Fallas': item.eventos,
+                'Total Inventario': item.totalInventario,
+            };
+            categories.forEach(cat => {
+                row[cat] = item[cat] || 0;
+            });
+            return row;
+        });
+
+        exportToCsv(csvData, 'fallas_por_municipio.csv');
     }, [failureDataByMunicipio]);
     
     const handleExportOperatingHoursSummary = useCallback(() => {
@@ -1015,8 +1069,8 @@ const App: React.FC = () => {
                     </div>
                     <div id="pdf-category-chart" className="bg-gray-800 p-4 rounded-xl"><FailureByCategoryChart data={baseFilteredEvents} /></div>
                     <div id="pdf-special-events-chart" className="bg-gray-800 p-4 rounded-xl"><SpecialEventsChart data={baseFilteredEvents} /></div>
-                    <div id="pdf-zone-chart" className="bg-gray-800 p-4 rounded-xl"><FailureByZoneChart data={failureDataByZone} /></div>
-                    <div id="pdf-municipio-chart" className="bg-gray-800 p-4 rounded-xl"><FailureByMunicipioChart data={failureDataByMunicipio} /></div>
+                    <div id="pdf-zone-chart" className="bg-gray-800 p-4 rounded-xl"><FailureByZoneChart data={failureDataByZone.data} /></div>
+                    <div id="pdf-municipio-chart" className="bg-gray-800 p-4 rounded-xl"><FailureByMunicipioChart data={failureDataByMunicipio.data} /></div>
                     {/* Cambios */}
                     <div id="pdf-change-indicators" className="bg-gray-800 p-4 rounded-xl">
                          <div className="grid grid-cols-4 gap-4">
@@ -1190,10 +1244,10 @@ const App: React.FC = () => {
                                         <div id="category-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-4"><h3 className="text-lg font-semibold text-cyan-400 mb-3">Eventos por Categoría</h3><FailureByCategoryChart data={baseFilteredEvents} /></div>
                                         <div id="special-events-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-4"><h3 className="text-lg font-semibold text-cyan-400 mb-3">Eventos por Hurto, Vandalismo y Caídas</h3><SpecialEventsChart data={baseFilteredEvents} /></div>
                                     </div>
-                                    <div id="zone-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-4"><h3 className="text-lg font-semibold text-cyan-400 mb-3">Porcentaje de Fallas por Zona (% del Inventario)</h3><FailureByZoneChart data={failureDataByZone} /></div>
-                                    <CollapsibleSection title="Detalle de Fallas por Zona" onExport={handleExportFailureByZone}><FailurePercentageTable data={failureDataByZone} locationHeader="Zona" /></CollapsibleSection>
-                                    <div id="municipio-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-4"><h3 className="text-lg font-semibold text-cyan-400 mb-3">Porcentaje de Fallas por Municipio (% del Inventario)</h3><FailureByMunicipioChart data={failureDataByMunicipio} /></div>
-                                    <CollapsibleSection title="Detalle de Fallas por Municipio" onExport={handleExportFailureByMunicipio}><FailurePercentageTable data={failureDataByMunicipio} locationHeader="Municipio" /></CollapsibleSection>
+                                    <div id="zone-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-4"><h3 className="text-lg font-semibold text-cyan-400 mb-3">Porcentaje de Fallas por Zona (% del Inventario)</h3><FailureByZoneChart data={failureDataByZone.data} /></div>
+                                    <CollapsibleSection title="Detalle de Fallas por Zona" onExport={handleExportFailureByZone}><FailurePercentageTable data={failureDataByZone.data} categories={failureDataByZone.categories} locationHeader="Zona" /></CollapsibleSection>
+                                    <div id="municipio-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-4"><h3 className="text-lg font-semibold text-cyan-400 mb-3">Porcentaje de Fallas por Municipio (% del Inventario)</h3><FailureByMunicipioChart data={failureDataByMunicipio.data} /></div>
+                                    <CollapsibleSection title="Detalle de Fallas por Municipio" onExport={handleExportFailureByMunicipio}><FailurePercentageTable data={failureDataByMunicipio.data} categories={failureDataByMunicipio.categories} locationHeader="Municipio" /></CollapsibleSection>
                                     <div id="events-by-month-container" className="bg-gray-800 shadow-lg rounded-xl p-4"><h3 className="text-lg font-semibold text-cyan-400 mb-3">Volumen de Eventos por Mes</h3><EventsByMonthChart data={baseFilteredEvents} /></div>
                                     <CollapsibleSection title="Registro de Eventos de Falla"><EventTable events={displayEvents} /></CollapsibleSection>
                                     <CollapsibleSection title="Eventos Reportados Más Antiguos por Zona"><OldestEventsByZone data={oldestEventsByZone} /></CollapsibleSection>
