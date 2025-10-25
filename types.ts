@@ -1,4 +1,3 @@
-
 export interface LuminaireEvent {
   uniqueEventId: string;
   id: string;
@@ -12,7 +11,6 @@ export interface LuminaireEvent {
   description: string;
   lat?: number;
   lon?: number;
-  sourceFile?: string;
 }
 
 export interface ChangeEvent {
@@ -30,7 +28,6 @@ export interface ChangeEvent {
   componente: string;
   designacionTipo: string;
   cabinetIdExterno: string;
-  sourceFile?: string;
 }
 
 export interface InventoryItem {
@@ -58,7 +55,6 @@ export interface InventoryItem {
   cabinetLon?: number;
   potenciaNominal?: number;
   designacionTipo?: string;
-  sourceFile?: string;
 }
 
 export type ActiveTab = 'eventos' | 'cambios' | 'inventario';
@@ -68,4 +64,10 @@ export type BroadcastMessageType = 'STATE_UPDATE' | 'DOCK_TAB' | 'REQUEST_INITIA
 export interface BroadcastMessage {
     type: BroadcastMessageType;
     payload: any;
+}
+
+export interface DataSourceURLs {
+    events: string;
+    changes: string;
+    inventory: string;
 }

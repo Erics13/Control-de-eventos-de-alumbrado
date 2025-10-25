@@ -1,37 +1,37 @@
+
 import { useState, useEffect, useCallback } from 'react';
 import { openDB, DBSchema, IDBPDatabase, deleteDB } from 'idb';
-import type { LuminaireEvent, ChangeEvent, InventoryItem } from '../types';
+import type { LuminaireEvent, ChangeEvent, InventoryItem, DataSourceURLs } from '../types';
 import { MUNICIPIO_TO_ZONE_MAP, FAILURE_CATEGORY_TRANSLATIONS } from '../constants';
 import { parse } from 'date-fns/parse';
 
 // --- IndexedDB Logic ---
 const DB_NAME = 'LuminaireDataDB';
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 const LUMINAIRE_EVENTS_STORE = 'luminaireEvents';
 const CHANGE_EVENTS_STORE = 'changeEvents';
 const INVENTORY_STORE = 'inventory'; 
-const METADATA_STORE = 'metadata';
+
+// --- Firebase Config ---
+const FIREBASE_URL = 'https://gestion-de-fallas-default-rtdb.firebaseio.com/dataSourceURLs.json';
+
 
 interface LuminaireDB extends DBSchema {
   [LUMINAIRE_EVENTS_STORE]: {
     key: string;
     value: LuminaireEvent;
-    indexes: { date: Date; sourceFile: string; };
+    indexes: { date: Date; };
   };
   [CHANGE_EVENTS_STORE]: {
     key: string;
     value: ChangeEvent;
-    indexes: { fechaRetiro: Date; sourceFile: string; };
+    indexes: { fechaRetiro: Date; };
   };
   [INVENTORY_STORE]: {
     key: string;
     value: InventoryItem;
-    indexes: { municipio: string; sourceFile: string; };
+    indexes: { municipio: string; };
   };
-  [METADATA_STORE]: {
-      key: string;
-      value: any;
-  }
 }
 
 let dbPromise: Promise<IDBPDatabase<LuminaireDB>> | null = null;
@@ -39,34 +39,25 @@ let dbPromise: Promise<IDBPDatabase<LuminaireDB>> | null = null;
 const getDb = () => {
     if (!dbPromise) {
         dbPromise = openDB<LuminaireDB>(DB_NAME, DB_VERSION, {
-            upgrade(db, oldVersion, newVersion, transaction) {
-                if (oldVersion < 1) {
+            upgrade(db, oldVersion) {
+                if (oldVersion < 5) {
+                    if (db.objectStoreNames.contains(LUMINAIRE_EVENTS_STORE)) {
+                        db.deleteObjectStore(LUMINAIRE_EVENTS_STORE);
+                    }
                     const luminaireStore = db.createObjectStore(LUMINAIRE_EVENTS_STORE, { keyPath: 'uniqueEventId' });
                     luminaireStore.createIndex('date', 'date');
+
+                    if (db.objectStoreNames.contains(CHANGE_EVENTS_STORE)) {
+                        db.deleteObjectStore(CHANGE_EVENTS_STORE);
+                    }
                     const changeStore = db.createObjectStore(CHANGE_EVENTS_STORE, { keyPath: 'uniqueId' });
                     changeStore.createIndex('fechaRetiro', 'fechaRetiro');
-                    db.createObjectStore(METADATA_STORE);
-                }
-                if (oldVersion < 2) {
-                   const inventoryStore = db.createObjectStore(INVENTORY_STORE, { keyPath: 'streetlightIdExterno' });
-                   inventoryStore.createIndex('municipio', 'municipio');
-                }
-                if (oldVersion < 3) {
-                   // Previous energy store creation logic removed.
-                }
-                 if (oldVersion < 4) {
-                    const luminaireStore = transaction.objectStore(LUMINAIRE_EVENTS_STORE);
-                    if (!luminaireStore.indexNames.contains('sourceFile')) {
-                        luminaireStore.createIndex('sourceFile', 'sourceFile');
+
+                    if (db.objectStoreNames.contains(INVENTORY_STORE)) {
+                        db.deleteObjectStore(INVENTORY_STORE);
                     }
-                    const changeStore = transaction.objectStore(CHANGE_EVENTS_STORE);
-                    if (!changeStore.indexNames.contains('sourceFile')) {
-                        changeStore.createIndex('sourceFile', 'sourceFile');
-                    }
-                    const inventoryStore = transaction.objectStore(INVENTORY_STORE);
-                    if (!inventoryStore.indexNames.contains('sourceFile')) {
-                        inventoryStore.createIndex('sourceFile', 'sourceFile');
-                    }
+                    const inventoryStore = db.createObjectStore(INVENTORY_STORE, { keyPath: 'streetlightIdExterno' });
+                    inventoryStore.createIndex('municipio', 'municipio');
                 }
             },
         });
@@ -89,20 +80,11 @@ const getAllInventoryItems = async (): Promise<InventoryItem[]> => {
     return db.getAll(INVENTORY_STORE);
 }
 
-const getMetadata = async (key: string): Promise<any> => {
-    const db = await getDb();
-    return db.get(METADATA_STORE, key);
-}
-
-const setMetadata = async (key: string, value: any): Promise<void> => {
-     const db = await getDb();
-     await db.put(METADATA_STORE, value, key);
-}
-
 const bulkAddOrUpdate = async <T extends string>(storeName: T, items: any[]): Promise<void> => {
     if (items.length === 0) return;
     const db = await getDb();
     const tx = db.transaction(storeName, 'readwrite');
+    await tx.store.clear(); 
     await Promise.all(items.map(item => tx.store.put(item)));
     await tx.done;
 };
@@ -155,15 +137,8 @@ const parseCustomDate = (dateStr: string): Date | null => {
     return isNaN(date.getTime()) ? null : date;
 };
 
-/**
- * Parses a string number that might use '.' as a thousands separator and ',' as a decimal.
- * @param numStr The string to parse.
- * @returns A number or undefined if parsing fails.
- */
 const parseSpanishNumber = (numStr: string | undefined): number | undefined => {
     if (!numStr) return undefined;
-    // 1. Remove thousand separators (.)
-    // 2. Replace decimal comma (,) with a period (.)
     const cleanedStr = numStr.trim().replace(/\./g, '').replace(/,/g, '.');
     const parsed = parseFloat(cleanedStr);
     return isNaN(parsed) ? undefined : parsed;
@@ -175,413 +150,224 @@ export const useLuminaireData = () => {
     const [allEvents, setAllEvents] = useState<LuminaireEvent[]>([]);
     const [changeEvents, setChangeEvents] = useState<ChangeEvent[]>([]);
     const [inventory, setInventory] = useState<InventoryItem[]>([]);
-    const [uploadedFileNames, setUploadedFileNames] = useState<string[]>([]);
     const [loading, setLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
 
-    const loadDataFromDb = useCallback(async () => {
+    const processEventsCSV = (text: string): LuminaireEvent[] => {
+        const lines = text.split('\n');
+        const header = lines[0] || '';
+        const rows = lines.slice(1);
+        const delimiter = (header.match(/;/g) || []).length > (header.match(/,/g) || []).length ? ';' : ',';
+
+        const parsedEvents: LuminaireEvent[] = [];
+        rows.forEach((row) => {
+            if (row.trim() === '') return;
+            const columns = parseCsvRow(row, delimiter);
+            if (columns.length < 14) return;
+            const eventDate = parseCustomDate(columns[13]?.trim());
+            if (!eventDate) return;
+            const uniqueEventId = columns[11]?.trim();
+            if (!uniqueEventId) return;
+            
+            const description = columns[12]?.trim() || '';
+            const situacion = columns[8]?.trim() || '';
+            const situacionLower = situacion.toLowerCase();
+            let isSpecialFailure = false;
+            let specialFailureCategory: string | undefined = undefined;
+            if (situacionLower === 'columna caida') { specialFailureCategory = 'Columna Caída'; isSpecialFailure = true; }
+            else if (situacionLower === 'hurto') { specialFailureCategory = 'Hurto'; isSpecialFailure = true; }
+            else if (situacionLower.startsWith('vandalizado')) { specialFailureCategory = 'Vandalizado'; isSpecialFailure = true; }
+            
+            const category = columns[10]?.trim();
+            const translatedCategory = FAILURE_CATEGORY_TRANSLATIONS[category];
+            const eventStatus = (category && category.length > 0) || isSpecialFailure ? 'FAILURE' : 'OPERATIONAL';
+            const finalFailureCategory = specialFailureCategory || (translatedCategory ? translatedCategory : undefined);
+            
+            const municipio = columns[0]?.trim() || 'N/A';
+            const municipioUpper = municipio.toUpperCase();
+            if (municipioUpper === 'DESAFECTADOS' || municipioUpper === 'OBRA NUEVA' || municipioUpper === 'N/A') return;
+            
+            const zone = MUNICIPIO_TO_ZONE_MAP[municipioUpper] || 'Desconocida';
+            const lat = parseFloat(columns[5]?.trim().replace(',', '.'));
+            const lon = parseFloat(columns[6]?.trim().replace(',', '.'));
+
+            parsedEvents.push({
+                uniqueEventId, id: columns[4]?.trim(), olcId: columns[3]?.trim(), power: columns[2]?.trim(),
+                date: eventDate, municipio, zone, status: eventStatus, description, failureCategory: finalFailureCategory,
+                lat: !isNaN(lat) ? lat : undefined, lon: !isNaN(lon) ? lon : undefined,
+            });
+        });
+        return parsedEvents;
+    };
+
+    const processChangeEventsCSV = (text: string): ChangeEvent[] => {
+        const lines = text.split('\n');
+        const header = lines[0] || '';
+        const rows = lines.slice(1);
+        const delimiter = (header.match(/;/g) || []).length > (header.match(/,/g) || []).length ? ';' : ',';
+        
+        const parsedChangeEvents: ChangeEvent[] = [];
+        rows.forEach((row) => {
+            if (row.trim() === '') return;
+            const columns = parseCsvRow(row, delimiter);
+            if (columns.length < 12) return;
+            const fechaRetiro = parseCustomDate(columns[0]?.trim());
+            if (!fechaRetiro) return;
+            const poleIdExterno = columns[2]?.trim();
+            if (!poleIdExterno) return;
+            
+            const municipio = columns[5]?.trim() || 'N/A';
+            const municipioUpper = municipio.toUpperCase();
+            if (municipioUpper === 'DESAFECTADOS' || municipioUpper === 'OBRA NUEVA' || municipioUpper === 'N/A') return;
+
+            const zone = MUNICIPIO_TO_ZONE_MAP[municipioUpper] || 'Desconocida';
+            const lat = parseFloat(columns[6]?.trim().replace(/"/g, '').replace(',', '.'));
+            const lon = parseFloat(columns[7]?.trim().replace(/"/g, '').replace(',', '.'));
+
+            parsedChangeEvents.push({
+                uniqueId: `${poleIdExterno}-${fechaRetiro.toISOString()}-${columns[9]?.trim()}`, fechaRetiro,
+                condicion: columns[1]?.trim(), poleIdExterno,
+                horasFuncionamiento: parseSpanishNumber(columns[3]?.trim()) ?? 0,
+                recuentoConmutacion: parseSpanishNumber(columns[4]?.trim()) ?? 0,
+                municipio, zone, lat: !isNaN(lat) ? lat : undefined, lon: !isNaN(lon) ? lon : undefined,
+                streetlightIdExterno: columns[8]?.trim(), componente: columns[9]?.trim(),
+                designacionTipo: columns[10]?.trim(), cabinetIdExterno: columns[11]?.trim(),
+            });
+        });
+        return parsedChangeEvents;
+    };
+
+    const processInventoryCSV = (text: string): InventoryItem[] => {
+        const lines = text.split('\n');
+        const header = lines[0] || '';
+        const rows = lines.slice(1);
+        const delimiter = (header.match(/;/g) || []).length > (header.match(/,/g) || []).length ? ';' : ',';
+
+        const parsedItems: InventoryItem[] = [];
+        rows.forEach((row) => {
+            if (row.trim() === '') return;
+            const columns = parseCsvRow(row, delimiter);
+            if (columns.length < 24) return;
+            const streetlightIdExterno = columns[1]?.trim();
+            if (!streetlightIdExterno) return;
+
+            const municipio = columns[0]?.trim() || 'N/A';
+            const municipioUpper = municipio.toUpperCase();
+            if (municipioUpper === 'DESAFECTADOS' || municipioUpper === 'OBRA NUEVA' || municipioUpper === 'N/A') return;
+
+            const zone = MUNICIPIO_TO_ZONE_MAP[municipioUpper] || 'Desconocida';
+            
+            const lat = parseFloat(columns[2]?.trim().replace(/"/g, '').replace(',', '.'));
+            const lon = parseFloat(columns[3]?.trim().replace(/"/g, '').replace(',', '.'));
+            const cabinetLat = parseFloat(columns[20]?.trim().replace(/"/g, '').replace(',', '.'));
+            const cabinetLon = parseFloat(columns[21]?.trim().replace(/"/g, '').replace(',', '.'));
+            const olcIdExterno = parseInt(columns[15]?.trim(), 10);
+            
+            parsedItems.push({
+                streetlightIdExterno, municipio, zone, lat: !isNaN(lat) ? lat : undefined,
+                lon: !isNaN(lon) ? lon : undefined, nroCuenta: columns[4]?.trim(),
+                situacion: columns[5]?.trim(), localidad: columns[6]?.trim(),
+                fechaInstalacion: parseCustomDate(columns[7]?.trim()) ?? undefined,
+                marked: columns[8]?.trim(), estado: columns[9]?.trim(),
+                fechaInauguracion: parseCustomDate(columns[10]?.trim()) ?? undefined,
+                olcHardwareDir: columns[11]?.trim(), dimmingCalendar: columns[12]?.trim(),
+                ultimoInforme: parseCustomDate(columns[13]?.trim()) ?? undefined,
+                olcIdExterno: !isNaN(olcIdExterno) ? olcIdExterno : undefined,
+                luminaireIdExterno: columns[16]?.trim(),
+                horasFuncionamiento: parseSpanishNumber(columns[17]),
+                recuentoConmutacion: parseSpanishNumber(columns[18]),
+                cabinetIdExterno: columns[19]?.trim(),
+                cabinetLat: !isNaN(cabinetLat) ? cabinetLat : undefined,
+                cabinetLon: !isNaN(cabinetLon) ? cabinetLon : undefined,
+                potenciaNominal: parseSpanishNumber(columns[22]),
+                designacionTipo: columns[23]?.trim(),
+            });
+        });
+        return parsedItems;
+    };
+
+    const fetchAndProcessData = useCallback(async () => {
         setLoading(true);
+        setError(null);
+
+        let urls: DataSourceURLs;
         try {
-            const [
-                luminaireEvents, 
-                changeEventsData, 
-                inventoryItems, 
-                fileNames,
-            ] = await Promise.all([
-                getAllLuminaireEvents(),
-                getAllChangeEvents(),
-                getAllInventoryItems(),
-                getMetadata('uploadedFileNames'),
+            const firebaseResponse = await fetch(FIREBASE_URL);
+            if (!firebaseResponse.ok) {
+                throw new Error(`Error al conectar con Firebase: ${firebaseResponse.statusText}`);
+            }
+            const data = await firebaseResponse.json();
+            if (!data || !data.events || !data.changes || !data.inventory) {
+                throw new Error("La configuración de URLs en Firebase es inválida o no se encontró.");
+            }
+            urls = data as DataSourceURLs;
+        } catch (e: any) {
+            console.error("Failed to fetch URLs from Firebase", e);
+            setError(`No se pudo obtener la configuración de Firebase: ${e.message}. Intentando cargar desde la caché...`);
+            try {
+                const [cachedEvents, cachedChanges, cachedInventory] = await Promise.all([
+                    getAllLuminaireEvents(),
+                    getAllChangeEvents(),
+                    getAllInventoryItems(),
+                ]);
+                setAllEvents(cachedEvents.reverse());
+                setChangeEvents(cachedChanges.reverse());
+                setInventory(cachedInventory);
+                 if (cachedEvents.length === 0 && cachedChanges.length === 0 && cachedInventory.length === 0) {
+                    setError(`No se pudo obtener la configuración de Firebase: ${e.message}. No hay datos en la caché.`);
+                }
+            } catch (dbError) {
+                console.error("Error loading from DB after Firebase failure:", dbError);
+                setError(`No se pudo obtener la configuración de Firebase y también falló la carga desde la caché.`);
+            } finally {
+                setLoading(false);
+            }
+            return;
+        }
+
+        try {
+            const responses = await Promise.all([
+                fetch(urls.events).catch(e => { throw new Error(`Eventos: ${e.message}`); }),
+                fetch(urls.changes).catch(e => { throw new Error(`Cambios: ${e.message}`); }),
+                fetch(urls.inventory).catch(e => { throw new Error(`Inventario: ${e.message}`); }),
             ]);
 
-            setAllEvents(luminaireEvents.reverse());
-            setChangeEvents(changeEventsData.reverse());
-            setInventory(inventoryItems);
-            setUploadedFileNames(fileNames || []);
+            for (const res of responses) {
+                if (!res.ok) throw new Error(`Error al cargar ${res.url}: ${res.statusText}`);
+            }
 
-        } catch (e) {
-            console.error("Failed to load data from IndexedDB", e);
-            setError("No se pudieron cargar los datos guardados.");
+            const [eventsText, changesText, inventoryText] = await Promise.all(responses.map(res => res.text()));
+            
+            const [parsedEvents, parsedChanges, parsedInventory] = await Promise.all([
+                Promise.resolve(processEventsCSV(eventsText)),
+                Promise.resolve(processChangeEventsCSV(changesText)),
+                Promise.resolve(processInventoryCSV(inventoryText)),
+            ]);
+
+            await Promise.all([
+                bulkAddOrUpdate(LUMINAIRE_EVENTS_STORE, parsedEvents),
+                bulkAddOrUpdate(CHANGE_EVENTS_STORE, parsedChanges),
+                bulkAddOrUpdate(INVENTORY_STORE, parsedInventory),
+            ]);
+
+            setAllEvents(parsedEvents.sort((a,b) => b.date.getTime() - a.date.getTime()));
+            setChangeEvents(parsedChanges.sort((a,b) => b.fechaRetiro.getTime() - a.fechaRetiro.getTime()));
+            setInventory(parsedInventory);
+
+        } catch (e: any) {
+            console.error("Failed to fetch or process data", e);
+            setError(`Error al obtener datos: ${e.message}. Verifique las URLs en Firebase y la configuración de CORS en Google Sheets.`);
         } finally {
             setLoading(false);
         }
     }, []);
 
     useEffect(() => {
-        loadDataFromDb();
-    }, [loadDataFromDb]);
-
-    const addEventsFromCSV = (file: File) => {
-        setLoading(true);
-        setError(null);
-        const reader = new FileReader();
-        reader.onload = async (e) => {
-            const text = e.target?.result as string;
-            if (!text) {
-                setError("El archivo CSV está vacío o no se pudo leer.");
-                setLoading(false);
-                return;
-            }
-
-            try {
-                const lines = text.split('\n');
-                const header = lines[0] || '';
-                const rows = lines.slice(1);
-                const delimiter = (header.match(/;/g) || []).length > (header.match(/,/g) || []).length ? ';' : ',';
-
-                const parsedEvents: LuminaireEvent[] = [];
-                rows.forEach((row, index) => {
-                    if (row.trim() === '') return;
-                    const columns = parseCsvRow(row, delimiter);
-                    if (columns.length < 14) return;
-                    const eventDate = parseCustomDate(columns[13]?.trim());
-                    if (!eventDate) return;
-                    const uniqueEventId = columns[11]?.trim();
-                    if (!uniqueEventId) return;
-                    
-                    const description = columns[12]?.trim() || '';
-                    const situacion = columns[8]?.trim() || '';
-                    const situacionLower = situacion.toLowerCase();
-                    let isSpecialFailure = false;
-                    let specialFailureCategory: string | undefined = undefined;
-                    if (situacionLower === 'columna caida') { specialFailureCategory = 'Columna Caída'; isSpecialFailure = true; }
-                    else if (situacionLower === 'hurto') { specialFailureCategory = 'Hurto'; isSpecialFailure = true; }
-                    else if (situacionLower.startsWith('vandalizado')) { specialFailureCategory = 'Vandalizado'; isSpecialFailure = true; }
-                    
-                    const category = columns[10]?.trim();
-                    const translatedCategory = FAILURE_CATEGORY_TRANSLATIONS[category];
-                    const eventStatus = (category && category.length > 0) || isSpecialFailure ? 'FAILURE' : 'OPERATIONAL';
-                    const finalFailureCategory = specialFailureCategory || (translatedCategory ? translatedCategory : undefined);
-                    
-                    const municipio = columns[0]?.trim() || 'N/A';
-                    const municipioUpper = municipio.toUpperCase();
-                    if (municipioUpper === 'DESAFECTADOS' || municipioUpper === 'OBRA NUEVA' || municipioUpper === 'N/A') return;
-                    
-                    const zone = MUNICIPIO_TO_ZONE_MAP[municipioUpper] || 'Desconocida';
-                    const lat = parseFloat(columns[5]?.trim().replace(',', '.'));
-                    const lon = parseFloat(columns[6]?.trim().replace(',', '.'));
-
-                    parsedEvents.push({
-                        uniqueEventId,
-                        id: columns[4]?.trim(),
-                        olcId: columns[3]?.trim(),
-                        power: columns[2]?.trim(),
-                        date: eventDate,
-                        municipio, zone, status: eventStatus, description, failureCategory: finalFailureCategory,
-                        lat: !isNaN(lat) ? lat : undefined, lon: !isNaN(lon) ? lon : undefined,
-                        sourceFile: file.name,
-                    });
-                });
-                
-                const existingEventIds = new Set(allEvents.map(event => event.uniqueEventId));
-                const newUniqueEvents = parsedEvents.filter(event => !existingEventIds.has(event.uniqueEventId));
-
-                if (newUniqueEvents.length > 0) {
-                    await bulkAddOrUpdate(LUMINAIRE_EVENTS_STORE, newUniqueEvents);
-                    setAllEvents(prev => [...prev, ...newUniqueEvents].sort((a,b) => b.date.getTime() - a.date.getTime()));
-                }
-
-                if (!uploadedFileNames.includes(file.name)) {
-                    const newFileNames = [...uploadedFileNames, file.name].sort();
-                    await setMetadata('uploadedFileNames', newFileNames);
-                    setUploadedFileNames(newFileNames);
-                }
-            } catch (parseError) {
-                console.error("Error parsing CSV", parseError);
-                setError("Error al procesar el archivo CSV. Verifique el formato.");
-            } finally {
-                setLoading(false);
-            }
-        };
-        reader.onerror = () => { setError("No se pudo leer el archivo."); setLoading(false); };
-        reader.readAsText(file, 'UTF-8');
-    };
-    
-    const addChangeEventsFromCSV = (file: File) => {
-        setLoading(true);
-        setError(null);
-        const reader = new FileReader();
-        reader.onload = async (e) => {
-            const text = e.target?.result as string;
-            if (!text) {
-                setError("El archivo CSV de cambios está vacío.");
-                setLoading(false);
-                return;
-            }
-
-            try {
-                const lines = text.split('\n');
-                const header = lines[0] || '';
-                const rows = lines.slice(1);
-                const delimiter = (header.match(/;/g) || []).length > (header.match(/,/g) || []).length ? ';' : ',';
-                
-                const parsedChangeEvents: ChangeEvent[] = [];
-                rows.forEach((row, index) => {
-                    if (row.trim() === '') return;
-                    const columns = parseCsvRow(row, delimiter);
-                    if (columns.length < 12) return;
-                    const fechaRetiro = parseCustomDate(columns[0]?.trim());
-                    if (!fechaRetiro) return;
-                    const poleIdExterno = columns[2]?.trim();
-                    if (!poleIdExterno) return;
-                    
-                    const municipio = columns[5]?.trim() || 'N/A';
-                    const municipioUpper = municipio.toUpperCase();
-                    if (municipioUpper === 'DESAFECTADOS' || municipioUpper === 'OBRA NUEVA' || municipioUpper === 'N/A') return;
-
-                    const zone = MUNICIPIO_TO_ZONE_MAP[municipioUpper] || 'Desconocida';
-                    const lat = parseFloat(columns[6]?.trim().replace(/"/g, '').replace(',', '.'));
-                    const lon = parseFloat(columns[7]?.trim().replace(/"/g, '').replace(',', '.'));
-
-                    parsedChangeEvents.push({
-                        uniqueId: `${poleIdExterno}-${fechaRetiro.toISOString()}-${columns[9]?.trim()}`,
-                        fechaRetiro,
-                        condicion: columns[1]?.trim(),
-                        poleIdExterno,
-                        horasFuncionamiento: parseSpanishNumber(columns[3]?.trim()) ?? 0,
-                        recuentoConmutacion: parseSpanishNumber(columns[4]?.trim()) ?? 0,
-                        municipio, zone,
-                        lat: !isNaN(lat) ? lat : undefined, lon: !isNaN(lon) ? lon : undefined,
-                        streetlightIdExterno: columns[8]?.trim(),
-                        componente: columns[9]?.trim(),
-                        designacionTipo: columns[10]?.trim(),
-                        cabinetIdExterno: columns[11]?.trim(),
-                        sourceFile: file.name,
-                    });
-                });
-                
-                const existingIds = new Set(changeEvents.map(e => e.uniqueId));
-                const newUnique = parsedChangeEvents.filter(e => !existingIds.has(e.uniqueId));
-
-                if (newUnique.length > 0) {
-                    await bulkAddOrUpdate(CHANGE_EVENTS_STORE, newUnique);
-                    setChangeEvents(prev => [...prev, ...newUnique].sort((a,b) => b.fechaRetiro.getTime() - a.fechaRetiro.getTime()));
-                }
-
-                if (!uploadedFileNames.includes(file.name)) {
-                    const newFileNames = [...uploadedFileNames, file.name].sort();
-                    await setMetadata('uploadedFileNames', newFileNames);
-                    setUploadedFileNames(newFileNames);
-                }
-            } catch(err) {
-                console.error("Error parsing changes CSV", err);
-                setError("Error al procesar el archivo CSV de cambios. Verifique el formato.");
-            } finally {
-                setLoading(false);
-            }
-        };
-        reader.readAsText(file, 'UTF-8');
-    };
-
-    const addInventoryFromCSV = (file: File) => {
-        setLoading(true);
-        setError(null);
-        const reader = new FileReader();
-        reader.onload = async (e) => {
-            const text = e.target?.result as string;
-            if (!text) {
-                setError("El archivo de inventario CSV está vacío.");
-                setLoading(false);
-                return;
-            }
-
-            try {
-                const lines = text.split('\n');
-                const header = lines[0] || '';
-                const rows = lines.slice(1);
-                const delimiter = (header.match(/;/g) || []).length > (header.match(/,/g) || []).length ? ';' : ',';
-
-                const parsedItems: InventoryItem[] = [];
-                rows.forEach((row, index) => {
-                    if (row.trim() === '') return;
-                    const columns = parseCsvRow(row, delimiter);
-                    if (columns.length < 24) return;
-                    const streetlightIdExterno = columns[1]?.trim();
-                    if (!streetlightIdExterno) return;
-
-                    const municipio = columns[0]?.trim() || 'N/A';
-                    const municipioUpper = municipio.toUpperCase();
-                    if (municipioUpper === 'DESAFECTADOS' || municipioUpper === 'OBRA NUEVA' || municipioUpper === 'N/A') return;
-
-                    const zone = MUNICIPIO_TO_ZONE_MAP[municipioUpper] || 'Desconocida';
-                    
-                    const lat = parseFloat(columns[2]?.trim().replace(/"/g, '').replace(',', '.'));
-                    const lon = parseFloat(columns[3]?.trim().replace(/"/g, '').replace(',', '.'));
-                    const cabinetLat = parseFloat(columns[20]?.trim().replace(/"/g, '').replace(',', '.'));
-                    const cabinetLon = parseFloat(columns[21]?.trim().replace(/"/g, '').replace(',', '.'));
-                    const olcIdExterno = parseInt(columns[15]?.trim(), 10);
-                    
-                    parsedItems.push({
-                        streetlightIdExterno,
-                        municipio,
-                        zone,
-                        lat: !isNaN(lat) ? lat : undefined,
-                        lon: !isNaN(lon) ? lon : undefined,
-                        nroCuenta: columns[4]?.trim(),
-                        situacion: columns[5]?.trim(),
-                        localidad: columns[6]?.trim(),
-                        fechaInstalacion: parseCustomDate(columns[7]?.trim()) ?? undefined,
-                        marked: columns[8]?.trim(),
-                        estado: columns[9]?.trim(),
-                        fechaInauguracion: parseCustomDate(columns[10]?.trim()) ?? undefined,
-                        olcHardwareDir: columns[11]?.trim(),
-                        dimmingCalendar: columns[12]?.trim(),
-                        ultimoInforme: parseCustomDate(columns[13]?.trim()) ?? undefined,
-                        olcIdExterno: !isNaN(olcIdExterno) ? olcIdExterno : undefined,
-                        luminaireIdExterno: columns[16]?.trim(),
-                        horasFuncionamiento: parseSpanishNumber(columns[17]),
-                        recuentoConmutacion: parseSpanishNumber(columns[18]),
-                        cabinetIdExterno: columns[19]?.trim(),
-                        cabinetLat: !isNaN(cabinetLat) ? cabinetLat : undefined,
-                        cabinetLon: !isNaN(cabinetLon) ? cabinetLon : undefined,
-                        potenciaNominal: parseSpanishNumber(columns[22]),
-                        designacionTipo: columns[23]?.trim(),
-                        sourceFile: file.name,
-                    });
-                });
-
-                await bulkAddOrUpdate(INVENTORY_STORE, parsedItems);
-                setInventory(await getAllInventoryItems());
-
-                if (!uploadedFileNames.includes(file.name)) {
-                    const newFileNames = [...uploadedFileNames, file.name].sort();
-                    await setMetadata('uploadedFileNames', newFileNames);
-                    setUploadedFileNames(newFileNames);
-                }
-
-            } catch(err) {
-                console.error("Error parsing inventory CSV", err);
-                setError("Error al procesar el archivo CSV de inventario. Verifique el formato.");
-            } finally {
-                setLoading(false);
-            }
-        };
-        reader.readAsText(file, 'UTF-8');
-    };
-
-    const addEventsFromJSON = (file: File) => {
-        setLoading(true);
-        setError(null);
-        const reader = new FileReader();
-        reader.onload = async (e) => {
-            const text = e.target?.result as string;
-            if (!text) {
-                setError("El archivo JSON está vacío.");
-                setLoading(false);
-                return;
-            }
-
-            try {
-                const data = JSON.parse(text);
-                const luminaireEventsToProcess = data?.luminaireEvents || [];
-                const changeEventsToProcess = data?.changeEvents || [];
-                const inventoryToProcess = data?.inventory || [];
-                const filesToProcess = data?.metadata?.fileNames || [];
-
-                // Reconstruct Date objects from string representations from the JSON file.
-                // The spread operator (...d) correctly carries over all other properties, including the original `sourceFile`.
-                const parsedLuminaireEvents: LuminaireEvent[] = luminaireEventsToProcess.map((d: any) => ({ ...d, date: new Date(d.date) }));
-                const parsedChangeEvents: ChangeEvent[] = changeEventsToProcess.map((d: any) => ({ ...d, fechaRetiro: new Date(d.fechaRetiro) }));
-                const parsedInventory: InventoryItem[] = inventoryToProcess.map((d: any) => ({
-                    ...d,
-                    fechaInstalacion: d.fechaInstalacion ? new Date(d.fechaInstalacion) : undefined,
-                    fechaInauguracion: d.fechaInauguracion ? new Date(d.fechaInauguracion) : undefined,
-                    ultimoInforme: d.ultimoInforme ? new Date(d.ultimoInforme) : undefined,
-                }));
-                
-                // The JSON backup file itself is not a data source, so don't add its name to the list.
-                // Only merge the file names that were part of the backup.
-                const newFileNames = Array.from(new Set([...uploadedFileNames, ...filesToProcess])).sort();
-
-                await Promise.all([
-                    bulkAddOrUpdate(LUMINAIRE_EVENTS_STORE, parsedLuminaireEvents),
-                    bulkAddOrUpdate(CHANGE_EVENTS_STORE, parsedChangeEvents),
-                    bulkAddOrUpdate(INVENTORY_STORE, parsedInventory),
-                    setMetadata('uploadedFileNames', newFileNames),
-                ]);
-                
-                await loadDataFromDb();
-
-            } catch (parseError: any) {
-                console.error("Error parsing JSON", parseError);
-                setError(`Error al procesar el archivo JSON: ${parseError.message}`);
-            } finally {
-                setLoading(false);
-            }
-        };
-        reader.onerror = () => { setError("No se pudo leer el archivo."); setLoading(false); };
-        reader.readAsText(file, 'UTF-8');
-    };
-    
-    const downloadDataAsJSON = useCallback(async () => {
-        if (allEvents.length === 0 && changeEvents.length === 0 && inventory.length === 0) {
-            alert("No hay datos para descargar.");
-            return;
-        }
-        try {
-            const dataToDownload = {
-                metadata: { 
-                    exportDate: new Date().toISOString(), 
-                    fileCount: uploadedFileNames.length, 
-                    fileNames: uploadedFileNames,
-                },
-                luminaireEvents: allEvents,
-                changeEvents: changeEvents,
-                inventory: inventory,
-            };
-            const jsonString = JSON.stringify(dataToDownload, null, 2);
-            const blob = new Blob([jsonString], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `respaldo_alumbrado_${new Date().toISOString().split('T')[0]}.json`;
-            a.click();
-            URL.revokeObjectURL(url);
-            a.remove();
-        } catch (downloadError) {
-            console.error("Error creating download file", downloadError);
-            setError("No se pudo crear el archivo de respaldo.");
-        }
-    }, [allEvents, changeEvents, inventory, uploadedFileNames]);
-    
-    const deleteDataByFileName = useCallback(async (fileName: string) => {
-        setLoading(true);
-        setError(null);
-        try {
-            const db = await getDb();
-            
-            const tx = db.transaction([LUMINAIRE_EVENTS_STORE, CHANGE_EVENTS_STORE, INVENTORY_STORE, METADATA_STORE], 'readwrite');
-            
-            const stores = [LUMINAIRE_EVENTS_STORE, CHANGE_EVENTS_STORE, INVENTORY_STORE];
-
-            for (const storeName of stores) {
-                const store = tx.objectStore(storeName as any);
-                const index = store.index('sourceFile');
-                let cursor = await index.openCursor(fileName);
-                while(cursor) {
-                    await cursor.delete();
-                    cursor = await cursor.continue();
-                }
-            }
-
-            const currentFiles = (await getMetadata('uploadedFileNames')) || [];
-            const newFiles = currentFiles.filter((f: string) => f !== fileName);
-            await tx.objectStore(METADATA_STORE).put(newFiles, 'uploadedFileNames');
-            
-            await tx.done;
-
-            await loadDataFromDb();
-
-        } catch (err) {
-            console.error("Failed to delete data for file:", fileName, err);
-            setError(`Error al eliminar los datos del archivo ${fileName}.`);
-        } finally {
-            setLoading(false);
-        }
-    }, [loadDataFromDb]);
+        fetchAndProcessData();
+    }, [fetchAndProcessData]);
 
     const resetApplication = useCallback(async () => {
-        if (window.confirm("¿Estás seguro de que quieres borrar todos los datos? Esta acción no se puede deshacer.")) {
+        if (window.confirm("¿Estás seguro de que quieres borrar todos los datos locales en caché? Esta acción no se puede deshacer. Los datos se volverán a cargar desde la nube.")) {
             setLoading(true);
             try {
                 await clearAllData();
@@ -596,10 +382,7 @@ export const useLuminaireData = () => {
 
     return { 
         allEvents, changeEvents, inventory, 
-        uploadedFileNames, 
-        addEventsFromCSV, addChangeEventsFromCSV, addInventoryFromCSV, 
-        addEventsFromJSON, downloadDataAsJSON, 
-        deleteDataByFileName, resetApplication, 
+        resetApplication, 
         loading, error 
     };
 };

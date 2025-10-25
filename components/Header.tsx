@@ -1,22 +1,12 @@
-
-
 import React from 'react';
 import { format } from 'date-fns/format';
 
 interface HeaderProps {
     latestDataDate: Date | null;
-    isDataManagementVisible: boolean;
-    onToggleDataManagement: () => void;
-    isFiltersVisible: boolean;
-    onToggleFilters: () => void;
 }
 
 const Header: React.FC<HeaderProps> = ({
     latestDataDate,
-    isDataManagementVisible,
-    onToggleDataManagement,
-    isFiltersVisible,
-    onToggleFilters,
 }) => {
     return (
         <header className="bg-gray-800/50 backdrop-blur-sm shadow-lg flex-shrink-0 z-20">
@@ -35,32 +25,6 @@ const Header: React.FC<HeaderProps> = ({
                             </h2>
                         )}
                     </div>
-                </div>
-                <div className="flex items-center gap-2">
-                    <button
-                        onClick={onToggleFilters}
-                        className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                            isFiltersVisible
-                                ? 'bg-cyan-600 text-white'
-                                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                        }`}
-                        aria-pressed={isFiltersVisible}
-                        aria-controls="filters-panel"
-                    >
-                        Filtros y Análisis
-                    </button>
-                    <button
-                        onClick={onToggleDataManagement}
-                        className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                            isDataManagementVisible
-                                ? 'bg-cyan-600 text-white'
-                                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                        }`}
-                        aria-pressed={isDataManagementVisible}
-                        aria-controls="data-management-panel"
-                    >
-                        Gestión de Datos
-                    </button>
                 </div>
             </div>
         </header>

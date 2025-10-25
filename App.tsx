@@ -1,9 +1,5 @@
 
 
-
-
-
-
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { subDays } from 'date-fns/subDays';
 import { startOfMonth } from 'date-fns/startOfMonth';
@@ -23,9 +19,7 @@ import type { LuminaireEvent, InventoryItem, ActiveTab, ChangeEvent, BroadcastMe
 import { ALL_ZONES, MUNICIPIO_TO_ZONE_MAP, ZONE_ORDER } from './constants';
 
 import Header from './components/Header';
-import FileUpload from './components/FileUpload';
 import FilterControls from './components/FilterControls';
-import CollapsibleSection from './components/CollapsibleSection';
 import TabButton from './components/TabButton';
 import EventosTab from './components/EventosTab';
 import CambiosTab from './components/CambiosTab';
@@ -69,15 +63,11 @@ const App: React.FC = () => {
     const urlParams = new URLSearchParams(window.location.search);
     const portalTab = urlParams.get('portal') as ActiveTab | null;
 
-    const { 
-        allEvents, changeEvents, inventory, 
-        uploadedFileNames, 
-        addEventsFromCSV, addChangeEventsFromCSV, addInventoryFromCSV, 
-        addEventsFromJSON, downloadDataAsJSON, 
-        deleteDataByFileName, resetApplication, 
-        loading, error 
+    const {
+        allEvents, changeEvents, inventory,
+        loading, error
     } = useLuminaireData();
-    
+
     // All state is managed here in the main component
     const [dateRange, setDateRange] = useState<{ start: Date | null; end: Date | null }>({ start: null, end: null });
     const [selectedZone, setSelectedZone] = useState<string>('all');
@@ -91,10 +81,7 @@ const App: React.FC = () => {
     const [cardFilter, setCardFilter] = useState<string | null>(null);
     const [cardChangeFilter, setCardChangeFilter] = useState<string | null>(null);
     const [cardInventoryFilter, setCardInventoryFilter] = useState<{key: keyof InventoryItem, value: string} | null>(null);
-    const [isFilelistVisible, setIsFilelistVisible] = useState(true);
-    const [isDataManagementVisible, setIsDataManagementVisible] = useState(false);
-    const [isFiltersVisible, setIsFiltersVisible] = useState(false);
-    const [isExportingPdf, setIsExportingPdf] = useState(false);
+    const [isFiltersVisible, setIsFiltersVisible] = useState(true);
     const [activeTab, setActiveTab] = useState<ActiveTab>('inventario');
     const [isInventorySummariesOpen, setIsInventorySummariesOpen] = useState(false);
     const [selectedOperatingHoursRange, setSelectedOperatingHoursRange] = useState<string | null>(null);
@@ -192,10 +179,6 @@ const App: React.FC = () => {
     useEffect(() => { if (selectedMonth && selectedYear) { const yearNum = parseInt(selectedYear); const monthNum = parseInt(selectedMonth) - 1; const start = new Date(yearNum, monthNum, 1); const end = endOfMonth(start); setDateRange({ start, end }); } else if (selectedYear && !selectedMonth) { const yearNum = parseInt(selectedYear); const start = startOfYear(new Date(yearNum, 0, 1)); const end = endOfYear(new Date(yearNum, 11, 31)); setDateRange({ start, end }); } else if (!selectedYear && selectedMonth) { setDateRange({ start: null, end: null }); } }, [selectedMonth, selectedYear]);
     useEffect(() => { if (loading) return; const hasInventory = inventory.length > 0; const hasChanges = changeEvents.length > 0; const hasEvents = allEvents.length > 0; const tabs: { id: ActiveTab; hasData: boolean }[] = [ { id: 'inventario', hasData: hasInventory }, { id: 'cambios', hasData: hasChanges }, { id: 'eventos', hasData: hasEvents }, ]; const currentTab = tabs.find(t => t.id === activeTab); if (currentTab && !currentTab.hasData) { const firstAvailableTab = tabs.find(t => t.hasData); if (firstAvailableTab) { setActiveTab(firstAvailableTab.id as ActiveTab); } } else if (!hasInventory && !hasChanges && !hasEvents) { setActiveTab('inventario'); } }, [inventory.length, changeEvents.length, allEvents.length, activeTab, loading]);
 
-    const handleJsonFileChange = (event: React.ChangeEvent<HTMLInputElement>) => { const file = event.target.files?.[0]; if (file) { addEventsFromJSON(file); event.target.value = ''; } };
-    const handleChangesFileChange = (event: React.ChangeEvent<HTMLInputElement>) => { const file = event.target.files?.[0]; if(file) { addChangeEventsFromCSV(file); event.target.value = ''; } };
-    const handleInventoryFileChange = (event: React.ChangeEvent<HTMLInputElement>) => { const file = event.target.files?.[0]; if(file) { addInventoryFromCSV(file); event.target.value = ''; } };
-    const handleDeleteData = async (fileName: string) => { if (window.confirm(`¿Estás seguro de que quieres borrar todos los datos del archivo "${fileName}"? Esta acción no se puede deshacer.`)) { await deleteDataByFileName(fileName); } };
     const handleOperatingHoursRowClick = useCallback((range: string) => { setSelectedOperatingHoursRange(prev => (prev === range ? null : range)); }, []);
     
     const handlePopOut = (tabId: ActiveTab) => {
@@ -267,12 +250,12 @@ const App: React.FC = () => {
         const data = Object.keys(inventoryCountByZone).map(zone => {
             const eventData = counts[zone] || { total: 0, categories: {} };
             const totalInventario = inventoryCountByZone[zone];
-            // FIX: Replaced Object.fromEntries with a reduce call to ensure catCounts is a spreadable object type, which resolves the spread operator error.
-            const catCounts = filteredFailureCategories.reduce((acc, cat) => {
-                acc[cat] = eventData.categories[cat] || 0;
-                return acc;
-            }, {} as Record<string, number>);
-            return { name: zone, eventos: eventData.total, totalInventario, porcentaje: totalInventario > 0 ? (eventData.total / totalInventario) * 100 : 0, ...catCounts };
+            const catCounts: Record<string, number> = {};
+            filteredFailureCategories.forEach(cat => {
+                catCounts[cat] = eventData.categories[cat] || 0;
+            });
+            // FIX: Use Object.assign to avoid spread operator type inference issues that can cause "Spread types may only be created from object types" error.
+            return Object.assign({ name: zone, eventos: eventData.total, totalInventario, porcentaje: totalInventario > 0 ? (eventData.total / totalInventario) * 100 : 0 }, catCounts);
         });
         const sorted = data.sort((a, b) => {
             const iA = ZONE_ORDER.indexOf(a.name);
@@ -295,12 +278,12 @@ const App: React.FC = () => {
         const data = Object.keys(inventoryCountByMunicipio).map(muni => {
             const eventData = counts[muni] || { total: 0, categories: {} };
             const totalInventario = inventoryCountByMunicipio[muni];
-            // FIX: Replaced Object.fromEntries with a reduce call to ensure catCounts is a spreadable object type, which resolves the spread operator error.
-            const catCounts = filteredFailureCategories.reduce((acc, cat) => {
-                acc[cat] = eventData.categories[cat] || 0;
-                return acc;
-            }, {} as Record<string, number>);
-            return { name: muni, eventos: eventData.total, totalInventario, porcentaje: totalInventario > 0 ? (eventData.total / totalInventario) * 100 : 0, ...catCounts };
+            const catCounts: Record<string, number> = {};
+            filteredFailureCategories.forEach(cat => {
+                catCounts[cat] = eventData.categories[cat] || 0;
+            });
+            // FIX: Use Object.assign to avoid spread operator type inference issues that can cause "Spread types may only be created from object types" error.
+            return Object.assign({ name: muni, eventos: eventData.total, totalInventario, porcentaje: totalInventario > 0 ? (eventData.total / totalInventario) * 100 : 0 }, catCounts);
         }).sort((a,b) => b.porcentaje - a.porcentaje);
         return { data, categories: filteredFailureCategories };
     }, [baseFilteredEvents, inventoryCountByMunicipio, filteredFailureCategories]);
@@ -323,10 +306,6 @@ const App: React.FC = () => {
     const handleExportOperatingHoursSummary = useCallback(() => { if (operatingHoursSummary.length === 0) return; const getRangeStart = (rangeStr: string): number => { if (rangeStr.startsWith('>')) return Infinity; return parseInt(rangeStr.split(' ')[0].replace(/\D/g, ''), 10); }; const dataToExport = [...operatingHoursSummary].sort((a, b) => getRangeStart(a.range) - getRangeStart(b.range)).map(item => { const row: Record<string, any> = { 'Rango de Horas': item.range, 'Total Luminarias': item.total }; operatingHoursZones.forEach(zone => { row[zone] = item[zone] || 0; }); return row; }); import('./utils/export').then(module => module.exportToXlsx(dataToExport, generateExportFilename('resumen_horas_funcionamiento'))); }, [operatingHoursSummary, operatingHoursZones, generateExportFilename]);
     const handleExportOperatingHoursDetail = useCallback(() => { if (operatingHoursDetailData.length === 0 || !currentAppState.selectedOperatingHoursRange) return; const filename = generateExportFilename(`detalle_luminarias_rango_${currentAppState.selectedOperatingHoursRange.replace(/[^\w]/g, '_')}`); const dataForExport = operatingHoursDetailData.map(item => ({ 'ID de luminaria': item.streetlightIdExterno, 'Dirección Hardware OLC': item.olcHardwareDir ?? 'N/A', 'Municipio': item.municipio, 'Latitud': item.lat ?? 'N/A', 'Longitud': item.lon ?? 'N/A' })); import('./utils/export').then(module => module.exportToXlsx(dataForExport, filename)); }, [operatingHoursDetailData, currentAppState.selectedOperatingHoursRange, generateExportFilename]);
 
-    // PDF Export requires all data, so it's not moved to a tab component
-    // It's also not available in portal view.
-    // ... PDF export logic remains here ...
-
     if (portalTab) {
         if (!portalState) {
             return <div className="flex items-center justify-center h-screen bg-gray-900 text-gray-200">Sincronizando...</div>;
@@ -342,7 +321,7 @@ const App: React.FC = () => {
             baseFilteredChangeEvents, displayChangeEvents, changesByMunicipioData,
             luminariaChangesCount, olcChangesCount, garantiaChangesCount, vandalizadoChangesCount, columnaCaidaChangesCount, hurtoChangesCount,
             cardChangeFilter: currentAppState.cardChangeFilter, searchTerm: currentAppState.searchTerm,
-            handleCardChangeClick: () => {}, handleExportChangesByMunicipio: () => {}, setSearchTerm: () => {},
+            handleCardChangeClick: () => {}, handleExportChangesByMunicipio: () => {},
             // Inventario Props
             displayInventory, finalDisplayInventory, powerSummary, operatingHoursSummary, operatingHoursZones, operatingHoursDetailData, cabinetSummaryData, serviceSummaryData,
             uniqueCabinetCount, inauguratedCount, markedCount, uniqueAccountCount, vandalizadoInventoryCount, hurtoInventoryCount, columnaCaidaInventoryCount, faltaPodaInventoryCount, faltaLineaInventoryCount,
@@ -354,7 +333,7 @@ const App: React.FC = () => {
         const renderTabContent = () => {
             switch (portalTab) {
                 case 'eventos': return <EventosTab {...tabProps} />;
-                case 'cambios': return <CambiosTab {...tabProps} />;
+                case 'cambios': return <CambiosTab {...tabProps} setSearchTerm={undefined} />;
                 case 'inventario': return <InventarioTab {...tabProps} />;
                 default: return <div>Tab no encontrado</div>;
             }
@@ -380,105 +359,70 @@ const App: React.FC = () => {
         <div className="flex flex-col h-screen bg-gray-900 text-gray-200 font-sans">
             <Header
                 latestDataDate={latestDataDate}
-                isDataManagementVisible={isDataManagementVisible}
-                onToggleDataManagement={() => setIsDataManagementVisible(v => !v)}
-                isFiltersVisible={isFiltersVisible}
-                onToggleFilters={() => setIsFiltersVisible(v => !v)}
             />
             <main className="flex-grow container mx-auto px-4 md:px-8 pt-4 overflow-hidden flex flex-col">
                 <div className="flex-shrink-0">
-                    {isDataManagementVisible && (
-                        <div id="data-management-panel" className="bg-gray-800 shadow-lg rounded-xl p-4 mb-4">
-                             <div className="flex flex-col items-center">
-                                <h2 className="text-xl font-bold text-cyan-400 mb-2">Gestión de Datos</h2>
-                                <p className="text-gray-400 mb-4 text-center">Cargue planillas de datos, gestione respaldos y exporte resultados.</p>
-                                <div className="w-full max-w-4xl flex flex-col items-center gap-y-3">
-                                    <div className="w-full grid grid-cols-1 md:grid-cols-3 gap-3">
-                                        <FileUpload onFileUpload={addEventsFromCSV} loading={loading} />
-                                        <input type="file" id="change-csv-upload-input" accept=".csv" onChange={handleChangesFileChange} className="hidden" disabled={loading} />
-                                        <button onClick={() => document.getElementById('change-csv-upload-input')?.click()} disabled={loading} className="w-full h-full bg-amber-600 hover:bg-amber-700 disabled:bg-gray-600 text-white font-bold py-3 px-4 rounded-lg transition-colors flex items-center justify-center gap-2 text-sm">
-                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h5M5.5 9.5L4 11m0 0l1.5 1.5M4 11h16m-5-5v5h5m-5-1.5l1.5 1.5m0 0L20 9.5" /></svg>
-                                            <span>Cargar Cambios</span>
-                                        </button>
-                                        <input type="file" id="inventory-csv-upload-input" accept=".csv" onChange={handleInventoryFileChange} className="hidden" disabled={loading} />
-                                        <button onClick={() => document.getElementById('inventory-csv-upload-input')?.click()} disabled={loading} className="w-full h-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-600 text-white font-bold py-3 px-4 rounded-lg transition-colors flex items-center justify-center gap-2 text-sm">
-                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M7 3a1 1 0 000 2h6a1 1 0 100-2H7zM4 7a1 1 0 011-1h10a1 1 0 110 2H5a1 1 0 01-1-1zM2 11a2 2 0 012-2h12a2 2 0 012 2v4a2 2 0 01-2-2H4a2 2 0 01-2-2v-4z" /></svg>
-                                            <span>Cargar Inventario</span>
-                                        </button>
-                                    </div>
-                                    <div className="w-full grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                        <button onClick={downloadDataAsJSON} disabled={loading || noDataLoaded} className="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white font-bold py-3 px-4 rounded-lg transition-colors flex items-center justify-center gap-2">
-                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
-                                            Descargar Respaldo JSON
-                                        </button>
-                                        <input type="file" id="json-upload-input" accept=".json" onChange={handleJsonFileChange} className="hidden" disabled={loading} />
-                                        <button onClick={() => document.getElementById('json-upload-input')?.click()} disabled={loading} className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white font-bold py-3 px-4 rounded-lg transition-colors flex items-center justify-center gap-2">
-                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
-                                            <span>Cargar Respaldo JSON</span>
-                                        </button>
-                                    </div>
-                                    <div className="w-full grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                        {/* PDF Export Button (Not yet implemented for new structure) */}
-                                        <button disabled={true} className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 text-white font-bold py-3 px-4 rounded-lg transition-colors flex items-center justify-center gap-2">
-                                            Exportar a PDF
-                                        </button>
-                                        <button onClick={resetApplication} disabled={loading || noDataLoaded} className="w-full bg-red-600 hover:bg-red-700 disabled:bg-gray-600 text-white font-bold py-3 px-4 rounded-lg transition-colors flex items-center justify-center gap-2">
-                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 110 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" /></svg>
-                                            Reiniciar Aplicación
-                                        </button>
-                                    </div>
-                                </div>
-                                {error && <p className="text-red-400 mt-4">{error}</p>}
-                                {uploadedFileNames.length > 0 && (
-                                    <CollapsibleSection title={`Planillas Cargadas (${uploadedFileNames.length})`} defaultOpen={true}>
-                                        <ul id="file-list" className="list-inside text-gray-400 max-h-32 overflow-y-auto text-sm space-y-2 bg-gray-900/50 p-3 rounded-md mt-2">
-                                            {uploadedFileNames.map(name => (
-                                                <li key={name} className="flex justify-between items-center bg-gray-700/50 p-2 rounded">
-                                                    <span>{name}</span>
-                                                    <button onClick={() => handleDeleteData(name)} className="text-red-500 hover:text-red-400 p-1 rounded-full hover:bg-gray-600 transition-colors" title={`Eliminar datos de ${name}`}>
-                                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                                                    </button>
-                                                </li>
-                                            ))}
-                                        </ul>
-                                    </CollapsibleSection>
-                                )}
-                            </div>
-                        </div>
-                    )}
-                    
                     {isFiltersVisible && (
-                        <div id="filters-panel" className="bg-gray-800 shadow-lg rounded-xl p-4 mb-4">
-                           <h2 className="text-xl font-bold text-cyan-400 mb-4">Filtros y Análisis</h2>
-                            <div className="border-t border-gray-700 pt-4">
-                                <FilterControls
-                                    activeTab={activeTab} dateRange={dateRange} setDateRange={setDateRange} handleSetDatePreset={handleSetDatePreset}
-                                    selectedZone={selectedZone} setSelectedZone={setSelectedZone} selectedMunicipio={selectedMunicipio}
-                                    setSelectedMunicipio={setSelectedMunicipio} municipios={filteredMunicipios} selectedCategory={selectedCategory}
-                                    setSelectedCategory={setSelectedCategory} zones={zones.length > 0 ? zones : ALL_ZONES} failureCategories={failureCategories}
-                                    availableYears={availableYears} selectedMonth={selectedMonth} setSelectedMonth={setSelectedMonth}
-                                    selectedYear={selectedYear} setSelectedYear={setSelectedYear} availablePowers={availablePowers}
-                                    selectedPower={selectedPower} setSelectedPower={setSelectedPower} availableCalendars={availableCalendars}
-                                    selectedCalendar={selectedCalendar} setSelectedCalendar={setSelectedCalendar} setSearchTerm={setSearchTerm}
-                                />
-                            </div>
+                         <div id="filters-panel" className="bg-gray-800 shadow-lg rounded-xl p-4 mb-4">
+                            <FilterControls
+                                activeTab={activeTab} dateRange={dateRange} setDateRange={setDateRange} handleSetDatePreset={handleSetDatePreset}
+                                selectedZone={selectedZone} setSelectedZone={setSelectedZone} selectedMunicipio={selectedMunicipio}
+                                setSelectedMunicipio={setSelectedMunicipio} municipios={filteredMunicipios} selectedCategory={selectedCategory}
+                                setSelectedCategory={setSelectedCategory} zones={zones.length > 0 ? zones : ALL_ZONES} failureCategories={failureCategories}
+                                availableYears={availableYears} selectedMonth={selectedMonth} setSelectedMonth={setSelectedMonth}
+                                selectedYear={selectedYear} setSelectedYear={setSelectedYear} availablePowers={availablePowers}
+                                selectedPower={selectedPower} setSelectedPower={setSelectedPower} availableCalendars={availableCalendars}
+                                selectedCalendar={selectedCalendar} setSelectedCalendar={setSelectedCalendar}
+                            />
                         </div>
                     )}
 
-                    <div className="border-b border-gray-700">
+                    <div className="border-b border-gray-700 flex justify-between items-center">
                         <nav className="-mb-px flex space-x-8" aria-label="Tabs">
                              <TabButton tabId="inventario" title="Inventario" activeTab={activeTab} setActiveTab={setActiveTab} disabled={inventory.length === 0} onPopOut={handlePopOut} />
                              <TabButton tabId="cambios" title="Cambios" activeTab={activeTab} setActiveTab={setActiveTab} disabled={changeEvents.length === 0} onPopOut={handlePopOut} />
                              <TabButton tabId="eventos" title="Eventos" activeTab={activeTab} setActiveTab={setActiveTab} disabled={allEvents.length === 0} onPopOut={handlePopOut} />
                         </nav>
+                        <button
+                            onClick={() => setIsFiltersVisible(v => !v)}
+                            className={`px-3 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${
+                                isFiltersVisible
+                                    ? 'bg-cyan-600 text-white'
+                                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                            }`}
+                            aria-pressed={isFiltersVisible}
+                            aria-controls="filters-panel"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                <path fillRule="evenodd" d="M3 3a1 1 0 011-1h12a1 1 0 011 1v3a1 1 0 01-.293.707L12 11.414V15a1 1 0 01-.293.707l-2 2A1 1 0 018 17v-5.586L3.293 6.707A1 1 0 013 6V3z" clipRule="evenodd" />
+                            </svg>
+                            Filtros
+                        </button>
                     </div>
                 </div>
 
                 <div className="flex-grow overflow-y-auto pt-4">
-                    {loading && <div className="text-center p-8"><p>Cargando datos...</p></div>}
+                    {loading && <div className="text-center p-8"><p>Cargando datos desde la nube...</p></div>}
+                    {error && (
+                        <div className="text-center p-16 bg-gray-800 rounded-lg">
+                            <h2 className="text-2xl font-semibold text-red-400">Error al Cargar Datos</h2>
+                            <p className="text-gray-400 mt-2 max-w-2xl mx-auto">{error}</p>
+                        </div>
+                    )}
                     
-                    {!loading && !noDataLoaded && (
+                    {!loading && !error && (
                         <>
+                           {noDataLoaded && (
+                                <div className="text-center p-16 bg-gray-800 rounded-lg">
+                                    <h2 className="text-2xl font-semibold text-gray-300">
+                                       No hay datos para mostrar
+                                    </h2>
+                                    <p className="text-gray-500 mt-2">
+                                       No se encontró información en las fuentes de datos configuradas en Firebase.
+                                    </p>
+                                </div>
+                            )}
+
                            {activeTab === 'eventos' && allEvents.length > 0 && (
                                 poppedOutTabs.includes('eventos') ? (
                                     <div className="text-center p-16 bg-gray-800 rounded-lg">
@@ -582,13 +526,6 @@ const App: React.FC = () => {
                                )
                            )}
                         </>
-                    )}
-
-                    {noDataLoaded && (
-                        <div className="text-center p-16 bg-gray-800 rounded-lg">
-                            <h2 className="text-2xl font-semibold text-gray-300">No hay datos cargados</h2>
-                            <p className="text-gray-500 mt-2">Utilice los botones de "Gestión de Datos" para cargar planillas y comenzar el análisis.</p>
-                        </div>
                     )}
                 </div>
             </main>

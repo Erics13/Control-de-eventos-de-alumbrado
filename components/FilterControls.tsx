@@ -1,5 +1,4 @@
 import React from 'react';
-// FIX: Corrected import path for ActiveTab type.
 import type { ActiveTab } from '../types';
 
 interface FilterControlsProps {
@@ -27,7 +26,6 @@ interface FilterControlsProps {
     availableCalendars: string[];
     selectedCalendar: string;
     setSelectedCalendar: (calendar: string) => void;
-    setSearchTerm: (term: string) => void;
 }
 
 const meses = [
@@ -70,7 +68,6 @@ const FilterControls: React.FC<FilterControlsProps> = ({
     availableCalendars,
     selectedCalendar,
     setSelectedCalendar,
-    setSearchTerm,
 }) => {
     const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>, part: 'start' | 'end') => {
         const value = e.target.value ? new Date(e.target.value) : null;
@@ -237,7 +234,6 @@ const FilterControls: React.FC<FilterControlsProps> = ({
                     setSelectedYear('');
                     setSelectedPower('all');
                     setSelectedCalendar('all');
-                    setSearchTerm('');
                  }} className="ml-auto bg-gray-700 hover:bg-red-600 text-sm font-medium py-1 px-3 rounded-md transition-colors">Limpiar Filtros</button>
             </div>
         </div>
