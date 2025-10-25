@@ -254,7 +254,7 @@ const App: React.FC = () => {
             filteredFailureCategories.forEach(cat => {
                 catCounts[cat] = eventData.categories[cat] || 0;
             });
-            // FIX: Use Object.assign to avoid spread operator type inference issues that can cause "Spread types may only be created from object types" error.
+            // FIX: Replaced spread syntax with Object.assign to prevent "Spread types may only be created from object types" error.
             return Object.assign({ name: zone, eventos: eventData.total, totalInventario, porcentaje: totalInventario > 0 ? (eventData.total / totalInventario) * 100 : 0 }, catCounts);
         });
         const sorted = data.sort((a, b) => {
@@ -282,7 +282,7 @@ const App: React.FC = () => {
             filteredFailureCategories.forEach(cat => {
                 catCounts[cat] = eventData.categories[cat] || 0;
             });
-            // FIX: Use Object.assign to avoid spread operator type inference issues that can cause "Spread types may only be created from object types" error.
+            // FIX: Replaced spread syntax with Object.assign to prevent "Spread types may only be created from object types" error.
             return Object.assign({ name: muni, eventos: eventData.total, totalInventario, porcentaje: totalInventario > 0 ? (eventData.total / totalInventario) * 100 : 0 }, catCounts);
         }).sort((a,b) => b.porcentaje - a.porcentaje);
         return { data, categories: filteredFailureCategories };
@@ -307,8 +307,20 @@ const App: React.FC = () => {
     const handleExportOperatingHoursDetail = useCallback(() => { if (operatingHoursDetailData.length === 0 || !currentAppState.selectedOperatingHoursRange) return; const filename = generateExportFilename(`detalle_luminarias_rango_${currentAppState.selectedOperatingHoursRange.replace(/[^\w]/g, '_')}`); const dataForExport = operatingHoursDetailData.map(item => ({ 'ID de luminaria': item.streetlightIdExterno, 'Dirección Hardware OLC': item.olcHardwareDir ?? 'N/A', 'Municipio': item.municipio, 'Latitud': item.lat ?? 'N/A', 'Longitud': item.lon ?? 'N/A' })); import('./utils/export').then(module => module.exportToXlsx(dataForExport, filename)); }, [operatingHoursDetailData, currentAppState.selectedOperatingHoursRange, generateExportFilename]);
 
     if (portalTab) {
+        // Portal-specific rendering logic
+        if (loading) {
+            return <div className="flex items-center justify-center h-screen bg-gray-900 text-gray-200">Cargando datos...</div>;
+        }
+        if (error) {
+             return (
+                <div className="flex flex-col items-center justify-center h-screen bg-gray-900 text-gray-200 p-4">
+                    <h2 className="text-xl font-semibold text-red-400">Error en Ventana Secundaria</h2>
+                    <p className="text-center text-gray-400 mt-2 max-w-lg">{error}</p>
+                </div>
+            );
+        }
         if (!portalState) {
-            return <div className="flex items-center justify-center h-screen bg-gray-900 text-gray-200">Sincronizando...</div>;
+            return <div className="flex items-center justify-center h-screen bg-gray-900 text-gray-200">Sincronizando estado con ventana principal...</div>;
         }
 
         const tabProps = {
