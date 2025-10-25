@@ -1,3 +1,4 @@
+
 export interface LuminaireEvent {
   uniqueEventId: string;
   id: string;
@@ -58,4 +59,13 @@ export interface InventoryItem {
   potenciaNominal?: number;
   designacionTipo?: string;
   sourceFile?: string;
+}
+
+export type ActiveTab = 'eventos' | 'cambios' | 'inventario';
+
+export type BroadcastMessageType = 'STATE_UPDATE' | 'DOCK_TAB' | 'REQUEST_INITIAL_STATE' | 'INITIAL_STATE_RESPONSE';
+
+export interface BroadcastMessage {
+    type: BroadcastMessageType;
+    payload: any;
 }

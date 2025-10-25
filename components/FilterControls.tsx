@@ -1,5 +1,6 @@
 import React from 'react';
-import type { ActiveTab } from '../App';
+// FIX: Corrected import path for ActiveTab type.
+import type { ActiveTab } from '../types';
 
 interface FilterControlsProps {
     activeTab: ActiveTab;
