@@ -1,3 +1,5 @@
+
+
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 // FIX: Changed date-fns submodule imports from default to named. This resolves the "not callable"
 // error, likely caused by an upgrade to date-fns v3+ which uses named exports for submodules.
@@ -9,6 +11,7 @@ import { parseISO } from 'date-fns/parseISO';
 import { startOfDay } from 'date-fns/startOfDay';
 import { endOfDay } from 'date-fns/endOfDay';
 import { endOfMonth } from 'date-fns/endOfMonth';
+import { endOfYear } from 'date-fns/endOfYear';
 import { format } from 'date-fns/format';
 import { es } from 'date-fns/locale/es';
 import { useLuminaireData } from './hooks/useLuminaireData';
@@ -39,6 +42,8 @@ import InauguratedByZoneChart from './components/InauguratedByZoneChart';
 import InaugurationsByYearZoneChart from './components/InaugurationsByYearZoneChart';
 import FailurePercentageTable from './components/FailurePercentageTable';
 import OperatingHoursSummaryTable from './components/OperatingHoursSummaryTable';
+import ChangesByMunicipioTable from './components/ChangesByMunicipioTable';
+import LuminaireDetailTable from './components/LuminaireDetailTable';
 
 const ERROR_DESC_LOW_CURRENT = "La corriente medida es menor que lo esperado o no hay corriente que fluya a través de la combinación de driver y lámpara.";
 const ERROR_DESC_HIGH_CURRENT = "La corriente medida para la combinación de driver y lámpara es mayor que la esperada.";
@@ -108,6 +113,7 @@ const App: React.FC = () => {
     const [isExportingPdf, setIsExportingPdf] = useState(false);
     const [activeTab, setActiveTab] = useState<ActiveTab>('inventario');
     const [isInventorySummariesOpen, setIsInventorySummariesOpen] = useState(false);
+    const [selectedOperatingHoursRange, setSelectedOperatingHoursRange] = useState<string | null>(null);
 
     const handleCardClick = useCallback((filterType: string) => {
         setCardFilter(prevFilter => (prevFilter === filterType ? null : filterType));
@@ -167,6 +173,14 @@ const App: React.FC = () => {
             const start = new Date(yearNum, monthNum, 1);
             const end = endOfMonth(start);
             setDateRange({ start, end });
+        } else if (selectedYear && !selectedMonth) {
+            const yearNum = parseInt(selectedYear);
+            const start = startOfYear(new Date(yearNum, 0, 1));
+            const end = endOfYear(new Date(yearNum, 11, 31));
+            setDateRange({ start, end });
+        } else if (!selectedYear && selectedMonth) {
+            // Month only is selected, clear date range to let filter logic in useMemo handle it
+            setDateRange({ start: null, end: null });
         }
     }, [selectedMonth, selectedYear]);
     
@@ -230,18 +244,32 @@ const App: React.FC = () => {
     const baseFilteredEvents = useMemo(() => {
         return allEvents.filter(event => {
             const eventDate = typeof event.date === 'string' ? parseISO(event.date) : event.date;
-            const isDateInRange = !dateRange.start || !dateRange.end || isWithinInterval(eventDate, { start: dateRange.start, end: dateRange.end });
+            
+            let isDateInRange = true;
+            if (dateRange.start && dateRange.end) {
+                isDateInRange = isWithinInterval(eventDate, { start: dateRange.start, end: dateRange.end });
+            } else if (selectedMonth && !selectedYear) {
+                isDateInRange = (eventDate.getMonth() + 1) === parseInt(selectedMonth, 10);
+            }
+
             const isZoneMatch = selectedZone === 'all' || event.zone === selectedZone;
             const isMunicipioMatch = selectedMunicipio === 'all' || event.municipio === selectedMunicipio;
             const isCategoryMatch = selectedCategory === 'all' || event.failureCategory === selectedCategory;
             return isDateInRange && isZoneMatch && isMunicipioMatch && isCategoryMatch;
         });
-    }, [allEvents, dateRange, selectedZone, selectedMunicipio, selectedCategory]);
+    }, [allEvents, dateRange, selectedZone, selectedMunicipio, selectedCategory, selectedMonth, selectedYear]);
 
     const baseFilteredChangeEvents = useMemo(() => {
         return changeEvents.filter(event => {
             const eventDate = event.fechaRetiro;
-            const isDateInRange = !dateRange.start || !dateRange.end || isWithinInterval(eventDate, { start: dateRange.start, end: dateRange.end });
+            
+            let isDateInRange = true;
+            if (dateRange.start && dateRange.end) {
+                isDateInRange = isWithinInterval(eventDate, { start: dateRange.start, end: dateRange.end });
+            } else if (selectedMonth && !selectedYear) {
+                isDateInRange = (eventDate.getMonth() + 1) === parseInt(selectedMonth, 10);
+            }
+            
             const isZoneMatch = selectedZone === 'all' || event.zone === selectedZone;
             const isMunicipioMatch = selectedMunicipio === 'all' || event.municipio === selectedMunicipio;
             
@@ -261,7 +289,7 @@ const App: React.FC = () => {
 
             return isDateInRange && isZoneMatch && isMunicipioMatch && isSearchMatch;
         });
-    }, [changeEvents, dateRange, selectedZone, selectedMunicipio, searchTerm]);
+    }, [changeEvents, dateRange, selectedZone, selectedMunicipio, searchTerm, selectedMonth, selectedYear]);
 
     const displayInventory = useMemo(() => {
         return inventory.filter(item => {
@@ -316,6 +344,8 @@ const App: React.FC = () => {
                 return baseFilteredEvents.filter(e => e.failureCategory === 'Hurto');
             case 'vandalizado':
                 return baseFilteredEvents.filter(e => e.failureCategory === 'Vandalizado');
+            case 'inaccesible':
+                return baseFilteredEvents.filter(e => e.failureCategory === 'Inaccesible');
             default:
                 return baseFilteredEvents;
         }
@@ -461,6 +491,10 @@ const App: React.FC = () => {
         return baseFilteredEvents.filter(e => e.failureCategory === 'Vandalizado').length;
     }, [baseFilteredEvents]);
 
+    const inaccesibleFailures = useMemo(() => {
+        return baseFilteredEvents.filter(e => e.failureCategory === 'Inaccesible').length;
+    }, [baseFilteredEvents]);
+
     const luminariaChangesCount = useMemo(() => {
         return baseFilteredChangeEvents.filter(e => e.componente.toUpperCase().includes('LUMINARIA')).length;
     }, [baseFilteredChangeEvents]);
@@ -520,10 +554,23 @@ const App: React.FC = () => {
     }, [inventory]);
 
     const filteredFailureCategories = useMemo(() => {
-        return Array.from(new Set(baseFilteredEvents
+        const desiredCategoryOrder = ['Inaccesible', 'Roto', 'Error de configuración', 'Falla de hardware', 'Falla de voltaje', 'Hurto', 'Vandalizado', 'Columna Caída'];
+        const allCats = Array.from(new Set(baseFilteredEvents
             .map(e => e.failureCategory)
             .filter((c): c is string => !!c)
-        )).sort();
+        ));
+
+        return allCats.sort((a, b) => {
+            const indexA = desiredCategoryOrder.indexOf(a);
+            const indexB = desiredCategoryOrder.indexOf(b);
+            // if both are in the desired order, sort by it
+            if (indexA !== -1 && indexB !== -1) return indexA - indexB;
+            // if only one is, it comes first
+            if (indexA !== -1) return -1;
+            if (indexB !== -1) return 1;
+            // otherwise, sort alphabetically for any other categories
+            return a.localeCompare(b);
+        });
     }, [baseFilteredEvents]);
 
     const failureDataByZone = useMemo(() => {
@@ -565,7 +612,8 @@ const App: React.FC = () => {
             };
         });
         
-        const sortedData = unsortedData.sort((a, b) => {
+        // FIX: Explicitly type `a` and `b` in the sort function to resolve type errors.
+        const sortedData = unsortedData.sort((a: { name: string }, b: { name: string }) => {
             const indexA = ZONE_ORDER.indexOf(a.name);
             const indexB = ZONE_ORDER.indexOf(b.name);
             
@@ -620,6 +668,31 @@ const App: React.FC = () => {
         
         return { data, categories: filteredFailureCategories };
     }, [baseFilteredEvents, inventoryCountByMunicipio, filteredFailureCategories]);
+
+    const changesByMunicipioData = useMemo(() => {
+        const counts = baseFilteredChangeEvents.reduce((acc, event) => {
+            if (!event.municipio) return acc;
+            
+            if (!acc[event.municipio]) {
+                acc[event.municipio] = { LUMINARIA: 0, OLC: 0, total: 0 };
+            }
+
+            const component = event.componente.toUpperCase();
+            if (component.includes('LUMINARIA')) {
+                acc[event.municipio].LUMINARIA++;
+                acc[event.municipio].total++;
+            } else if (component.includes('OLC')) {
+                acc[event.municipio].OLC++;
+                acc[event.municipio].total++;
+            }
+            return acc;
+        }, {} as Record<string, { LUMINARIA: number; OLC: number; total: number }>);
+        
+        return Object.entries(counts)
+            .map(([name, data]) => ({ name, ...data }))
+            .sort((a, b) => b.total - a.total);
+
+    }, [baseFilteredChangeEvents]);
 
     // --- Lifted Summary Data Calculations ---
     const cabinetSummaryData = useMemo(() => {
@@ -686,7 +759,8 @@ const App: React.FC = () => {
         }
         
         const powerData = powers.map(power => {
-            const rowData = powerMap.get(power) || {};
+            // FIX: Ensure rowData is an object before spreading by providing a fallback empty object.
+            const rowData: Record<string, number> = powerMap.get(power) || {};
             const total = locationColumns.reduce((sum, loc) => sum + (rowData[loc] || 0), 0);
             return {
                 power: `${power}W`,
@@ -706,17 +780,19 @@ const App: React.FC = () => {
         return { powerData, locationColumns, columnTotals, grandTotal };
     }, [finalDisplayInventory, selectedZone]);
 
-    const operatingHoursSummary = useMemo(() => {
-        const items = inventory; // Use full inventory for this summary
+    const { operatingHoursSummary, operatingHoursZones } = useMemo(() => {
+        const items = inventory;
         if (items.length === 0) {
-            return [];
+            return { operatingHoursSummary: [], operatingHoursZones: [] };
         }
 
         const RANGE_STEP = 5000;
         const MAX_HOURS = 100000;
 
+        const presentZones = new Set<string>();
+
         const countsByRange = items.reduce((acc, item) => {
-            if (item.horasFuncionamiento != null && item.horasFuncionamiento >= 0) {
+            if (item.horasFuncionamiento != null && item.horasFuncionamiento >= 0 && item.zone) {
                 let rangeLabel;
 
                 if (item.horasFuncionamiento > MAX_HOURS) {
@@ -730,16 +806,66 @@ const App: React.FC = () => {
                     rangeLabel = `${rangeStart.toLocaleString('es-ES')} - ${rangeEnd.toLocaleString('es-ES')} hs`;
                 }
                 
-                acc[rangeLabel] = (acc[rangeLabel] || 0) + 1;
+                if (!acc[rangeLabel]) {
+                    acc[rangeLabel] = { total: 0 };
+                }
+
+                acc[rangeLabel].total = (acc[rangeLabel].total || 0) + 1;
+                acc[rangeLabel][item.zone] = (acc[rangeLabel][item.zone] || 0) + 1;
+                presentZones.add(item.zone);
             }
             return acc;
-        }, {} as Record<string, number>);
+        }, {} as Record<string, { total: number; [zone: string]: number }>);
+        
+        const sortedZones = Array.from(presentZones).sort((a, b) => {
+            const indexA = ZONE_ORDER.indexOf(a);
+            const indexB = ZONE_ORDER.indexOf(b);
+            if (indexA !== -1 && indexB !== -1) return indexA - indexB;
+            if (indexA !== -1) return -1;
+            if (indexB !== -1) return 1;
+            return a.localeCompare(b);
+        });
 
-        return Object.entries(countsByRange).map(([range, count]) => ({
+        const summary = Object.entries(countsByRange).map(([range, counts]) => ({
             range,
-            count,
+            ...counts,
         }));
+        
+        return { operatingHoursSummary: summary, operatingHoursZones: sortedZones };
     }, [inventory]);
+
+    const handleOperatingHoursRowClick = useCallback((range: string) => {
+        setSelectedOperatingHoursRange(prev => (prev === range ? null : range));
+    }, []);
+
+    const operatingHoursDetailData = useMemo((): InventoryItem[] => {
+        if (!selectedOperatingHoursRange) {
+            return [];
+        }
+
+        const parseRange = (rangeStr: string): { start: number; end: number } => {
+            if (rangeStr.startsWith('>')) {
+                const start = parseInt(rangeStr.replace(/\D/g, ''), 10);
+                return { start, end: Infinity };
+            }
+            const parts = rangeStr.replace(/ hs/g, '').replace(/\./g, '').split(' - ');
+            return {
+                start: parseInt(parts[0], 10),
+                end: parseInt(parts[1], 10),
+            };
+        };
+        
+        const { start, end } = parseRange(selectedOperatingHoursRange);
+
+        return inventory.filter(item => {
+            if (item.horasFuncionamiento == null) return false;
+            if (end === Infinity) {
+                return item.horasFuncionamiento > start;
+            }
+            return item.horasFuncionamiento >= start && item.horasFuncionamiento <= end;
+        });
+        
+    }, [inventory, selectedOperatingHoursRange]);
     
     // --- Export Handlers ---
     const generateExportFilename = useCallback((baseName: string): string => {
@@ -820,28 +946,71 @@ const App: React.FC = () => {
 
         exportToXlsx(dataForSheet, generateExportFilename('fallas_por_municipio'));
     }, [failureDataByMunicipio, generateExportFilename]);
+
+    const handleExportChangesByMunicipio = useCallback(() => {
+        exportToXlsx(changesByMunicipioData, generateExportFilename('cambios_por_municipio'));
+    }, [changesByMunicipioData, generateExportFilename]);
+
+    const handleExportFilteredEvents = useCallback(() => {
+        if (displayEvents.length === 0) return;
+        const dataForExport = displayEvents.map(event => ({
+            'Fecha': event.date.toLocaleString('es-ES'),
+            'ID Luminaria': event.id,
+            'ID OLC': event.olcId,
+            'Municipio': event.municipio,
+            'Zona': event.zone,
+            'Estado': event.status,
+            'Categoría de Falla': event.failureCategory,
+            'Descripción': event.description,
+            'Potencia': event.power,
+            'Latitud': event.lat,
+            'Longitud': event.lon,
+        }));
+        const filename = generateExportFilename(`eventos_${cardFilter?.replace(/\s+/g, '_') || 'filtrados'}`);
+        exportToXlsx(dataForExport, filename);
+    }, [displayEvents, cardFilter, generateExportFilename]);
     
     const handleExportOperatingHoursSummary = useCallback(() => {
         if (operatingHoursSummary.length === 0) return;
         
-        const dataToExport = operatingHoursSummary
-            .sort((a, b) => {
-                const getRangeStart = (rangeStr: string): number => {
-                    if (rangeStr.startsWith('>')) return Infinity;
-                    return parseInt(rangeStr.split(' ')[0].replace(/\D/g, ''), 10);
+        const getRangeStart = (rangeStr: string): number => {
+            if (rangeStr.startsWith('>')) return Infinity;
+            return parseInt(rangeStr.split(' ')[0].replace(/\D/g, ''), 10);
+        };
+
+        const dataToExport = [...operatingHoursSummary]
+            .sort((a, b) => getRangeStart(a.range) - getRangeStart(b.range))
+            .map(item => {
+                const row: Record<string, any> = {
+                    'Rango de Horas': item.range,
+                    'Total Luminarias': item.total,
                 };
-                const valA = getRangeStart(a.range);
-                const valB = getRangeStart(b.range);
-                return valA - valB;
-            })
-            .map(item => ({
-                'Rango de Horas': item.range,
-                'Cantidad de Luminarias': item.count,
-            }));
+                operatingHoursZones.forEach(zone => {
+                    row[zone] = item[zone] || 0;
+                });
+                return row;
+            });
 
         exportToXlsx(dataToExport, generateExportFilename('resumen_horas_funcionamiento'));
-    }, [operatingHoursSummary, generateExportFilename]);
+    }, [operatingHoursSummary, operatingHoursZones, generateExportFilename]);
     
+    const handleExportOperatingHoursDetail = useCallback(() => {
+        if (operatingHoursDetailData.length === 0 || !selectedOperatingHoursRange) return;
+        
+        const filename = generateExportFilename(`detalle_luminarias_rango_${selectedOperatingHoursRange.replace(/[^\w]/g, '_')}`);
+        
+        const dataForExport = operatingHoursDetailData.map(item => ({
+            'ID de luminaria': item.streetlightIdExterno,
+            'Dirección Hardware OLC': item.olcHardwareDir ?? 'N/A',
+            'Municipio': item.municipio,
+            'Latitud': item.lat ?? 'N/A',
+            'Longitud': item.lon ?? 'N/A'
+        }));
+
+        exportToXlsx(dataForExport, filename);
+
+    }, [operatingHoursDetailData, selectedOperatingHoursRange, generateExportFilename]);
+
     const handleExportPDF = async () => {
         if (allEvents.length === 0 && changeEvents.length === 0 && inventory.length === 0) {
             alert("No hay datos para exportar.");
@@ -916,13 +1085,15 @@ const App: React.FC = () => {
                         }
                     }
                     const powerData = powers.map(power => {
-                        const rowData = powerMap.get(power) || {};
+                        // FIX: Ensure rowData is an object before spreading by providing a fallback empty object.
+                        const rowData: Record<string, number> = powerMap.get(power) || {};
                         const total = locationColumns.reduce((sum, loc) => sum + (rowData[loc] || 0), 0);
                         return { power: `${power}W`, ...rowData, total: total };
                     });
                     const columnTotals: Record<string, number> = {};
                     let grandTotal = 0;
                     locationColumns.forEach(loc => {
+                        // FIX: Use type assertion to prevent potential TypeScript errors with dynamic property access.
                         const total = powerData.reduce((sum, row) => sum + ((row as any)[loc] || 0), 0);
                         columnTotals[loc] = total; grandTotal += total;
                     });
@@ -998,6 +1169,29 @@ const App: React.FC = () => {
 
     const noDataLoaded = !loading && allEvents.length === 0 && changeEvents.length === 0 && inventory.length === 0;
 
+    const latestDataDate = useMemo(() => {
+        const allDates: number[] = [];
+
+        allEvents.forEach(e => {
+            if (e.date) allDates.push(e.date.getTime());
+        });
+
+        changeEvents.forEach(e => {
+            if (e.fechaRetiro) allDates.push(e.fechaRetiro.getTime());
+        });
+
+        inventory.forEach(i => {
+            if (i.ultimoInforme) allDates.push(i.ultimoInforme.getTime());
+        });
+
+        if (allDates.length === 0) {
+            return null;
+        }
+
+        return new Date(Math.max(...allDates));
+    }, [allEvents, changeEvents, inventory]);
+
+
     return (
         <div className="flex flex-col h-screen bg-gray-900 text-gray-200 font-sans">
             {isExportingPdf && (
@@ -1006,6 +1200,7 @@ const App: React.FC = () => {
                     <div id="pdf-event-indicators" className="bg-gray-800 p-4 rounded-xl">
                         <div className="grid grid-cols-4 gap-4">
                             <DashboardCard title="Total Eventos" value={baseFilteredEvents.length.toLocaleString()} />
+                            <DashboardCard title="Inaccesibles" value={inaccesibleFailures.toLocaleString()} />
                             <DashboardCard title="Fallas Bajo Consumo" value={lowCurrentFailures.toLocaleString()} />
                             <DashboardCard title="Fallas Alto Consumo" value={highCurrentFailures.toLocaleString()} />
                             <DashboardCard title="Fallas de Voltaje" value={voltageFailures.toLocaleString()} />
@@ -1055,6 +1250,7 @@ const App: React.FC = () => {
                 </div>
             )}
             <Header
+                latestDataDate={latestDataDate}
                 isDataManagementVisible={isDataManagementVisible}
                 onToggleDataManagement={() => setIsDataManagementVisible(v => !v)}
                 isFiltersVisible={isFiltersVisible}
@@ -1177,8 +1373,9 @@ const App: React.FC = () => {
                                 <>
                                     <div className="bg-gray-800 shadow-lg rounded-xl p-4">
                                         <h2 className="text-xl font-bold text-cyan-400 mb-3">Indicadores de Eventos</h2>
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-4">
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
                                             <DashboardCard title="Total Eventos" value={baseFilteredEvents.length.toLocaleString()} />
+                                            <DashboardCard title="Inaccesibles" value={inaccesibleFailures.toLocaleString()} onClick={() => handleCardClick('inaccesible')} isActive={cardFilter === 'inaccesible'} />
                                             <DashboardCard title="Fallas Bajo Consumo" value={lowCurrentFailures.toLocaleString()} onClick={() => handleCardClick('lowCurrent')} isActive={cardFilter === 'lowCurrent'} />
                                             <DashboardCard title="Fallas Alto Consumo" value={highCurrentFailures.toLocaleString()} onClick={() => handleCardClick('highCurrent')} isActive={cardFilter === 'highCurrent'} />
                                             <DashboardCard title="Fallas de Voltaje" value={voltageFailures.toLocaleString()} onClick={() => handleCardClick('voltage')} isActive={cardFilter === 'voltage'} />
@@ -1192,11 +1389,11 @@ const App: React.FC = () => {
                                         <div id="special-events-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-4"><h3 className="text-lg font-semibold text-cyan-400 mb-3">Eventos por Hurto, Vandalismo y Caídas</h3><SpecialEventsChart data={baseFilteredEvents} /></div>
                                     </div>
                                     <div id="zone-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-4"><h3 className="text-lg font-semibold text-cyan-400 mb-3">Porcentaje de Fallas por Zona (% del Inventario)</h3><FailureByZoneChart data={failureDataByZone.data} /></div>
-                                    <CollapsibleSection title="Detalle de Fallas por Zona" onExport={handleExportFailureByZone}><FailurePercentageTable data={failureDataByZone.data} categories={failureDataByZone.categories} locationHeader="Zona" /></CollapsibleSection>
+                                    <CollapsibleSection title="Detalle de Eventos por Zona" onExport={handleExportFailureByZone} defaultOpen={true}><FailurePercentageTable data={failureDataByZone.data} categories={failureDataByZone.categories} locationHeader="Zona" /></CollapsibleSection>
                                     <div id="municipio-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-4"><h3 className="text-lg font-semibold text-cyan-400 mb-3">Porcentaje de Fallas por Municipio (% del Inventario)</h3><FailureByMunicipioChart data={failureDataByMunicipio.data} /></div>
                                     <CollapsibleSection title="Detalle de Fallas por Municipio" onExport={handleExportFailureByMunicipio}><FailurePercentageTable data={failureDataByMunicipio.data} categories={failureDataByMunicipio.categories} locationHeader="Municipio" /></CollapsibleSection>
-                                    <div id="events-by-month-container" className="bg-gray-800 shadow-lg rounded-xl p-4"><h3 className="text-lg font-semibold text-cyan-400 mb-3">Volumen de Eventos por Mes</h3><EventsByMonthChart data={baseFilteredEvents} /></div>
-                                    <CollapsibleSection title="Registro de Eventos de Falla"><EventTable events={displayEvents} /></CollapsibleSection>
+                                    <div id="events-by-month-container" className="bg-gray-800 shadow-lg rounded-xl p-4"><h3 className="text-lg font-semibold text-cyan-400 mb-3">Volumen de Eventos por Mes (Últimos 12 Meses)</h3><EventsByMonthChart data={baseFilteredEvents} /></div>
+                                    <CollapsibleSection title="Registro de Eventos de Falla" onExport={cardFilter ? handleExportFilteredEvents : undefined}><EventTable events={displayEvents} /></CollapsibleSection>
                                     <CollapsibleSection title="Eventos Reportados Más Antiguos por Zona"><OldestEventsByZone data={oldestEventsByZone} /></CollapsibleSection>
                                 </>
                             )}
@@ -1216,6 +1413,7 @@ const App: React.FC = () => {
                                         </div>
                                     </div>
                                     <div className="grid grid-cols-1 gap-4"><div id="changes-by-zone-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-4"><h3 className="text-lg font-semibold text-cyan-400 mb-3">Cambios por Zona</h3><ChangesByZoneChart data={baseFilteredChangeEvents} /></div></div>
+                                    <CollapsibleSection title="Resumen de Cambios por Municipio" onExport={handleExportChangesByMunicipio}><ChangesByMunicipioTable data={changesByMunicipioData} /></CollapsibleSection>
                                     <CollapsibleSection title="Registro de Cambios" defaultOpen={true} extraHeaderContent={<div className="relative flex items-center"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 absolute left-3 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg><input type="text" placeholder="Buscar en Cambios..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} onClick={(e) => e.stopPropagation()} className="w-64 bg-gray-700 border border-gray-600 rounded-md py-2 pl-10 pr-10 text-white" />{searchTerm && (<button onClick={(e) => { e.stopPropagation(); setSearchTerm(''); }} className="absolute right-0 top-0 h-full px-3 flex items-center text-gray-400 hover:text-white"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg></button>)}</div>}><ChangeEventTable events={displayChangeEvents} /></CollapsibleSection>
                                 </>
                             )}
@@ -1245,7 +1443,28 @@ const App: React.FC = () => {
                                         >
                                             <PowerSummaryTable summaryData={powerSummary} />
                                         </CollapsibleSection>
-                                        <CollapsibleSection title="Resumen de Horas de Funcionamiento (Total)" onExport={handleExportOperatingHoursSummary}><OperatingHoursSummaryTable data={operatingHoursSummary} /></CollapsibleSection>
+                                        <div className="space-y-4">
+                                            <CollapsibleSection title="Resumen de Horas de Funcionamiento (Total)" onExport={handleExportOperatingHoursSummary}>
+                                                <OperatingHoursSummaryTable 
+                                                    data={operatingHoursSummary} 
+                                                    zones={operatingHoursZones}
+                                                    onRowClick={handleOperatingHoursRowClick}
+                                                    selectedRange={selectedOperatingHoursRange}
+                                                />
+                                            </CollapsibleSection>
+                                            
+                                            {selectedOperatingHoursRange && operatingHoursDetailData.length > 0 && (
+                                                <CollapsibleSection
+                                                    title={`Detalle de Luminarias para Rango: ${selectedOperatingHoursRange} (${operatingHoursDetailData.length.toLocaleString()})`}
+                                                    onExport={handleExportOperatingHoursDetail}
+                                                    defaultOpen={true}
+                                                >
+                                                    <LuminaireDetailTable 
+                                                        items={operatingHoursDetailData} 
+                                                    />
+                                                </CollapsibleSection>
+                                            )}
+                                        </div>
                                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                                             <CollapsibleSection title="Resumen de Luminarias por Gabinete (Total)" isOpen={isInventorySummariesOpen} onToggle={() => setIsInventorySummariesOpen(v => !v)} onExport={handleExportCabinetSummary}><CabinetSummaryTable data={cabinetSummaryData} /></CollapsibleSection>
                                             <CollapsibleSection title="Resumen de Servicios de Alumbrado (Total)" isOpen={isInventorySummariesOpen} onToggle={() => setIsInventorySummariesOpen(v => !v)} onExport={handleExportServiceSummary}><ServiceSummaryTable data={serviceSummaryData} /></CollapsibleSection>

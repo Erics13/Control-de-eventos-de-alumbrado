@@ -1,4 +1,5 @@
 
+
 import React, { useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LabelList } from 'recharts';
 import type { ChangeEvent } from '../types';
@@ -27,7 +28,8 @@ const ChangesByZoneChart: React.FC<{ data: ChangeEvent[] }> = ({ data }) => {
             ...(counts as { LUMINARIA: number; OLC: number })
         }));
         
-        return unsortedData.sort((a, b) => {
+// FIX: Explicitly type `a` and `b` in the sort function to resolve type errors.
+        return unsortedData.sort((a: { name: string }, b: { name: string }) => {
             const indexA = ZONE_ORDER.indexOf(a.name);
             const indexB = ZONE_ORDER.indexOf(b.name);
             

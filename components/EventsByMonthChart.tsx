@@ -30,8 +30,10 @@ const EventsByMonthChart: React.FC<EventsByMonthChartProps> = ({ data }) => {
             };
         });
 
-        // Sort chronologically
-        return unsortedData.sort((a, b) => a.date.getTime() - b.date.getTime());
+        // Sort chronologically and take the last 12 months
+        return unsortedData
+            .sort((a, b) => a.date.getTime() - b.date.getTime())
+            .slice(-12);
 
     }, [data]);
     
