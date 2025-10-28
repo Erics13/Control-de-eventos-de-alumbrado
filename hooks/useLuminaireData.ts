@@ -1,19 +1,20 @@
-
 import { useState, useEffect, useCallback } from 'react';
-import { openDB, DBSchema, IDBPDatabase, deleteDB } from 'idb';
-import type { LuminaireEvent, ChangeEvent, InventoryItem, DataSourceURLs } from '../types';
-import { MUNICIPIO_TO_ZONE_MAP, FAILURE_CATEGORY_TRANSLATIONS } from '../constants';
-import { parse } from 'date-fns/parse';
+import { openDB, DBSchema, IDBPDatabase } from 'idb';
+import type { LuminaireEvent, ChangeEvent, InventoryItem, DataSourceURLs, HistoricalData, HistoricalZoneData } from '../types';
+import { MUNICIPIO_TO_ZONE_MAP, FAILURE_CATEGORY_TRANSLATIONS, ZONE_ORDER } from '../constants';
+import { format } from 'date-fns/format';
 
 // --- IndexedDB Logic ---
 const DB_NAME = 'LuminaireDataDB';
-const DB_VERSION = 5;
+const DB_VERSION = 7; 
 const LUMINAIRE_EVENTS_STORE = 'luminaireEvents';
 const CHANGE_EVENTS_STORE = 'changeEvents';
 const INVENTORY_STORE = 'inventory'; 
 
 // --- Firebase Config ---
-const FIREBASE_URL = 'https://gestion-de-fallas-default-rtdb.firebaseio.com/dataSourceURLs.json';
+const FIREBASE_BASE_URL = 'https://gestion-de-fallas-default-rtdb.firebaseio.com';
+const FIREBASE_URLS_PATH = '/dataSourceURLs.json';
+const FIREBASE_HISTORY_PATH = '/historicalSnapshots';
 
 
 interface LuminaireDB extends DBSchema {
@@ -30,7 +31,6 @@ interface LuminaireDB extends DBSchema {
   [INVENTORY_STORE]: {
     key: string;
     value: InventoryItem;
-    indexes: { municipio: string; };
   };
 }
 
@@ -39,63 +39,22 @@ let dbPromise: Promise<IDBPDatabase<LuminaireDB>> | null = null;
 const getDb = () => {
     if (!dbPromise) {
         dbPromise = openDB<LuminaireDB>(DB_NAME, DB_VERSION, {
-            upgrade(db, oldVersion) {
-                if (oldVersion < 5) {
-                    if (db.objectStoreNames.contains(LUMINAIRE_EVENTS_STORE)) {
-                        db.deleteObjectStore(LUMINAIRE_EVENTS_STORE);
-                    }
+            upgrade(db) {
+                if (!db.objectStoreNames.contains(LUMINAIRE_EVENTS_STORE)) {
                     const luminaireStore = db.createObjectStore(LUMINAIRE_EVENTS_STORE, { keyPath: 'uniqueEventId' });
                     luminaireStore.createIndex('date', 'date');
-
-                    if (db.objectStoreNames.contains(CHANGE_EVENTS_STORE)) {
-                        db.deleteObjectStore(CHANGE_EVENTS_STORE);
-                    }
+                }
+                 if (!db.objectStoreNames.contains(CHANGE_EVENTS_STORE)) {
                     const changeStore = db.createObjectStore(CHANGE_EVENTS_STORE, { keyPath: 'uniqueId' });
                     changeStore.createIndex('fechaRetiro', 'fechaRetiro');
-
-                    if (db.objectStoreNames.contains(INVENTORY_STORE)) {
-                        db.deleteObjectStore(INVENTORY_STORE);
-                    }
-                    const inventoryStore = db.createObjectStore(INVENTORY_STORE, { keyPath: 'streetlightIdExterno' });
-                    inventoryStore.createIndex('municipio', 'municipio');
+                }
+                 if (!db.objectStoreNames.contains(INVENTORY_STORE)) {
+                    db.createObjectStore(INVENTORY_STORE, { keyPath: 'streetlightIdExterno' });
                 }
             },
         });
     }
     return dbPromise;
-};
-
-const getAllLuminaireEvents = async (): Promise<LuminaireEvent[]> => {
-    const db = await getDb();
-    return db.getAllFromIndex(LUMINAIRE_EVENTS_STORE, 'date');
-};
-
-const getAllChangeEvents = async (): Promise<ChangeEvent[]> => {
-    const db = await getDb();
-    return db.getAllFromIndex(CHANGE_EVENTS_STORE, 'fechaRetiro');
-};
-
-const getAllInventoryItems = async (): Promise<InventoryItem[]> => {
-    const db = await getDb();
-    return db.getAll(INVENTORY_STORE);
-}
-
-const bulkAddOrUpdate = async <T extends string>(storeName: T, items: any[]): Promise<void> => {
-    if (items.length === 0) return;
-    const db = await getDb();
-    const tx = db.transaction(storeName, 'readwrite');
-    await tx.store.clear(); 
-    await Promise.all(items.map(item => tx.store.put(item)));
-    await tx.done;
-};
-
-const clearAllData = async (): Promise<void> => {
-    if (dbPromise) {
-        const db = await dbPromise;
-        db.close();
-        dbPromise = null;
-    }
-    await deleteDB(DB_NAME);
 };
 
 // --- Helper Functions ---
@@ -150,6 +109,7 @@ export const useLuminaireData = () => {
     const [allEvents, setAllEvents] = useState<LuminaireEvent[]>([]);
     const [changeEvents, setChangeEvents] = useState<ChangeEvent[]>([]);
     const [inventory, setInventory] = useState<InventoryItem[]>([]);
+    const [historicalData, setHistoricalData] = useState<HistoricalData>({});
     const [loading, setLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
 
@@ -190,11 +150,13 @@ export const useLuminaireData = () => {
             const zone = MUNICIPIO_TO_ZONE_MAP[municipioUpper] || 'Desconocida';
             const lat = parseFloat(columns[5]?.trim().replace(',', '.'));
             const lon = parseFloat(columns[6]?.trim().replace(',', '.'));
+            const systemMeasuredPower = parseSpanishNumber(columns[14]?.trim());
 
             parsedEvents.push({
                 uniqueEventId, id: columns[4]?.trim(), olcId: columns[3]?.trim(), power: columns[2]?.trim(),
                 date: eventDate, municipio, zone, status: eventStatus, description, failureCategory: finalFailureCategory,
                 lat: !isNaN(lat) ? lat : undefined, lon: !isNaN(lon) ? lon : undefined,
+                systemMeasuredPower,
             });
         });
         return parsedEvents;
@@ -286,13 +248,117 @@ export const useLuminaireData = () => {
         return parsedItems;
     };
 
+    const calculateDailySnapshot = (
+        dailyEvents: LuminaireEvent[],
+        fullInventory: InventoryItem[]
+    ): Record<string, HistoricalZoneData> => {
+        const inventoryMap = new Map<string, InventoryItem>(fullInventory.map(item => [item.streetlightIdExterno, item]));
+        const luminairesByCabinet = fullInventory.reduce((acc, item) => {
+            if (item.cabinetIdExterno && item.cabinetIdExterno !== '-') {
+                if (!acc[item.cabinetIdExterno]) acc[item.cabinetIdExterno] = [];
+                acc[item.cabinetIdExterno].push(item.streetlightIdExterno);
+            }
+            return acc;
+        }, {} as Record<string, string[]>);
+    
+        const inventoryCountByZone = fullInventory.reduce((acc, item) => {
+            if (item.zone) acc[item.zone] = (acc[item.zone] || 0) + 1;
+            return acc;
+        }, {} as Record<string, number>);
+    
+        const dailyFailureEvents = dailyEvents.filter(e => e.status === 'FAILURE');
+        const failureCategories = Array.from(new Set(dailyFailureEvents.map(e => e.failureCategory).filter((c): c is string => !!c)));
+    
+        const countsByZone: Record<string, Omit<HistoricalZoneData, 'name' | 'totalInventario' | 'porcentaje' | 'porcentajeGabinete' | 'porcentajeVandalismo' | 'porcentajeReal'>> = {};
+    
+        // Initialize counts for all zones
+        Object.keys(inventoryCountByZone).forEach(zone => {
+            countsByZone[zone] = {
+                eventos: 0, eventosGabinete: 0, eventosVandalismo: 0, eventosReales: 0
+            };
+            failureCategories.forEach(cat => { countsByZone[zone][cat] = 0; });
+        });
+    
+        const inaccessibleEventsByCabinet: Record<string, LuminaireEvent[]> = {};
+        const vandalizedEvents = new Set<string>(); // Store uniqueEventId
+    
+        // First pass: Categorize vandalism and group inaccessible events
+        dailyFailureEvents.forEach(event => {
+            const inventoryItem = inventoryMap.get(event.id);
+            if (inventoryItem?.situacion?.toUpperCase().startsWith('VANDALIZADO')) {
+                if (countsByZone[event.zone]) {
+                    countsByZone[event.zone].eventosVandalismo++;
+                    vandalizedEvents.add(event.uniqueEventId);
+                }
+            } else if (event.failureCategory === 'Inaccesible' && inventoryItem?.cabinetIdExterno) {
+                const cabinetId = inventoryItem.cabinetIdExterno;
+                if (!inaccessibleEventsByCabinet[cabinetId]) inaccessibleEventsByCabinet[cabinetId] = [];
+                inaccessibleEventsByCabinet[cabinetId].push(event);
+            }
+        });
+    
+        // Second pass: Identify cabinet failures from grouped inaccessible events
+        Object.values(inaccessibleEventsByCabinet).forEach(events => {
+            if (events.length > 0) {
+                const cabinetId = inventoryMap.get(events[0].id)?.cabinetIdExterno;
+                const totalInCabinet = cabinetId ? (luminairesByCabinet[cabinetId]?.length || 0) : 0;
+                // Condition for cabinet failure: more than 3 inaccessible, or more than 50%
+                if (cabinetId && totalInCabinet > 0 && (events.length >= 3 || events.length / totalInCabinet > 0.5)) {
+                    events.forEach(event => {
+                        if (countsByZone[event.zone]) {
+                            countsByZone[event.zone].eventosGabinete++;
+                        }
+                    });
+                }
+            }
+        });
+    
+        // Final pass: Aggregate total and real events
+        dailyFailureEvents.forEach(event => {
+            if (countsByZone[event.zone]) {
+                countsByZone[event.zone].eventos++;
+                if (event.failureCategory) {
+                    countsByZone[event.zone][event.failureCategory] = (countsByZone[event.zone][event.failureCategory] || 0) + 1;
+                }
+            }
+        });
+    
+        const snapshot: Record<string, HistoricalZoneData> = {};
+        Object.keys(inventoryCountByZone).forEach(zone => {
+            const zoneCounts = countsByZone[zone];
+            const totalInventario = inventoryCountByZone[zone];
+            
+            const eventosReales = Math.max(0, zoneCounts.eventos - zoneCounts.eventosGabinete - zoneCounts.eventosVandalismo);
+    
+            // FIX: Explicitly list required properties to satisfy the HistoricalZoneData type,
+            // as the spread operator with an Omit<> type involving an index signature can be unreliable.
+            snapshot[zone] = {
+                ...zoneCounts,
+                name: zone,
+                eventos: zoneCounts.eventos,
+                eventosGabinete: zoneCounts.eventosGabinete,
+                eventosVandalismo: zoneCounts.eventosVandalismo,
+                eventosReales: eventosReales,
+                totalInventario: totalInventario,
+                porcentaje: totalInventario > 0 ? (zoneCounts.eventos / totalInventario) * 100 : 0,
+                porcentajeGabinete: totalInventario > 0 ? (zoneCounts.eventosGabinete / totalInventario) * 100 : 0,
+                porcentajeVandalismo: totalInventario > 0 ? (zoneCounts.eventosVandalismo / totalInventario) * 100 : 0,
+                porcentajeReal: totalInventario > 0 ? (eventosReales / totalInventario) * 100 : 0,
+            };
+        });
+        return snapshot;
+    };
+
+
     const fetchAndProcessData = useCallback(async () => {
         setLoading(true);
         setError(null);
+        
+        const db = await getDb();
 
         let urls: DataSourceURLs;
         try {
-            const firebaseResponse = await fetch(FIREBASE_URL);
+            const firebaseResponse = await fetch(FIREBASE_BASE_URL + FIREBASE_URLS_PATH);
             if (!firebaseResponse.ok) {
                 throw new Error(`Error al conectar con Firebase: ${firebaseResponse.statusText}`);
             }
@@ -305,19 +371,21 @@ export const useLuminaireData = () => {
             console.error("Failed to fetch URLs from Firebase", e);
             setError(`No se pudo obtener la configuración de Firebase: ${e.message}. Intentando cargar desde la caché...`);
             try {
-                const [cachedEvents, cachedChanges, cachedInventory] = await Promise.all([
-                    getAllLuminaireEvents(),
-                    getAllChangeEvents(),
-                    getAllInventoryItems(),
+                const [cachedEvents, cachedChanges, cachedInventory, cachedHistory] = await Promise.all([
+                    db.getAll(LUMINAIRE_EVENTS_STORE),
+                    db.getAll(CHANGE_EVENTS_STORE),
+                    db.getAll(INVENTORY_STORE),
+                    fetch(FIREBASE_BASE_URL + FIREBASE_HISTORY_PATH + '.json').then(res => res.json())
                 ]);
-                setAllEvents(cachedEvents.reverse());
-                setChangeEvents(cachedChanges.reverse());
+                setAllEvents(cachedEvents.sort((a,b) => b.date.getTime() - a.date.getTime()));
+                setChangeEvents(cachedChanges.sort((a,b) => b.fechaRetiro.getTime() - a.fechaRetiro.getTime()));
                 setInventory(cachedInventory);
+                setHistoricalData(cachedHistory || {});
                  if (cachedEvents.length === 0 && cachedChanges.length === 0 && cachedInventory.length === 0) {
                     setError(`No se pudo obtener la configuración de Firebase: ${e.message}. No hay datos en la caché.`);
                 }
             } catch (dbError) {
-                console.error("Error loading from DB after Firebase failure:", dbError);
+                console.error("Error loading from DB/Firebase after Firebase failure:", dbError);
                 setError(`No se pudo obtener la configuración de Firebase y también falló la carga desde la caché.`);
             } finally {
                 setLoading(false);
@@ -326,14 +394,28 @@ export const useLuminaireData = () => {
         }
 
         try {
-            const responses = await Promise.all([
-                fetch(urls.events).catch(e => { throw new Error(`Eventos: ${e.message}`); }),
-                fetch(urls.changes).catch(e => { throw new Error(`Cambios: ${e.message}`); }),
-                fetch(urls.inventory).catch(e => { throw new Error(`Inventario: ${e.message}`); }),
+            const [
+                responses,
+                historicalDataResponse
+            ] = await Promise.all([
+                Promise.all([
+                    fetch(urls.events).catch(e => { throw new Error(`Eventos: ${e.message}`); }),
+                    fetch(urls.changes).catch(e => { throw new Error(`Cambios: ${e.message}`); }),
+                    fetch(urls.inventory).catch(e => { throw new Error(`Inventario: ${e.message}`); }),
+                ]),
+                fetch(FIREBASE_BASE_URL + FIREBASE_HISTORY_PATH + '.json').catch(e => { throw new Error(`Historial: ${e.message}`); })
             ]);
+
 
             for (const res of responses) {
                 if (!res.ok) throw new Error(`Error al cargar ${res.url}: ${res.statusText}`);
+            }
+             if (!historicalDataResponse.ok) {
+                console.warn(`Could not fetch historical data: ${historicalDataResponse.statusText}. Proceeding without it.`);
+                setHistoricalData({});
+            } else {
+                const history = await historicalDataResponse.json();
+                setHistoricalData(history || {});
             }
 
             const [eventsText, changesText, inventoryText] = await Promise.all(responses.map(res => res.text()));
@@ -344,15 +426,53 @@ export const useLuminaireData = () => {
                 Promise.resolve(processInventoryCSV(inventoryText)),
             ]);
 
-            await Promise.all([
-                bulkAddOrUpdate(LUMINAIRE_EVENTS_STORE, parsedEvents),
-                bulkAddOrUpdate(CHANGE_EVENTS_STORE, parsedChanges),
-                bulkAddOrUpdate(INVENTORY_STORE, parsedInventory),
-            ]);
+            const inventoryDataMap = new Map<string, { olcHardwareDir?: string; potenciaNominal?: number }>();
+            parsedInventory.forEach(item => {
+                if (item.streetlightIdExterno) {
+                    inventoryDataMap.set(item.streetlightIdExterno, {
+                        olcHardwareDir: item.olcHardwareDir,
+                        potenciaNominal: item.potenciaNominal
+                    });
+                }
+            });
 
-            setAllEvents(parsedEvents.sort((a,b) => b.date.getTime() - a.date.getTime()));
+            const augmentedEvents = parsedEvents.map(event => {
+                const inventoryData = inventoryDataMap.get(event.id);
+                return {
+                    ...event,
+                    olcHardwareDir: inventoryData?.olcHardwareDir,
+                    power: inventoryData?.potenciaNominal?.toString(), 
+                };
+            });
+            
+            const tx = db.transaction([LUMINAIRE_EVENTS_STORE, CHANGE_EVENTS_STORE, INVENTORY_STORE], 'readwrite');
+            await Promise.all([
+                tx.objectStore(LUMINAIRE_EVENTS_STORE).clear(),
+                tx.objectStore(CHANGE_EVENTS_STORE).clear(),
+                tx.objectStore(INVENTORY_STORE).clear(),
+                ...augmentedEvents.map(e => tx.objectStore(LUMINAIRE_EVENTS_STORE).put(e)),
+                ...parsedChanges.map(c => tx.objectStore(CHANGE_EVENTS_STORE).put(c)),
+                ...parsedInventory.map(i => tx.objectStore(INVENTORY_STORE).put(i)),
+            ]);
+            await tx.done;
+
+            setAllEvents(augmentedEvents.sort((a,b) => b.date.getTime() - a.date.getTime()));
             setChangeEvents(parsedChanges.sort((a,b) => b.fechaRetiro.getTime() - a.fechaRetiro.getTime()));
             setInventory(parsedInventory);
+            
+            // --- Save Daily Snapshot to Firebase ---
+            const dailySnapshot = calculateDailySnapshot(augmentedEvents, parsedInventory);
+            if(Object.keys(dailySnapshot).length > 0) {
+                const todayStr = format(new Date(), 'yyyy-MM-dd');
+                await fetch(`${FIREBASE_BASE_URL}${FIREBASE_HISTORY_PATH}/${todayStr}.json`, {
+                    method: 'PUT',
+                    body: JSON.stringify(dailySnapshot),
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                // Optimistically update local state for immediate feedback
+                setHistoricalData(prev => ({...prev, [todayStr]: dailySnapshot}));
+            }
+
 
         } catch (e: any) {
             console.error("Failed to fetch or process data", e);
@@ -366,23 +486,9 @@ export const useLuminaireData = () => {
         fetchAndProcessData();
     }, [fetchAndProcessData]);
 
-    const resetApplication = useCallback(async () => {
-        if (window.confirm("¿Estás seguro de que quieres borrar todos los datos locales en caché? Esta acción no se puede deshacer. Los datos se volverán a cargar desde la nube.")) {
-            setLoading(true);
-            try {
-                await clearAllData();
-                window.location.reload();
-            } catch (e) {
-                 console.error("Fallo al intentar reiniciar la aplicación", e);
-                 setError("Error al intentar reiniciar la aplicación.");
-                 setLoading(false);
-            }
-        }
-    }, []);
 
     return { 
-        allEvents, changeEvents, inventory, 
-        resetApplication, 
+        allEvents, changeEvents, inventory, historicalData,
         loading, error 
     };
 };

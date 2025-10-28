@@ -1,5 +1,3 @@
-
-
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { subDays } from 'date-fns/subDays';
 import { startOfMonth } from 'date-fns/startOfMonth';
@@ -12,10 +10,13 @@ import { endOfMonth } from 'date-fns/endOfMonth';
 import { endOfYear } from 'date-fns/endOfYear';
 import { format } from 'date-fns/format';
 import { es } from 'date-fns/locale/es';
+import { parse } from 'date-fns/parse';
+
 
 import { useLuminaireData } from './hooks/useLuminaireData';
 import { useBroadcastChannel } from './hooks/useBroadcastChannel';
-import type { LuminaireEvent, InventoryItem, ActiveTab, ChangeEvent, BroadcastMessage } from './types';
+// FIX: Add HistoricalZoneData to imports.
+import type { LuminaireEvent, InventoryItem, ActiveTab, ChangeEvent, BroadcastMessage, HistoricalData, HistoricalZoneData } from './types';
 import { ALL_ZONES, MUNICIPIO_TO_ZONE_MAP, ZONE_ORDER } from './constants';
 
 import Header from './components/Header';
@@ -24,6 +25,8 @@ import TabButton from './components/TabButton';
 import EventosTab from './components/EventosTab';
 import CambiosTab from './components/CambiosTab';
 import InventarioTab from './components/InventarioTab';
+import HistorialTab from './components/HistorialTab';
+import { exportToXlsxMultiSheet } from './utils/export';
 
 const ERROR_DESC_LOW_CURRENT = "La corriente medida es menor que lo esperado o no hay corriente que fluya a través de la combinación de driver y lámpara.";
 const ERROR_DESC_HIGH_CURRENT = "La corriente medida para la combinación de driver y lámpara es mayor que la esperada.";
@@ -57,6 +60,10 @@ interface FullAppState {
     isInventorySummariesOpen: boolean;
     selectedOperatingHoursRange: string | null;
     latestDataDate: Date | null;
+    // Historical Filters
+    historicalDateRange: { start: Date | null; end: Date | null };
+    historicalYear: string;
+    historicalMonth: string;
 }
 
 const App: React.FC = () => {
@@ -64,7 +71,7 @@ const App: React.FC = () => {
     const portalTab = urlParams.get('portal') as ActiveTab | null;
 
     const {
-        allEvents, changeEvents, inventory,
+        allEvents, changeEvents, inventory, historicalData,
         loading, error
     } = useLuminaireData();
 
@@ -86,6 +93,11 @@ const App: React.FC = () => {
     const [isInventorySummariesOpen, setIsInventorySummariesOpen] = useState(false);
     const [selectedOperatingHoursRange, setSelectedOperatingHoursRange] = useState<string | null>(null);
 
+    // New state for historical filters
+    const [historicalDateRange, setHistoricalDateRange] = useState<{ start: Date | null; end: Date | null }>({ start: null, end: null });
+    const [historicalYear, setHistoricalYear] = useState<string>('');
+    const [historicalMonth, setHistoricalMonth] = useState<string>('');
+
     // New state for windowing
     const [poppedOutTabs, setPoppedOutTabs] = useState<ActiveTab[]>([]);
     const [portalState, setPortalState] = useState<FullAppState | null>(null);
@@ -102,35 +114,37 @@ const App: React.FC = () => {
 
     // ---- Broadcast Channel Logic ----
     const handleBroadcastMessage = useCallback((message: BroadcastMessage) => {
-        // FIX: Explicitly cast payload to its expected type to resolve type errors on destructuring.
         const { type, payload } = message as { type: string, payload: any };
 
-        if (isMainApp.current) { // Main app listens for docking messages
+        if (isMainApp.current) { 
             if (type === 'DOCK_TAB') {
                 setPoppedOutTabs(prev => prev.filter(t => t !== payload));
             }
              if (type === 'REQUEST_INITIAL_STATE') {
-                // A portal has opened and is requesting the current state
                 const currentState: FullAppState = {
                     dateRange, selectedZone, selectedMunicipio, selectedCategory, selectedMonth, selectedYear,
                     selectedPower, selectedCalendar, searchTerm, cardFilter, cardChangeFilter, cardInventoryFilter,
-                    isInventorySummariesOpen, selectedOperatingHoursRange, latestDataDate
+                    isInventorySummariesOpen, selectedOperatingHoursRange, latestDataDate,
+                    historicalDateRange, historicalYear, historicalMonth
                 };
                  postMessage({ type: 'INITIAL_STATE_RESPONSE', payload: currentState });
             }
-        } else { // Portal app listens for state updates
+        } else { 
             if (type === 'STATE_UPDATE' || type === 'INITIAL_STATE_RESPONSE') {
                 const receivedState = payload as FullAppState;
-                // Dates need to be reconstructed
                 const newDateRange = {
                     start: receivedState.dateRange.start ? new Date(receivedState.dateRange.start) : null,
                     end: receivedState.dateRange.end ? new Date(receivedState.dateRange.end) : null
                 };
+                 const newHistoricalDateRange = {
+                    start: receivedState.historicalDateRange.start ? new Date(receivedState.historicalDateRange.start) : null,
+                    end: receivedState.historicalDateRange.end ? new Date(receivedState.historicalDateRange.end) : null
+                };
                 const newLatestDate = receivedState.latestDataDate ? new Date(receivedState.latestDataDate) : null;
-                setPortalState({ ...receivedState, dateRange: newDateRange, latestDataDate: newLatestDate });
+                setPortalState({ ...receivedState, dateRange: newDateRange, historicalDateRange: newHistoricalDateRange, latestDataDate: newLatestDate });
             }
         }
-    }, [isMainApp.current, dateRange, selectedZone, selectedMunicipio, selectedCategory, selectedMonth, selectedYear, selectedPower, selectedCalendar, searchTerm, cardFilter, cardChangeFilter, cardInventoryFilter, isInventorySummariesOpen, selectedOperatingHoursRange, latestDataDate]);
+    }, [isMainApp.current, dateRange, selectedZone, selectedMunicipio, selectedCategory, selectedMonth, selectedYear, selectedPower, selectedCalendar, searchTerm, cardFilter, cardChangeFilter, cardInventoryFilter, isInventorySummariesOpen, selectedOperatingHoursRange, latestDataDate, historicalDateRange, historicalYear, historicalMonth]);
 
     const { postMessage } = useBroadcastChannel(handleBroadcastMessage);
 
@@ -140,14 +154,16 @@ const App: React.FC = () => {
             const fullState: FullAppState = {
                 dateRange, selectedZone, selectedMunicipio, selectedCategory, selectedMonth, selectedYear,
                 selectedPower, selectedCalendar, searchTerm, cardFilter, cardChangeFilter, cardInventoryFilter,
-                isInventorySummariesOpen, selectedOperatingHoursRange, latestDataDate
+                isInventorySummariesOpen, selectedOperatingHoursRange, latestDataDate,
+                historicalDateRange, historicalYear, historicalMonth
             };
             postMessage({ type: 'STATE_UPDATE', payload: fullState });
         }
     }, [
         dateRange, selectedZone, selectedMunicipio, selectedCategory, selectedMonth, selectedYear,
         selectedPower, selectedCalendar, searchTerm, cardFilter, cardChangeFilter, cardInventoryFilter,
-        isInventorySummariesOpen, selectedOperatingHoursRange, latestDataDate, postMessage
+        isInventorySummariesOpen, selectedOperatingHoursRange, latestDataDate, postMessage,
+        historicalDateRange, historicalYear, historicalMonth
     ]);
     
      // Effect for portal app to request initial state on load
@@ -177,7 +193,7 @@ const App: React.FC = () => {
     const handleSetDatePreset = useCallback((preset: 'today' | 'yesterday' | 'week' | 'month' | 'year') => { setSelectedMonth(''); setSelectedYear(''); const now = new Date(); let start, end; switch (preset) { case 'today': start = startOfDay(now); end = endOfDay(now); break; case 'yesterday': const yesterday = subDays(now, 1); start = startOfDay(yesterday); end = endOfDay(yesterday); break; case 'week': end = now; start = subDays(now, 7); break; case 'month': end = now; start = startOfMonth(now); break; case 'year': end = now; start = startOfYear(now); break; } setDateRange({ start, end }); }, []);
     
     useEffect(() => { if (selectedMonth && selectedYear) { const yearNum = parseInt(selectedYear); const monthNum = parseInt(selectedMonth) - 1; const start = new Date(yearNum, monthNum, 1); const end = endOfMonth(start); setDateRange({ start, end }); } else if (selectedYear && !selectedMonth) { const yearNum = parseInt(selectedYear); const start = startOfYear(new Date(yearNum, 0, 1)); const end = endOfYear(new Date(yearNum, 11, 31)); setDateRange({ start, end }); } else if (!selectedYear && selectedMonth) { setDateRange({ start: null, end: null }); } }, [selectedMonth, selectedYear]);
-    useEffect(() => { if (loading) return; const hasInventory = inventory.length > 0; const hasChanges = changeEvents.length > 0; const hasEvents = allEvents.length > 0; const tabs: { id: ActiveTab; hasData: boolean }[] = [ { id: 'inventario', hasData: hasInventory }, { id: 'cambios', hasData: hasChanges }, { id: 'eventos', hasData: hasEvents }, ]; const currentTab = tabs.find(t => t.id === activeTab); if (currentTab && !currentTab.hasData) { const firstAvailableTab = tabs.find(t => t.hasData); if (firstAvailableTab) { setActiveTab(firstAvailableTab.id as ActiveTab); } } else if (!hasInventory && !hasChanges && !hasEvents) { setActiveTab('inventario'); } }, [inventory.length, changeEvents.length, allEvents.length, activeTab, loading]);
+    useEffect(() => { if (loading) return; const hasInventory = inventory.length > 0; const hasChanges = changeEvents.length > 0; const hasEvents = allEvents.length > 0; const hasHistory = Object.keys(historicalData).length > 0; const tabs: { id: ActiveTab; hasData: boolean }[] = [ { id: 'inventario', hasData: hasInventory }, { id: 'cambios', hasData: hasChanges }, { id: 'eventos', hasData: hasEvents }, { id: 'historial', hasData: hasHistory }, ]; const currentTab = tabs.find(t => t.id === activeTab); if (currentTab && !currentTab.hasData) { const firstAvailableTab = tabs.find(t => t.hasData); if (firstAvailableTab) { setActiveTab(firstAvailableTab.id as ActiveTab); } } else if (!hasInventory && !hasChanges && !hasEvents && !hasHistory) { setActiveTab('inventario'); } }, [inventory.length, changeEvents.length, allEvents.length, historicalData, activeTab, loading]);
 
     const handleOperatingHoursRowClick = useCallback((range: string) => { setSelectedOperatingHoursRange(prev => (prev === range ? null : range)); }, []);
     
@@ -190,7 +206,8 @@ const App: React.FC = () => {
     const currentAppState = portalState || {
         dateRange, selectedZone, selectedMunicipio, selectedCategory, selectedMonth, selectedYear,
         selectedPower, selectedCalendar, searchTerm, cardFilter, cardChangeFilter, cardInventoryFilter,
-        isInventorySummariesOpen, selectedOperatingHoursRange, latestDataDate
+        isInventorySummariesOpen, selectedOperatingHoursRange, latestDataDate,
+        historicalDateRange, historicalYear, historicalMonth
     };
     
     // --- All data calculations are performed once, based on the current state ---
@@ -236,15 +253,20 @@ const App: React.FC = () => {
     const hurtoChangesCount = useMemo(() => baseFilteredChangeEvents.filter(e => e.condicion.toLowerCase() === 'hurto').length, [baseFilteredChangeEvents]);
     const oldestEventsByZone = useMemo(() => { if (allEvents.length === 0) return []; const map = new Map<string, LuminaireEvent>(); for (let i = allEvents.length - 1; i >= 0; i--) { const event = allEvents[i]; if (!map.has(event.zone)) { map.set(event.zone, event); } } return Array.from(map.values()).sort((a, b) => a.zone.localeCompare(b.zone)); }, [allEvents]);
     const inventoryCountByZone = useMemo(() => inventory.reduce((acc, item) => { if (item.zone) { acc[item.zone] = (acc[item.zone] || 0) + 1; } return acc; }, {} as Record<string, number>), [inventory]);
-    const inventoryCountByMunicipio = useMemo(() => inventory.reduce((acc, item) => { if (item.municipio) { acc[item.municipio] = (acc[item.municipio] || 0) + 1; } return acc; }, {} as Record<string, number>), [inventory]);
-    // FIX: Add explicit string types to sort callback parameters to fix type inference issues.
     const filteredFailureCategories = useMemo(() => { const order = ['Inaccesible', 'Roto', 'Error de configuración', 'Falla de hardware', 'Falla de voltaje', 'Hurto', 'Vandalizado', 'Columna Caída']; const allCats = Array.from(new Set(baseFilteredEvents.map(e => e.failureCategory).filter((c): c is string => !!c))); return allCats.sort((a: string, b: string) => { const iA = order.indexOf(a); const iB = order.indexOf(b); if (iA !== -1 && iB !== -1) return iA - iB; if (iA !== -1) return -1; if (iB !== -1) return 1; return a.localeCompare(b); }); }, [baseFilteredEvents]);
     const failureDataByZone = useMemo(() => {
         if (Object.keys(inventoryCountByZone).length === 0) return { data: [], categories: [] };
         const counts = baseFilteredEvents.reduce((acc, event) => {
-            if (!acc[event.zone]) acc[event.zone] = { total: 0, categories: {} };
-            acc[event.zone].total++;
-            if (event.failureCategory) acc[event.zone].categories[event.failureCategory] = (acc[event.zone].categories[event.failureCategory] || 0) + 1;
+            // FIX: Guard against events with no zone to prevent errors.
+            if (event.zone) {
+                if (!acc[event.zone]) {
+                    acc[event.zone] = { total: 0, categories: {} };
+                }
+                acc[event.zone].total++;
+                if (event.failureCategory) {
+                    acc[event.zone].categories[event.failureCategory] = (acc[event.zone].categories[event.failureCategory] || 0) + 1;
+                }
+            }
             return acc;
         }, {} as Record<string, { total: number; categories: Record<string, number> }>);
         const data = Object.keys(inventoryCountByZone).map(zone => {
@@ -254,8 +276,7 @@ const App: React.FC = () => {
             filteredFailureCategories.forEach(cat => {
                 catCounts[cat] = eventData.categories[cat] || 0;
             });
-            // FIX: Replaced spread syntax with Object.assign to prevent "Spread types may only be created from object types" error.
-            return Object.assign({ name: zone, eventos: eventData.total, totalInventario, porcentaje: totalInventario > 0 ? (eventData.total / totalInventario) * 100 : 0 }, catCounts);
+            return { name: zone, eventos: eventData.total, totalInventario, porcentaje: totalInventario > 0 ? (eventData.total / totalInventario) * 100 : 0, ...catCounts };
         });
         const sorted = data.sort((a, b) => {
             const iA = ZONE_ORDER.indexOf(a.name);
@@ -267,14 +288,30 @@ const App: React.FC = () => {
         });
         return { data: sorted, categories: filteredFailureCategories };
     }, [baseFilteredEvents, inventoryCountByZone, filteredFailureCategories]);
+
     const failureDataByMunicipio = useMemo(() => {
+        const relevantInventory = displayInventory;
+        const inventoryCountByMunicipio = relevantInventory.reduce((acc, item) => {
+             if (item.municipio) { acc[item.municipio] = (acc[item.municipio] || 0) + 1; }
+             return acc;
+        }, {} as Record<string, number>);
+
         if (Object.keys(inventoryCountByMunicipio).length === 0) return { data: [], categories: [] };
+        
         const counts = baseFilteredEvents.reduce((acc, event) => {
-            if (!acc[event.municipio]) acc[event.municipio] = { total: 0, categories: {} };
-            acc[event.municipio].total++;
-            if (event.failureCategory) acc[event.municipio].categories[event.failureCategory] = (acc[event.municipio].categories[event.failureCategory] || 0) + 1;
+            // FIX: Guard against events with no municipio to prevent errors.
+            if (event.municipio) {
+                if (!acc[event.municipio]) {
+                    acc[event.municipio] = { total: 0, categories: {} };
+                }
+                acc[event.municipio].total++;
+                if (event.failureCategory) {
+                    acc[event.municipio].categories[event.failureCategory] = (acc[event.municipio].categories[event.failureCategory] || 0) + 1;
+                }
+            }
             return acc;
         }, {} as Record<string, { total: number; categories: Record<string, number> }>);
+
         const data = Object.keys(inventoryCountByMunicipio).map(muni => {
             const eventData = counts[muni] || { total: 0, categories: {} };
             const totalInventario = inventoryCountByMunicipio[muni];
@@ -282,11 +319,12 @@ const App: React.FC = () => {
             filteredFailureCategories.forEach(cat => {
                 catCounts[cat] = eventData.categories[cat] || 0;
             });
-            // FIX: Replaced spread syntax with Object.assign to prevent "Spread types may only be created from object types" error.
-            return Object.assign({ name: muni, eventos: eventData.total, totalInventario, porcentaje: totalInventario > 0 ? (eventData.total / totalInventario) * 100 : 0 }, catCounts);
+            return { name: muni, eventos: eventData.total, totalInventario, porcentaje: totalInventario > 0 ? (eventData.total / totalInventario) * 100 : 0, ...catCounts };
         }).sort((a,b) => b.porcentaje - a.porcentaje);
+
         return { data, categories: filteredFailureCategories };
-    }, [baseFilteredEvents, inventoryCountByMunicipio, filteredFailureCategories]);
+    }, [baseFilteredEvents, displayInventory, filteredFailureCategories]);
+
     const changesByMunicipioData = useMemo(() => { const counts = baseFilteredChangeEvents.reduce((acc, event) => { if (!event.municipio) return acc; if (!acc[event.municipio]) acc[event.municipio] = { LUMINARIA: 0, OLC: 0, total: 0 }; const component = event.componente.toUpperCase(); if (component.includes('LUMINARIA')) { acc[event.municipio].LUMINARIA++; acc[event.municipio].total++; } else if (component.includes('OLC')) { acc[event.municipio].OLC++; acc[event.municipio].total++; } return acc; }, {} as Record<string, { LUMINARIA: number; OLC: number; total: number }>); return Object.entries(counts).map(([name, data]) => ({ name, ...data })).sort((a, b) => b.total - a.total); }, [baseFilteredChangeEvents]);
     const cabinetSummaryData = useMemo(() => { const counts = inventory.reduce((acc, item) => { if (item.cabinetIdExterno) acc[item.cabinetIdExterno] = (acc[item.cabinetIdExterno] || 0) + 1; return acc; }, {} as Record<string, number>); return Object.entries(counts).map(([cabinetId, luminaireCount]) => ({ cabinetId, luminaireCount })).filter(item => item.cabinetId && item.cabinetId !== '-' && item.cabinetId.trim() !== ''); }, [inventory]);
     const serviceSummaryData = useMemo(() => { const map = inventory.reduce((acc, item) => { if (item.nroCuenta && item.nroCuenta.trim() !== '' && item.nroCuenta.trim() !== '-') { const cuenta = item.nroCuenta.trim(); if (!acc.has(cuenta)) acc.set(cuenta, { luminaireCount: 0, totalPower: 0 }); const summary = acc.get(cuenta)!; summary.luminaireCount += 1; summary.totalPower += item.potenciaNominal || 0; } return acc; }, new Map<string, { luminaireCount: number; totalPower: number }>()); return Array.from(map.entries()).map(([nroCuenta, data]) => ({ nroCuenta, luminaireCount: data.luminaireCount, totalPower: data.totalPower })); }, [inventory]);
@@ -294,6 +332,50 @@ const App: React.FC = () => {
     const { operatingHoursSummary, operatingHoursZones } = useMemo(() => { const items = inventory; if (items.length === 0) return { operatingHoursSummary: [], operatingHoursZones: [] }; const RANGE_STEP = 5000, MAX_HOURS = 100000; const presentZones = new Set<string>(); const countsByRange = items.reduce((acc, item) => { if (item.horasFuncionamiento != null && item.horasFuncionamiento >= 0 && item.zone) { let rangeLabel; if (item.horasFuncionamiento > MAX_HOURS) rangeLabel = `> ${MAX_HOURS.toLocaleString('es-ES')} hs`; else if (item.horasFuncionamiento <= RANGE_STEP) rangeLabel = `0 - ${RANGE_STEP.toLocaleString('es-ES')} hs`; else { const rangeIndex = Math.floor((item.horasFuncionamiento - 1) / RANGE_STEP); const rangeStart = rangeIndex * RANGE_STEP + 1; const rangeEnd = (rangeIndex + 1) * RANGE_STEP; rangeLabel = `${rangeStart.toLocaleString('es-ES')} - ${rangeEnd.toLocaleString('es-ES')} hs`; } if (!acc[rangeLabel]) acc[rangeLabel] = { total: 0 }; acc[rangeLabel].total = (acc[rangeLabel].total || 0) + 1; acc[rangeLabel][item.zone] = (acc[rangeLabel][item.zone] || 0) + 1; presentZones.add(item.zone); } return acc; }, {} as Record<string, { total: number; [zone: string]: number }>); const sortedZones = Array.from(presentZones).sort((a, b) => { const iA = ZONE_ORDER.indexOf(a); const iB = ZONE_ORDER.indexOf(b); if (iA !== -1 && iB !== -1) return iA - iB; if (iA !== -1) return -1; if (iB !== -1) return 1; return a.localeCompare(b); }); const summary = Object.entries(countsByRange).map(([range, counts]) => ({ range, ...counts })); return { operatingHoursSummary: summary, operatingHoursZones: sortedZones }; }, [inventory]);
     const operatingHoursDetailData = useMemo((): InventoryItem[] => { if (!currentAppState.selectedOperatingHoursRange) return []; const parseRange = (rangeStr: string): { start: number; end: number } => { if (rangeStr.startsWith('>')) { const start = parseInt(rangeStr.replace(/\D/g, ''), 10); return { start, end: Infinity }; } const parts = rangeStr.replace(/ hs/g, '').replace(/\./g, '').split(' - '); return { start: parseInt(parts[0], 10), end: parseInt(parts[1], 10) }; }; const { start, end } = parseRange(currentAppState.selectedOperatingHoursRange); return inventory.filter(item => { if (item.horasFuncionamiento == null) return false; if (end === Infinity) return item.horasFuncionamiento > start; return item.horasFuncionamiento >= start && item.horasFuncionamiento <= end; }); }, [inventory, currentAppState.selectedOperatingHoursRange]);
     
+     // --- Historical Data Calculations ---
+    const historicalAvailableYears = useMemo(() => {
+        if (!historicalData || Object.keys(historicalData).length === 0) return [];
+        const years = new Set(Object.keys(historicalData).map(dateStr => dateStr.substring(0, 4)));
+        return Array.from(years).sort((a, b) => parseInt(b) - parseInt(a));
+    }, [historicalData]);
+
+    useEffect(() => {
+        if (historicalYear && historicalMonth) {
+            const yearNum = parseInt(historicalYear);
+            const monthNum = parseInt(historicalMonth) - 1;
+            const start = new Date(yearNum, monthNum, 1);
+            const end = endOfMonth(start);
+            setHistoricalDateRange({ start, end });
+        } else if (historicalYear && !historicalMonth) {
+            const yearNum = parseInt(historicalYear);
+            const start = startOfYear(new Date(yearNum, 0, 1));
+            const end = endOfYear(new Date(yearNum, 11, 31));
+            setHistoricalDateRange({ start, end });
+        }
+    }, [historicalYear, historicalMonth]);
+
+    const filteredHistoricalData = useMemo(() => {
+        const dataToFilter = historicalData;
+        const range = currentAppState.historicalDateRange;
+        
+        if (!range.start && !range.end) {
+            return dataToFilter;
+        }
+        const filtered: HistoricalData = {};
+        const start = range.start ? startOfDay(range.start) : null;
+        const end = range.end ? endOfDay(range.end) : null;
+        if (!start || !end) return dataToFilter;
+
+        Object.entries(dataToFilter).forEach(([dateStr, data]) => {
+            const date = parse(dateStr, 'yyyy-MM-dd', new Date());
+            if (isWithinInterval(date, { start, end })) {
+                // FIX: Cast `data` to its expected type, as Object.entries loses type information for indexed types.
+                filtered[dateStr] = data as { [zone: string]: HistoricalZoneData };
+            }
+        });
+        return filtered;
+    }, [historicalData, currentAppState.historicalDateRange]);
+
     // --- Export Handlers ---
     const generateExportFilename = useCallback((baseName: string): string => { const dateStr = new Date().toISOString().split('T')[0]; const zoneStr = currentAppState.selectedZone !== 'all' ? `_${currentAppState.selectedZone.replace(/\s+/g, '_')}` : ''; const municipioStr = currentAppState.selectedMunicipio !== 'all' ? `_${currentAppState.selectedMunicipio.replace(/\s+/g, '_')}` : ''; return `${baseName}${zoneStr}${municipioStr}_${dateStr}.xlsx`; }, [currentAppState.selectedZone, currentAppState.selectedMunicipio]);
     const handleExportCabinetSummary = useCallback(() => { import('./utils/export').then(module => module.exportToXlsx(cabinetSummaryData, generateExportFilename('resumen_gabinetes'))); }, [cabinetSummaryData, generateExportFilename]);
@@ -302,9 +384,132 @@ const App: React.FC = () => {
     const handleExportFailureByZone = useCallback(() => { const { data: dataToExport, categories } = failureDataByZone; if (dataToExport.length === 0) return; const dataForSheet = dataToExport.map(item => { const row: Record<string, any> = { 'Zona': item.name, 'Porcentaje Fallas (%)': item.porcentaje.toFixed(2), 'Total Fallas': item.eventos, 'Total Inventario': item.totalInventario }; categories.forEach(cat => { row[cat] = item[cat] || 0; }); return row; }); import('./utils/export').then(module => module.exportToXlsx(dataForSheet, generateExportFilename('fallas_por_zona'))); }, [failureDataByZone, generateExportFilename]);
     const handleExportFailureByMunicipio = useCallback(() => { const { data: dataToExport, categories } = failureDataByMunicipio; if (dataToExport.length === 0) return; const dataForSheet = dataToExport.map(item => { const row: Record<string, any> = { 'Municipio': item.name, 'Porcentaje Fallas (%)': item.porcentaje.toFixed(2), 'Total Fallas': item.eventos, 'Total Inventario': item.totalInventario }; categories.forEach(cat => { row[cat] = item[cat] || 0; }); return row; }); import('./utils/export').then(module => module.exportToXlsx(dataForSheet, generateExportFilename('fallas_por_municipio'))); }, [failureDataByMunicipio, generateExportFilename]);
     const handleExportChangesByMunicipio = useCallback(() => { import('./utils/export').then(module => module.exportToXlsx(changesByMunicipioData, generateExportFilename('cambios_por_municipio'))); }, [changesByMunicipioData, generateExportFilename]);
-    const handleExportFilteredEvents = useCallback(() => { if (displayEvents.length === 0) return; const dataForExport = displayEvents.map(event => ({ 'Fecha': event.date.toLocaleString('es-ES'), 'ID Luminaria': event.id, 'ID OLC': event.olcId, 'Municipio': event.municipio, 'Zona': event.zone, 'Estado': event.status, 'Categoría de Falla': event.failureCategory, 'Descripción': event.description, 'Potencia': event.power, 'Latitud': event.lat, 'Longitud': event.lon, })); const filename = generateExportFilename(`eventos_${currentAppState.cardFilter?.replace(/\s+/g, '_') || 'filtrados'}`); import('./utils/export').then(module => module.exportToXlsx(dataForExport, filename)); }, [displayEvents, currentAppState.cardFilter, generateExportFilename]);
+    const handleExportFilteredEvents = useCallback(() => {
+        if (displayEvents.length === 0) return;
+        const dataForExport = displayEvents.map(event => ({
+            'Fecha': event.date.toLocaleString('es-ES'),
+            'ID Luminaria': event.id,
+            'Dirección Hardware OLC': event.olcHardwareDir,
+            'Municipio': event.municipio,
+            'Zona': event.zone,
+            'Estado': event.status,
+            'Categoría de Falla': event.failureCategory,
+            'Descripción': event.description,
+            'Potencia (W)': event.power,
+            'Potencia Medida (W)': event.systemMeasuredPower?.toFixed(2) ?? 'N/A',
+            'Latitud': event.lat,
+            'Longitud': event.lon,
+        }));
+        const filename = generateExportFilename(`eventos_${currentAppState.cardFilter?.replace(/\s+/g, '_') || 'filtrados'}`);
+        import('./utils/export').then(module => module.exportToXlsx(dataForExport, filename));
+    }, [displayEvents, currentAppState.cardFilter, generateExportFilename]);
     const handleExportOperatingHoursSummary = useCallback(() => { if (operatingHoursSummary.length === 0) return; const getRangeStart = (rangeStr: string): number => { if (rangeStr.startsWith('>')) return Infinity; return parseInt(rangeStr.split(' ')[0].replace(/\D/g, ''), 10); }; const dataToExport = [...operatingHoursSummary].sort((a, b) => getRangeStart(a.range) - getRangeStart(b.range)).map(item => { const row: Record<string, any> = { 'Rango de Horas': item.range, 'Total Luminarias': item.total }; operatingHoursZones.forEach(zone => { row[zone] = item[zone] || 0; }); return row; }); import('./utils/export').then(module => module.exportToXlsx(dataToExport, generateExportFilename('resumen_horas_funcionamiento'))); }, [operatingHoursSummary, operatingHoursZones, generateExportFilename]);
     const handleExportOperatingHoursDetail = useCallback(() => { if (operatingHoursDetailData.length === 0 || !currentAppState.selectedOperatingHoursRange) return; const filename = generateExportFilename(`detalle_luminarias_rango_${currentAppState.selectedOperatingHoursRange.replace(/[^\w]/g, '_')}`); const dataForExport = operatingHoursDetailData.map(item => ({ 'ID de luminaria': item.streetlightIdExterno, 'Dirección Hardware OLC': item.olcHardwareDir ?? 'N/A', 'Municipio': item.municipio, 'Latitud': item.lat ?? 'N/A', 'Longitud': item.lon ?? 'N/A' })); import('./utils/export').then(module => module.exportToXlsx(dataForExport, filename)); }, [operatingHoursDetailData, currentAppState.selectedOperatingHoursRange, generateExportFilename]);
+
+    const handleExportHistoricalSummary = useCallback(() => {
+        if (!filteredHistoricalData || Object.keys(filteredHistoricalData).length === 0) return;
+    
+        // FIX: Replaced problematic Omit<> with an explicit type for monthly summaries.
+        const monthlySummaries: Record<string, Record<string, {
+            eventos: { total: number, count: number };
+            porcentaje: { total: number, count: number };
+            eventosGabinete: { total: number, count: number };
+            porcentajeGabinete: { total: number, count: number };
+            eventosVandalismo: { total: number, count: number };
+            porcentajeVandalismo: { total: number, count: number };
+            eventosReales: { total: number, count: number };
+            porcentajeReal: { total: number, count: number };
+        }>> = {};
+        const presentZones = new Set<string>();
+    
+        Object.entries(filteredHistoricalData).forEach(([dateStr, zonesData]) => {
+            const monthKey = format(parse(dateStr, 'yyyy-MM-dd', new Date()), 'yyyy-MM');
+            if (!monthlySummaries[monthKey]) monthlySummaries[monthKey] = {};
+    
+            Object.entries(zonesData).forEach(([zoneName, zoneData]) => {
+                presentZones.add(zoneName);
+                if (!monthlySummaries[monthKey][zoneName]) {
+                    // FIX: Initialize object matching the explicit type above.
+                    monthlySummaries[monthKey][zoneName] = {
+                        eventos: { total: 0, count: 0 },
+                        porcentaje: { total: 0, count: 0 },
+                        eventosGabinete: { total: 0, count: 0 },
+                        porcentajeGabinete: { total: 0, count: 0 },
+                        eventosVandalismo: { total: 0, count: 0 },
+                        porcentajeVandalismo: { total: 0, count: 0 },
+                        eventosReales: { total: 0, count: 0 },
+                        porcentajeReal: { total: 0, count: 0 },
+                    };
+                }
+    
+                const summary = monthlySummaries[monthKey][zoneName];
+                // FIX: Accessing properties is now type-safe.
+                summary.eventos.total += zoneData.eventos;
+                summary.porcentaje.total += zoneData.porcentaje;
+                summary.eventosGabinete.total += zoneData.eventosGabinete;
+                summary.porcentajeGabinete.total += zoneData.porcentajeGabinete;
+                summary.eventosVandalismo.total += zoneData.eventosVandalismo;
+                summary.porcentajeVandalismo.total += zoneData.porcentajeVandalismo;
+                summary.eventosReales.total += zoneData.eventosReales;
+                summary.porcentajeReal.total += zoneData.porcentajeReal;
+                summary.porcentaje.count++; // Use one count for all percentages as they are daily
+            });
+        });
+    
+        const sortedZones = Array.from(presentZones).sort((a, b) => { const iA = ZONE_ORDER.indexOf(a); const iB = ZONE_ORDER.indexOf(b); if (iA !== -1 && iB !== -1) return iA - iB; if (iA !== -1) return -1; if (iB !== -1) return 1; return a.localeCompare(b); });
+    
+        const processData = (
+            dataType: 'percentage' | 'count'
+        ) => {
+            return Object.entries(monthlySummaries).map(([monthKey, zoneAvgs]) => {
+                const row: Record<string, any> = { 'Mes': format(parse(monthKey, 'yyyy-MM', new Date()), 'MMMM yyyy', { locale: es }) };
+                sortedZones.forEach(zone => {
+                    const data = zoneAvgs[zone];
+                    if (dataType === 'percentage') {
+                        // FIX: Accessing properties is now type-safe.
+                        const avg = data && data.porcentaje.count > 0 ? (data.porcentajeReal.total / data.porcentaje.count).toFixed(2) + '%' : '0.00%';
+                        row[`${zone} (% Falla Real)`] = avg;
+                    } else {
+                        // FIX: Accessing properties is now type-safe.
+                        row[`${zone} (Cant. Eventos)`] = data ? data.eventos.total : 0;
+                    }
+                });
+                return { ...row, date: parse(monthKey, 'yyyy-MM', new Date()) };
+            }).sort((a, b) => b.date.getTime() - a.date.getTime()).map(({ date, ...rest }) => rest);
+        };
+    
+        const percentageData = Object.entries(monthlySummaries).map(([monthKey, zoneSummaries]) => {
+            const rowsForMonth: any[] = [];
+            sortedZones.forEach(zone => {
+                const summary = zoneSummaries[zone];
+                // FIX: Accessing properties is now type-safe.
+                const count = summary ? summary.porcentaje.count : 0;
+                rowsForMonth.push({
+                    'Mes': format(parse(monthKey, 'yyyy-MM', new Date()), 'MMMM yyyy', { locale: es }),
+                    'Zona': zone,
+                    // FIX: Accessing properties is now type-safe.
+                    '% Falla Total': summary && count > 0 ? `${(summary.porcentaje.total / count).toFixed(2)}%` : '0.00%',
+                    '% Falla Gabinete': summary && count > 0 ? `${(summary.porcentajeGabinete.total / count).toFixed(2)}%` : '0.00%',
+                    '% Falla Vandalismo': summary && count > 0 ? `${(summary.porcentajeVandalismo.total / count).toFixed(2)}%` : '0.00%',
+                    '% Falla Real': summary && count > 0 ? `${(summary.porcentajeReal.total / count).toFixed(2)}%` : '0.00%',
+                });
+            });
+            return { rows: rowsForMonth, date: parse(monthKey, 'yyyy-MM', new Date()) };
+        }).sort((a, b) => b.date.getTime() - a.date.getTime()).flatMap(item => item.rows);
+
+
+        const countsData = processData('count');
+    
+        exportToXlsxMultiSheet(
+            [
+                { sheetName: 'Desglose Porcentajes', data: percentageData },
+                { sheetName: 'Cantidad Eventos', data: countsData }
+            ],
+            'resumen_historico.xlsx'
+        );
+    
+    }, [filteredHistoricalData]);
+
 
     if (portalTab) {
         // Portal-specific rendering logic
@@ -340,6 +545,8 @@ const App: React.FC = () => {
             selectedZone: currentAppState.selectedZone, isInventorySummariesOpen: currentAppState.isInventorySummariesOpen, selectedOperatingHoursRange: currentAppState.selectedOperatingHoursRange, cardInventoryFilter: currentAppState.cardInventoryFilter,
             handleCardInventoryClick: () => {}, handleExportPowerSummary: () => {}, handleExportOperatingHoursSummary: () => {}, handleExportOperatingHoursDetail: () => {},
             setIsInventorySummariesOpen: () => {}, handleExportCabinetSummary: () => {}, handleExportServiceSummary: () => {}, handleOperatingHoursRowClick: () => {},
+             // Historial Props
+            historicalData: filteredHistoricalData,
         };
 
         const renderTabContent = () => {
@@ -347,6 +554,7 @@ const App: React.FC = () => {
                 case 'eventos': return <EventosTab {...tabProps} />;
                 case 'cambios': return <CambiosTab {...tabProps} setSearchTerm={undefined} />;
                 case 'inventario': return <InventarioTab {...tabProps} />;
+                case 'historial': return <HistorialTab {...tabProps} />;
                 default: return <div>Tab no encontrado</div>;
             }
         };
@@ -394,6 +602,7 @@ const App: React.FC = () => {
                              <TabButton tabId="inventario" title="Inventario" activeTab={activeTab} setActiveTab={setActiveTab} disabled={inventory.length === 0} onPopOut={handlePopOut} />
                              <TabButton tabId="cambios" title="Cambios" activeTab={activeTab} setActiveTab={setActiveTab} disabled={changeEvents.length === 0} onPopOut={handlePopOut} />
                              <TabButton tabId="eventos" title="Eventos" activeTab={activeTab} setActiveTab={setActiveTab} disabled={allEvents.length === 0} onPopOut={handlePopOut} />
+                             <TabButton tabId="historial" title="Historial" activeTab={activeTab} setActiveTab={setActiveTab} disabled={Object.keys(historicalData).length === 0} onPopOut={handlePopOut} />
                         </nav>
                         <button
                             onClick={() => setIsFiltersVisible(v => !v)}
@@ -536,6 +745,29 @@ const App: React.FC = () => {
                                         handleOperatingHoursRowClick={handleOperatingHoursRowClick}
                                    />
                                )
+                           )}
+                            {activeTab === 'historial' && Object.keys(historicalData).length > 0 && (
+                                poppedOutTabs.includes('historial') ? (
+                                    <div className="text-center p-16 bg-gray-800 rounded-lg">
+                                        <h2 className="text-2xl font-semibold text-gray-300">Pestaña Activa en Otra Ventana</h2>
+                                        <p className="text-gray-500 mt-2">
+                                            El contenido de la pestaña "Historial" se está mostrando en una ventana separada.
+                                            Cierre esa ventana para volver a ver el contenido aquí.
+                                        </p>
+                                    </div>
+                                ) : (
+                                    <HistorialTab
+                                        historicalData={filteredHistoricalData}
+                                        historicalDateRange={historicalDateRange}
+                                        setHistoricalDateRange={setHistoricalDateRange}
+                                        historicalYear={historicalYear}
+                                        setHistoricalYear={setHistoricalYear}
+                                        historicalMonth={historicalMonth}
+                                        setHistoricalMonth={setHistoricalMonth}
+                                        historicalAvailableYears={historicalAvailableYears}
+                                        handleExportHistoricalSummary={handleExportHistoricalSummary}
+                                    />
+                                )
                            )}
                         </>
                     )}

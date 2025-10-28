@@ -1,4 +1,5 @@
 
+
 import React, { useState, useMemo } from 'react';
 import type { LuminaireEvent } from '../types';
 
@@ -46,8 +47,11 @@ const EventTable: React.FC<{ events: LuminaireEvent[] }> = ({ events }) => {
     const columns: { key: keyof LuminaireEvent; label: string }[] = [
         { key: 'date', label: 'Date' },
         { key: 'id', label: 'ID' },
+        { key: 'olcHardwareDir', label: 'Dirección Hardware OLC' },
         { key: 'municipio', label: 'Municipio' },
         { key: 'zone', label: 'Zone' },
+        { key: 'power', label: 'Potencia (W)' },
+        { key: 'systemMeasuredPower', label: 'Potencia Medida (W)' },
         { key: 'status', label: 'Status' },
         { key: 'failureCategory', label: 'Failure Category' },
         { key: 'description', label: 'Description' },
@@ -74,8 +78,11 @@ const EventTable: React.FC<{ events: LuminaireEvent[] }> = ({ events }) => {
                             <tr key={event.uniqueEventId} className="hover:bg-gray-700/50">
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{event.date.toLocaleString()}</td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{event.id}</td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{event.olcHardwareDir || 'N/A'}</td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{event.municipio}</td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{event.zone}</td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{event.power || 'N/A'}</td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-red-400 font-semibold">{event.systemMeasuredPower?.toFixed(2) ?? 'N/A'}</td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm">
                                     <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${event.status === 'FAILURE' ? 'bg-red-900 text-red-300' : 'bg-green-900 text-green-300'}`}>
                                         {event.status}
