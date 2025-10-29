@@ -1,3 +1,5 @@
+
+
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { subDays } from 'date-fns/subDays';
 import { startOfMonth } from 'date-fns/startOfMonth';
@@ -15,7 +17,6 @@ import { parse } from 'date-fns/parse';
 
 import { useLuminaireData } from './hooks/useLuminaireData';
 import { useBroadcastChannel } from './hooks/useBroadcastChannel';
-// FIX: Add HistoricalZoneData to imports.
 import type { LuminaireEvent, InventoryItem, ActiveTab, ChangeEvent, BroadcastMessage, HistoricalData, HistoricalZoneData } from './types';
 import { ALL_ZONES, MUNICIPIO_TO_ZONE_MAP, ZONE_ORDER } from './constants';
 
@@ -60,10 +61,6 @@ interface FullAppState {
     isInventorySummariesOpen: boolean;
     selectedOperatingHoursRange: string | null;
     latestDataDate: Date | null;
-    // Historical Filters
-    historicalDateRange: { start: Date | null; end: Date | null };
-    historicalYear: string;
-    historicalMonth: string;
 }
 
 const App: React.FC = () => {
@@ -76,7 +73,7 @@ const App: React.FC = () => {
     } = useLuminaireData();
 
     // All state is managed here in the main component
-    const [dateRange, setDateRange] = useState<{ start: Date | null; end: Date | null }>({ start: null, end: null });
+    const [dateRange, setDateRange] = useState<{ start: Date | null; end: Date | null }>({ start: startOfYear(new Date()), end: endOfDay(new Date()) });
     const [selectedZone, setSelectedZone] = useState<string>('all');
     const [selectedMunicipio, setSelectedMunicipio] = useState<string>('all');
     const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -92,11 +89,6 @@ const App: React.FC = () => {
     const [activeTab, setActiveTab] = useState<ActiveTab>('inventario');
     const [isInventorySummariesOpen, setIsInventorySummariesOpen] = useState(false);
     const [selectedOperatingHoursRange, setSelectedOperatingHoursRange] = useState<string | null>(null);
-
-    // New state for historical filters
-    const [historicalDateRange, setHistoricalDateRange] = useState<{ start: Date | null; end: Date | null }>({ start: null, end: null });
-    const [historicalYear, setHistoricalYear] = useState<string>('');
-    const [historicalMonth, setHistoricalMonth] = useState<string>('');
 
     // New state for windowing
     const [poppedOutTabs, setPoppedOutTabs] = useState<ActiveTab[]>([]);
@@ -125,7 +117,6 @@ const App: React.FC = () => {
                     dateRange, selectedZone, selectedMunicipio, selectedCategory, selectedMonth, selectedYear,
                     selectedPower, selectedCalendar, searchTerm, cardFilter, cardChangeFilter, cardInventoryFilter,
                     isInventorySummariesOpen, selectedOperatingHoursRange, latestDataDate,
-                    historicalDateRange, historicalYear, historicalMonth
                 };
                  postMessage({ type: 'INITIAL_STATE_RESPONSE', payload: currentState });
             }
@@ -136,15 +127,11 @@ const App: React.FC = () => {
                     start: receivedState.dateRange.start ? new Date(receivedState.dateRange.start) : null,
                     end: receivedState.dateRange.end ? new Date(receivedState.dateRange.end) : null
                 };
-                 const newHistoricalDateRange = {
-                    start: receivedState.historicalDateRange.start ? new Date(receivedState.historicalDateRange.start) : null,
-                    end: receivedState.historicalDateRange.end ? new Date(receivedState.historicalDateRange.end) : null
-                };
                 const newLatestDate = receivedState.latestDataDate ? new Date(receivedState.latestDataDate) : null;
-                setPortalState({ ...receivedState, dateRange: newDateRange, historicalDateRange: newHistoricalDateRange, latestDataDate: newLatestDate });
+                setPortalState({ ...receivedState, dateRange: newDateRange, latestDataDate: newLatestDate });
             }
         }
-    }, [isMainApp.current, dateRange, selectedZone, selectedMunicipio, selectedCategory, selectedMonth, selectedYear, selectedPower, selectedCalendar, searchTerm, cardFilter, cardChangeFilter, cardInventoryFilter, isInventorySummariesOpen, selectedOperatingHoursRange, latestDataDate, historicalDateRange, historicalYear, historicalMonth]);
+    }, [isMainApp.current, dateRange, selectedZone, selectedMunicipio, selectedCategory, selectedMonth, selectedYear, selectedPower, selectedCalendar, searchTerm, cardFilter, cardChangeFilter, cardInventoryFilter, isInventorySummariesOpen, selectedOperatingHoursRange, latestDataDate]);
 
     const { postMessage } = useBroadcastChannel(handleBroadcastMessage);
 
@@ -155,7 +142,6 @@ const App: React.FC = () => {
                 dateRange, selectedZone, selectedMunicipio, selectedCategory, selectedMonth, selectedYear,
                 selectedPower, selectedCalendar, searchTerm, cardFilter, cardChangeFilter, cardInventoryFilter,
                 isInventorySummariesOpen, selectedOperatingHoursRange, latestDataDate,
-                historicalDateRange, historicalYear, historicalMonth
             };
             postMessage({ type: 'STATE_UPDATE', payload: fullState });
         }
@@ -163,7 +149,6 @@ const App: React.FC = () => {
         dateRange, selectedZone, selectedMunicipio, selectedCategory, selectedMonth, selectedYear,
         selectedPower, selectedCalendar, searchTerm, cardFilter, cardChangeFilter, cardInventoryFilter,
         isInventorySummariesOpen, selectedOperatingHoursRange, latestDataDate, postMessage,
-        historicalDateRange, historicalYear, historicalMonth
     ]);
     
      // Effect for portal app to request initial state on load
@@ -207,7 +192,6 @@ const App: React.FC = () => {
         dateRange, selectedZone, selectedMunicipio, selectedCategory, selectedMonth, selectedYear,
         selectedPower, selectedCalendar, searchTerm, cardFilter, cardChangeFilter, cardInventoryFilter,
         isInventorySummariesOpen, selectedOperatingHoursRange, latestDataDate,
-        historicalDateRange, historicalYear, historicalMonth
     };
     
     // --- All data calculations are performed once, based on the current state ---
@@ -257,7 +241,6 @@ const App: React.FC = () => {
     const failureDataByZone = useMemo(() => {
         if (Object.keys(inventoryCountByZone).length === 0) return { data: [], categories: [] };
         const counts = baseFilteredEvents.reduce((acc, event) => {
-            // FIX: Guard against events with no zone to prevent errors.
             if (event.zone) {
                 if (!acc[event.zone]) {
                     acc[event.zone] = { total: 0, categories: {} };
@@ -276,7 +259,8 @@ const App: React.FC = () => {
             filteredFailureCategories.forEach(cat => {
                 catCounts[cat] = eventData.categories[cat] || 0;
             });
-            return { name: zone, eventos: eventData.total, totalInventario, porcentaje: totalInventario > 0 ? (eventData.total / totalInventario) * 100 : 0, ...catCounts };
+            // FIX: Replaced spread syntax with Object.assign to resolve issue with spreading types from objects with index signatures.
+            return Object.assign({ name: zone, eventos: eventData.total, totalInventario, porcentaje: totalInventario > 0 ? (eventData.total / totalInventario) * 100 : 0 }, catCounts);
         });
         const sorted = data.sort((a, b) => {
             const iA = ZONE_ORDER.indexOf(a.name);
@@ -299,7 +283,6 @@ const App: React.FC = () => {
         if (Object.keys(inventoryCountByMunicipio).length === 0) return { data: [], categories: [] };
         
         const counts = baseFilteredEvents.reduce((acc, event) => {
-            // FIX: Guard against events with no municipio to prevent errors.
             if (event.municipio) {
                 if (!acc[event.municipio]) {
                     acc[event.municipio] = { total: 0, categories: {} };
@@ -319,7 +302,8 @@ const App: React.FC = () => {
             filteredFailureCategories.forEach(cat => {
                 catCounts[cat] = eventData.categories[cat] || 0;
             });
-            return { name: muni, eventos: eventData.total, totalInventario, porcentaje: totalInventario > 0 ? (eventData.total / totalInventario) * 100 : 0, ...catCounts };
+            // FIX: Replaced spread syntax with Object.assign to resolve issue with spreading types from objects with index signatures.
+            return Object.assign({ name: muni, eventos: eventData.total, totalInventario, porcentaje: totalInventario > 0 ? (eventData.total / totalInventario) * 100 : 0 }, catCounts);
         }).sort((a,b) => b.porcentaje - a.porcentaje);
 
         return { data, categories: filteredFailureCategories };
@@ -333,48 +317,155 @@ const App: React.FC = () => {
     const operatingHoursDetailData = useMemo((): InventoryItem[] => { if (!currentAppState.selectedOperatingHoursRange) return []; const parseRange = (rangeStr: string): { start: number; end: number } => { if (rangeStr.startsWith('>')) { const start = parseInt(rangeStr.replace(/\D/g, ''), 10); return { start, end: Infinity }; } const parts = rangeStr.replace(/ hs/g, '').replace(/\./g, '').split(' - '); return { start: parseInt(parts[0], 10), end: parseInt(parts[1], 10) }; }; const { start, end } = parseRange(currentAppState.selectedOperatingHoursRange); return inventory.filter(item => { if (item.horasFuncionamiento == null) return false; if (end === Infinity) return item.horasFuncionamiento > start; return item.horasFuncionamiento >= start && item.horasFuncionamiento <= end; }); }, [inventory, currentAppState.selectedOperatingHoursRange]);
     
      // --- Historical Data Calculations ---
-    const historicalAvailableYears = useMemo(() => {
-        if (!historicalData || Object.keys(historicalData).length === 0) return [];
-        const years = new Set(Object.keys(historicalData).map(dateStr => dateStr.substring(0, 4)));
-        return Array.from(years).sort((a, b) => parseInt(b) - parseInt(a));
-    }, [historicalData]);
-
-    useEffect(() => {
-        if (historicalYear && historicalMonth) {
-            const yearNum = parseInt(historicalYear);
-            const monthNum = parseInt(historicalMonth) - 1;
-            const start = new Date(yearNum, monthNum, 1);
-            const end = endOfMonth(start);
-            setHistoricalDateRange({ start, end });
-        } else if (historicalYear && !historicalMonth) {
-            const yearNum = parseInt(historicalYear);
-            const start = startOfYear(new Date(yearNum, 0, 1));
-            const end = endOfYear(new Date(yearNum, 11, 31));
-            setHistoricalDateRange({ start, end });
-        }
-    }, [historicalYear, historicalMonth]);
+    const luminaireIdToInfoMap = useMemo(() => {
+        const map = new Map<string, { zone: string; municipio: string }>();
+        inventory.forEach(item => {
+            if (item.streetlightIdExterno && item.zone && item.municipio) {
+                map.set(item.streetlightIdExterno, { zone: item.zone, municipio: item.municipio });
+            }
+        });
+        return map;
+    }, [inventory]);
 
     const filteredHistoricalData = useMemo(() => {
         const dataToFilter = historicalData;
-        const range = currentAppState.historicalDateRange;
+        const range = currentAppState.dateRange;
+        const zone = currentAppState.selectedZone;
+        const municipio = currentAppState.selectedMunicipio;
+
+        let targetZone: string | null = null;
+        if (zone !== 'all') {
+            targetZone = zone;
+        } else if (municipio !== 'all') {
+            targetZone = MUNICIPIO_TO_ZONE_MAP[municipio.toUpperCase()] || null;
+        }
         
         if (!range.start && !range.end) {
-            return dataToFilter;
+            return {};
         }
         const filtered: HistoricalData = {};
         const start = range.start ? startOfDay(range.start) : null;
         const end = range.end ? endOfDay(range.end) : null;
         if (!start || !end) return dataToFilter;
 
-        Object.entries(dataToFilter).forEach(([dateStr, data]) => {
+        Object.entries(dataToFilter).forEach(([dateStr, dayData]) => {
             const date = parse(dateStr, 'yyyy-MM-dd', new Date());
             if (isWithinInterval(date, { start, end })) {
-                // FIX: Cast `data` to its expected type, as Object.entries loses type information for indexed types.
-                filtered[dateStr] = data as { [zone: string]: HistoricalZoneData };
+                const dailyFilteredData: { [zone: string]: HistoricalZoneData } = {};
+                
+                if (targetZone) { // Filter by a specific zone
+                    if (dayData[targetZone]) {
+                        dailyFilteredData[targetZone] = dayData[targetZone];
+                    }
+                } else { // No zone filter, include all zones
+                    Object.assign(dailyFilteredData, dayData);
+                }
+
+                if (Object.keys(dailyFilteredData).length > 0) {
+                     // The cast is necessary because Object.entries/assign can lose specific index signature types.
+                     filtered[dateStr] = dailyFilteredData as { [zone: string]: HistoricalZoneData };
+                }
             }
         });
         return filtered;
-    }, [historicalData, currentAppState.historicalDateRange]);
+    }, [historicalData, currentAppState.dateRange, currentAppState.selectedZone, currentAppState.selectedMunicipio]);
+
+    const { uniqueFailuresInDateRange, uniqueFailuresByZoneInDateRange } = useMemo(() => {
+        if (!currentAppState.dateRange.start || !currentAppState.dateRange.end) {
+            return { uniqueFailuresInDateRange: 0, uniqueFailuresByZoneInDateRange: [] };
+        }
+    
+        const countsByZone: Record<string, Set<string>> = {};
+        const zoneFilter = currentAppState.selectedZone;
+        const municipioFilter = currentAppState.selectedMunicipio;
+    
+        const addToZone = (zone: string, id: string) => {
+             if (!countsByZone[zone]) {
+                countsByZone[zone] = new Set<string>();
+            }
+            countsByZone[zone].add(id);
+        }
+    
+        // Process historical data
+        Object.values(filteredHistoricalData).forEach(dayData => {
+            Object.entries(dayData).forEach(([zoneName, zoneData]) => {
+                if (zoneData.failedLuminaireIds) {
+                    zoneData.failedLuminaireIds.forEach(id => {
+                        if (municipioFilter !== 'all') {
+                            const luminaireInfo = luminaireIdToInfoMap.get(id);
+                            if (luminaireInfo && luminaireInfo.municipio === municipioFilter) {
+                                addToZone(zoneName, id);
+                            }
+                        } else {
+                            addToZone(zoneName, id);
+                        }
+                    });
+                }
+            });
+        });
+    
+        // Process current day's events
+        const failureEvents = allEvents.filter(e => e.status === 'FAILURE');
+        failureEvents.forEach(event => {
+            const isDateMatch = isWithinInterval(event.date, { start: currentAppState.dateRange.start!, end: currentAppState.dateRange.end! });
+            const isZoneMatch = zoneFilter === 'all' || event.zone === zoneFilter;
+            const isMunicipioMatch = municipioFilter === 'all' || event.municipio === municipioFilter;
+    
+            if (event.zone && isDateMatch && isZoneMatch && isMunicipioMatch) {
+                addToZone(event.zone, event.id);
+            }
+        });
+    
+        const totalUniqueIds = new Set<string>();
+        const resultByZone = Object.entries(countsByZone).map(([zone, luminaireIds]) => {
+            luminaireIds.forEach(id => totalUniqueIds.add(id));
+            return {
+                name: zone,
+                count: luminaireIds.size
+            };
+        });
+    
+        const sortedResultByZone = resultByZone.sort((a, b) => {
+            const iA = ZONE_ORDER.indexOf(a.name);
+            const iB = ZONE_ORDER.indexOf(b.name);
+            if (iA !== -1 && iB !== -1) return iA - iB;
+            if (iA !== -1) return -1;
+            if (iB !== -1) return 1;
+            return a.name.localeCompare(b.name);
+        });
+    
+        return {
+            uniqueFailuresInDateRange: totalUniqueIds.size,
+            uniqueFailuresByZoneInDateRange: sortedResultByZone
+        };
+    
+    }, [allEvents, filteredHistoricalData, currentAppState.dateRange, currentAppState.selectedZone, currentAppState.selectedMunicipio, luminaireIdToInfoMap]);
+
+    const cabinetFailuresInDateRange = useMemo(() => {
+        const failures: { date: Date; id: string; zone: string; municipio: string }[] = [];
+    
+        Object.entries(filteredHistoricalData).forEach(([dateStr, dayData]) => {
+            const date = parse(dateStr, 'yyyy-MM-dd', new Date());
+            Object.entries(dayData).forEach(([zoneName, zoneData]) => {
+                if (zoneData.cabinetFailureLuminaireIds) {
+                    zoneData.cabinetFailureLuminaireIds.forEach(id => {
+                        const luminaireInfo = luminaireIdToInfoMap.get(id);
+                        if (luminaireInfo) { 
+                             failures.push({
+                                date,
+                                id,
+                                zone: zoneName,
+                                municipio: luminaireInfo.municipio,
+                            });
+                        }
+                    });
+                }
+            });
+        });
+    
+        return failures;
+    }, [filteredHistoricalData, luminaireIdToInfoMap]);
+
 
     // --- Export Handlers ---
     const generateExportFilename = useCallback((baseName: string): string => { const dateStr = new Date().toISOString().split('T')[0]; const zoneStr = currentAppState.selectedZone !== 'all' ? `_${currentAppState.selectedZone.replace(/\s+/g, '_')}` : ''; const municipioStr = currentAppState.selectedMunicipio !== 'all' ? `_${currentAppState.selectedMunicipio.replace(/\s+/g, '_')}` : ''; return `${baseName}${zoneStr}${municipioStr}_${dateStr}.xlsx`; }, [currentAppState.selectedZone, currentAppState.selectedMunicipio]);
@@ -410,7 +501,7 @@ const App: React.FC = () => {
         if (!filteredHistoricalData || Object.keys(filteredHistoricalData).length === 0) return;
     
         // FIX: Replaced problematic Omit<> with an explicit type for monthly summaries.
-        const monthlySummaries: Record<string, Record<string, {
+        type MonthlySummary = {
             eventos: { total: number, count: number };
             porcentaje: { total: number, count: number };
             eventosGabinete: { total: number, count: number };
@@ -419,7 +510,8 @@ const App: React.FC = () => {
             porcentajeVandalismo: { total: number, count: number };
             eventosReales: { total: number, count: number };
             porcentajeReal: { total: number, count: number };
-        }>> = {};
+        };
+        const monthlySummaries: Record<string, Record<string, MonthlySummary>> = {};
         const presentZones = new Set<string>();
     
         Object.entries(filteredHistoricalData).forEach(([dateStr, zonesData]) => {
@@ -528,6 +620,13 @@ const App: React.FC = () => {
             return <div className="flex items-center justify-center h-screen bg-gray-900 text-gray-200">Sincronizando estado con ventana principal...</div>;
         }
 
+        const portalTitles: Record<ActiveTab, string> = {
+            'inventario': 'Inventario',
+            'cambios': 'Cambios',
+            'eventos': 'Eventos',
+            'historial': 'Historial de Eventos',
+        };
+
         const tabProps = {
             // Eventos Props
             baseFilteredEvents, displayEvents, oldestEventsByZone, failureDataByZone, failureDataByMunicipio,
@@ -547,6 +646,10 @@ const App: React.FC = () => {
             setIsInventorySummariesOpen: () => {}, handleExportCabinetSummary: () => {}, handleExportServiceSummary: () => {}, handleOperatingHoursRowClick: () => {},
              // Historial Props
             historicalData: filteredHistoricalData,
+            uniqueFailuresInDateRange,
+            uniqueFailuresByZoneInDateRange,
+            cabinetFailuresInDateRange,
+            dateRange: currentAppState.dateRange,
         };
 
         const renderTabContent = () => {
@@ -562,7 +665,7 @@ const App: React.FC = () => {
         return (
             <div className="bg-gray-900 text-gray-200 font-sans p-4 h-screen overflow-y-auto">
                  <h1 className="text-2xl font-bold text-cyan-400 mb-2">
-                    Ventana: {portalTab.charAt(0).toUpperCase() + portalTab.slice(1)}
+                    Ventana: {portalTitles[portalTab] ?? (portalTab.charAt(0).toUpperCase() + portalTab.slice(1))}
                 </h1>
                 <p className="text-sm text-gray-400 mb-4">
                     Datos al {currentAppState.latestDataDate ? format(currentAppState.latestDataDate, 'dd/MM/yyyy') : 'N/A'}. Los filtros se controlan desde la ventana principal.
@@ -602,7 +705,7 @@ const App: React.FC = () => {
                              <TabButton tabId="inventario" title="Inventario" activeTab={activeTab} setActiveTab={setActiveTab} disabled={inventory.length === 0} onPopOut={handlePopOut} />
                              <TabButton tabId="cambios" title="Cambios" activeTab={activeTab} setActiveTab={setActiveTab} disabled={changeEvents.length === 0} onPopOut={handlePopOut} />
                              <TabButton tabId="eventos" title="Eventos" activeTab={activeTab} setActiveTab={setActiveTab} disabled={allEvents.length === 0} onPopOut={handlePopOut} />
-                             <TabButton tabId="historial" title="Historial" activeTab={activeTab} setActiveTab={setActiveTab} disabled={Object.keys(historicalData).length === 0} onPopOut={handlePopOut} />
+                             <TabButton tabId="historial" title="Historial de Eventos" activeTab={activeTab} setActiveTab={setActiveTab} disabled={Object.keys(historicalData).length === 0} onPopOut={handlePopOut} />
                         </nav>
                         <button
                             onClick={() => setIsFiltersVisible(v => !v)}
@@ -758,13 +861,10 @@ const App: React.FC = () => {
                                 ) : (
                                     <HistorialTab
                                         historicalData={filteredHistoricalData}
-                                        historicalDateRange={historicalDateRange}
-                                        setHistoricalDateRange={setHistoricalDateRange}
-                                        historicalYear={historicalYear}
-                                        setHistoricalYear={setHistoricalYear}
-                                        historicalMonth={historicalMonth}
-                                        setHistoricalMonth={setHistoricalMonth}
-                                        historicalAvailableYears={historicalAvailableYears}
+                                        uniqueFailuresInDateRange={uniqueFailuresInDateRange}
+                                        uniqueFailuresByZoneInDateRange={uniqueFailuresByZoneInDateRange}
+                                        cabinetFailuresInDateRange={cabinetFailuresInDateRange}
+                                        dateRange={dateRange}
                                         handleExportHistoricalSummary={handleExportHistoricalSummary}
                                     />
                                 )

@@ -269,7 +269,8 @@ export const useLuminaireData = () => {
         const dailyFailureEvents = dailyEvents.filter(e => e.status === 'FAILURE');
         const failureCategories = Array.from(new Set(dailyFailureEvents.map(e => e.failureCategory).filter((c): c is string => !!c)));
     
-        const countsByZone: Record<string, Omit<HistoricalZoneData, 'name' | 'totalInventario' | 'porcentaje' | 'porcentajeGabinete' | 'porcentajeVandalismo' | 'porcentajeReal'>> = {};
+        const countsByZone: Record<string, Omit<HistoricalZoneData, 'name' | 'totalInventario' | 'porcentaje' | 'porcentajeGabinete' | 'porcentajeVandalismo' | 'porcentajeReal' | 'failedLuminaireIds' | 'cabinetFailureLuminaireIds'>> = {};
+        const cabinetFailureLuminaireIdsByZone: Record<string, string[]> = {};
     
         // Initialize counts for all zones
         Object.keys(inventoryCountByZone).forEach(zone => {
@@ -302,11 +303,15 @@ export const useLuminaireData = () => {
             if (events.length > 0) {
                 const cabinetId = inventoryMap.get(events[0].id)?.cabinetIdExterno;
                 const totalInCabinet = cabinetId ? (luminairesByCabinet[cabinetId]?.length || 0) : 0;
-                // Condition for cabinet failure: more than 3 inaccessible, or more than 50%
-                if (cabinetId && totalInCabinet > 0 && (events.length >= 3 || events.length / totalInCabinet > 0.5)) {
+                // Condition for cabinet failure: all luminaires in the cabinet are inaccessible and there's more than one.
+                if (cabinetId && totalInCabinet > 1 && (events.length === totalInCabinet)) {
                     events.forEach(event => {
                         if (countsByZone[event.zone]) {
                             countsByZone[event.zone].eventosGabinete++;
+                            if (!cabinetFailureLuminaireIdsByZone[event.zone]) {
+                                cabinetFailureLuminaireIdsByZone[event.zone] = [];
+                            }
+                            cabinetFailureLuminaireIdsByZone[event.zone].push(event.id);
                         }
                     });
                 }
@@ -329,22 +334,29 @@ export const useLuminaireData = () => {
             const totalInventario = inventoryCountByZone[zone];
             
             const eventosReales = Math.max(0, zoneCounts.eventos - zoneCounts.eventosGabinete - zoneCounts.eventosVandalismo);
-    
-            // FIX: Explicitly list required properties to satisfy the HistoricalZoneData type,
-            // as the spread operator with an Omit<> type involving an index signature can be unreliable.
-            snapshot[zone] = {
-                ...zoneCounts,
+            
+            const failedLuminaireIds = Array.from(new Set(dailyFailureEvents.filter(e => e.zone === zone).map(e => e.id)));
+
+            const snapshotForZone: HistoricalZoneData = {
                 name: zone,
                 eventos: zoneCounts.eventos,
                 eventosGabinete: zoneCounts.eventosGabinete,
                 eventosVandalismo: zoneCounts.eventosVandalismo,
-                eventosReales: eventosReales,
-                totalInventario: totalInventario,
+                eventosReales,
+                totalInventario,
                 porcentaje: totalInventario > 0 ? (zoneCounts.eventos / totalInventario) * 100 : 0,
                 porcentajeGabinete: totalInventario > 0 ? (zoneCounts.eventosGabinete / totalInventario) * 100 : 0,
                 porcentajeVandalismo: totalInventario > 0 ? (zoneCounts.eventosVandalismo / totalInventario) * 100 : 0,
                 porcentajeReal: totalInventario > 0 ? (eventosReales / totalInventario) * 100 : 0,
+                failedLuminaireIds: failedLuminaireIds,
+                cabinetFailureLuminaireIds: cabinetFailureLuminaireIdsByZone[zone] || [],
             };
+            
+            failureCategories.forEach(cat => {
+                 snapshotForZone[cat] = zoneCounts[cat] || 0;
+            });
+
+            snapshot[zone] = snapshotForZone;
         });
         return snapshot;
     };

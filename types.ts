@@ -88,6 +88,9 @@ export interface HistoricalZoneData {
   porcentajeGabinete: number;
   porcentajeVandalismo: number;
   porcentajeReal: number;
+  // List of unique IDs for this day
+  failedLuminaireIds?: string[];
+  cabinetFailureLuminaireIds?: string[];
   // Raw category counts
   [category: string]: any;
 }

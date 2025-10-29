@@ -1,60 +1,71 @@
+
 import React from 'react';
 import CollapsibleSection from './CollapsibleSection';
 import MonthlyEventSummaryChart from './MonthlyEventSummaryChart';
 import HistoricalSummaryTable from './HistoricalSummaryTable';
-import MonthlyEventCountsTable from './MonthlyEventCountsTable';
-import HistoricalFilterControls from './HistoricalFilterControls';
+import DashboardCard from './DashboardCard';
+import UniqueFailuresByZoneTable from './UniqueFailuresByZoneTable';
+import CabinetFailuresTable from './CabinetFailuresTable';
 import type { HistoricalData } from '../types';
+import type { CabinetFailureDetail } from './CabinetFailuresTable';
 
 interface HistorialTabProps {
-    // Historical Data Props
     historicalData: HistoricalData;
-    historicalDateRange?: { start: Date | null; end: Date | null };
-    setHistoricalDateRange?: (range: { start: Date | null; end: Date | null }) => void;
-    historicalYear?: string;
-    setHistoricalYear?: (year: string) => void;
-    historicalMonth?: string;
-    setHistoricalMonth?: (month: string) => void;
-    historicalAvailableYears?: string[];
+    uniqueFailuresInDateRange: number;
+    uniqueFailuresByZoneInDateRange: { name: string; count: number }[];
+    cabinetFailuresInDateRange: CabinetFailureDetail[];
+    dateRange: { start: Date | null; end: Date | null };
     handleExportHistoricalSummary?: () => void;
 }
 
 
 const HistorialTab: React.FC<HistorialTabProps> = ({
     historicalData,
-    historicalDateRange,
-    setHistoricalDateRange,
-    historicalYear,
-    setHistoricalYear,
-    historicalMonth,
-    setHistoricalMonth,
-    historicalAvailableYears,
+    uniqueFailuresInDateRange,
+    uniqueFailuresByZoneInDateRange,
+    cabinetFailuresInDateRange,
+    dateRange,
     handleExportHistoricalSummary,
 }) => {
-    const isPortal = setHistoricalDateRange === undefined;
+
+    if (!dateRange.start || !dateRange.end) {
+        return (
+            <div className="text-center p-16 bg-gray-800 rounded-lg">
+                <h2 className="text-2xl font-semibold text-gray-300">Seleccione un Rango de Fechas</h2>
+                <p className="text-gray-500 mt-2">
+                    Por favor, utilice los filtros principales para definir un período y ver el análisis histórico de eventos.
+                </p>
+            </div>
+        );
+    }
 
     return (
         <div className="space-y-6">
-             <CollapsibleSection
-                title="Análisis Histórico de Fallas por Zona"
+            <CollapsibleSection
+                title="Análisis de Fallas Únicas en Periodo Seleccionado"
                 defaultOpen={true}
-                onExport={!isPortal ? handleExportHistoricalSummary : undefined}
-                extraHeaderContent={!isPortal && historicalAvailableYears && (
-                    <HistoricalFilterControls
-                        dateRange={historicalDateRange!}
-                        setDateRange={setHistoricalDateRange!}
-                        year={historicalYear!}
-                        setYear={setHistoricalYear!}
-                        month={historicalMonth!}
-                        setMonth={setHistoricalMonth!}
-                        availableYears={historicalAvailableYears}
-                        onClear={() => {
-                            setHistoricalDateRange!({ start: null, end: null });
-                            setHistoricalYear!('');
-                            setHistoricalMonth!('');
-                        }}
-                    />
-                )}
+            >
+                 <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+                    <div className="flex flex-col items-center justify-center h-full">
+                        <DashboardCard
+                            title="Puntos de Alumbrado Únicos con Falla"
+                            value={uniqueFailuresInDateRange.toLocaleString('es-ES')}
+                        />
+                        <p className="text-center text-gray-400 mt-4 max-w-md">
+                            Este valor representa el número total de luminarias únicas que reportaron al menos un evento de falla dentro del período de fechas seleccionado.
+                        </p>
+                    </div>
+                    <div>
+                        <h4 className="text-md font-semibold text-gray-300 mb-3 text-center">Desglose por Zona</h4>
+                        <UniqueFailuresByZoneTable data={uniqueFailuresByZoneInDateRange} />
+                    </div>
+                </div>
+            </CollapsibleSection>
+
+             <CollapsibleSection
+                title="Análisis Histórico de Promedios Mensuales de Falla"
+                defaultOpen={true}
+                onExport={handleExportHistoricalSummary}
             >
                 <div className="space-y-8">
                     <div>
@@ -65,9 +76,9 @@ const HistorialTab: React.FC<HistorialTabProps> = ({
                         <h3 className="text-lg font-semibold text-cyan-400 mb-3">Desglose de Promedio Mensual de Fallas por Zona</h3>
                         <HistoricalSummaryTable historicalData={historicalData} />
                     </div>
-                    <div>
-                        <h3 className="text-lg font-semibold text-cyan-400 mb-3">Cantidad de Eventos de Falla por Mes</h3>
-                        <MonthlyEventCountsTable historicalData={historicalData} />
+                    <div className="pt-4">
+                        <h3 className="text-lg font-semibold text-cyan-400 mb-3">Detalle de Luminarias en Falla de Gabinete</h3>
+                        <CabinetFailuresTable data={cabinetFailuresInDateRange} />
                     </div>
                 </div>
             </CollapsibleSection>

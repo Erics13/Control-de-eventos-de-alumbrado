@@ -8,11 +8,19 @@ interface HistoricalSummaryTableProps {
     historicalData: HistoricalData;
 }
 
+// FIX: Replaced the problematic Omit type with a specific interface that accurately describes the shape of the data.
+interface MonthlyZoneAverages {
+    porcentaje: number;
+    porcentajeGabinete: number;
+    porcentajeVandalismo: number;
+    porcentajeReal: number;
+}
+
 interface MonthlySummary {
     monthKey: string;
     monthName: string;
     date: Date;
-    zoneAverages: Record<string, Omit<HistoricalZoneData, 'name' | 'totalInventario' | 'eventos' | string>>;
+    zoneAverages: Record<string, MonthlyZoneAverages>;
 }
 
 const getColorForPercentage = (percentage: number): string => {
