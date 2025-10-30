@@ -1,4 +1,5 @@
 
+
 import React from 'react';
 import CollapsibleSection from './CollapsibleSection';
 import MonthlyEventSummaryChart from './MonthlyEventSummaryChart';
@@ -8,14 +9,19 @@ import UniqueFailuresByZoneTable from './UniqueFailuresByZoneTable';
 import CabinetFailuresTable from './CabinetFailuresTable';
 import type { HistoricalData } from '../types';
 import type { CabinetFailureDetail } from './CabinetFailuresTable';
+import { format, parse } from 'date-fns';
+import { es } from 'date-fns/locale/es';
 
 interface HistorialTabProps {
     historicalData: HistoricalData;
     uniqueFailuresInDateRange: number;
     uniqueFailuresByZoneInDateRange: { name: string; count: number }[];
     cabinetFailuresInDateRange: CabinetFailureDetail[];
+    cabinetFailuresForSelectedMonth: CabinetFailureDetail[];
     dateRange: { start: Date | null; end: Date | null };
     handleExportHistoricalSummary?: () => void;
+    selectedHistoricalMonthZone: { month: string, zone: string } | null;
+    setSelectedHistoricalMonthZone: (selection: { month: string, zone: string } | null) => void;
 }
 
 
@@ -24,8 +30,11 @@ const HistorialTab: React.FC<HistorialTabProps> = ({
     uniqueFailuresInDateRange,
     uniqueFailuresByZoneInDateRange,
     cabinetFailuresInDateRange,
+    cabinetFailuresForSelectedMonth,
     dateRange,
     handleExportHistoricalSummary,
+    selectedHistoricalMonthZone,
+    setSelectedHistoricalMonthZone,
 }) => {
 
     if (!dateRange.start || !dateRange.end) {
@@ -38,6 +47,15 @@ const HistorialTab: React.FC<HistorialTabProps> = ({
             </div>
         );
     }
+    
+    const cabinetFailuresDataToShow = selectedHistoricalMonthZone 
+        ? cabinetFailuresForSelectedMonth 
+        : cabinetFailuresInDateRange;
+
+    const cabinetFailuresTitle = selectedHistoricalMonthZone
+        ? `Detalle de Fallas de Gabinete para ${selectedHistoricalMonthZone.zone} en ${format(parse(selectedHistoricalMonthZone.month, 'yyyy-MM', new Date()), 'MMMM yyyy', { locale: es })}`
+        : 'Detalle de Luminarias en Falla de Gabinete';
+
 
     return (
         <div className="space-y-6">
@@ -74,11 +92,16 @@ const HistorialTab: React.FC<HistorialTabProps> = ({
                     </div>
                     <div>
                         <h3 className="text-lg font-semibold text-cyan-400 mb-3">Desglose de Promedio Mensual de Fallas por Zona</h3>
-                        <HistoricalSummaryTable historicalData={historicalData} />
+                        <p className="text-sm text-gray-400 mb-2">Haga clic en una fila para ver el detalle de fallas de gabinete para esa zona y mes.</p>
+                        <HistoricalSummaryTable 
+                            historicalData={historicalData}
+                            selected={selectedHistoricalMonthZone}
+                            onSelect={setSelectedHistoricalMonthZone}
+                        />
                     </div>
                     <div className="pt-4">
-                        <h3 className="text-lg font-semibold text-cyan-400 mb-3">Detalle de Luminarias en Falla de Gabinete</h3>
-                        <CabinetFailuresTable data={cabinetFailuresInDateRange} />
+                        <h3 className="text-lg font-semibold text-cyan-400 mb-3 capitalize">{cabinetFailuresTitle}</h3>
+                        <CabinetFailuresTable data={cabinetFailuresDataToShow} />
                     </div>
                 </div>
             </CollapsibleSection>

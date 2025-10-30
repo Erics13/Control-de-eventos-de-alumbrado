@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useCallback } from 'react';
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
 import type { LuminaireEvent, ChangeEvent, InventoryItem, DataSourceURLs, HistoricalData, HistoricalZoneData } from '../types';
@@ -65,8 +66,7 @@ const parseCsvRow = (row: string, delimiter: string): string[] => {
     const regex = new RegExp(`("([^"]*)"|[^${escapedDelimiter}]*)(${escapedDelimiter}|$)`, 'g');
 
     let match;
-    let currentRow = row;
-    while ((match = regex.exec(currentRow))) {
+    while ((match = regex.exec(row))) {
         let column = match[2] !== undefined ? match[2] : match[1];
         columns.push(column.trim());
         if (match[3] === '') break;

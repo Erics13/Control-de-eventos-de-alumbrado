@@ -6,6 +6,8 @@ import { ZONE_ORDER } from '../constants';
 
 interface HistoricalSummaryTableProps {
     historicalData: HistoricalData;
+    selected: { month: string, zone: string } | null;
+    onSelect: (selection: { month: string, zone: string } | null) => void;
 }
 
 // FIX: Replaced the problematic Omit type with a specific interface that accurately describes the shape of the data.
@@ -29,7 +31,7 @@ const getColorForPercentage = (percentage: number): string => {
     return 'text-gray-300';
 };
 
-const HistoricalSummaryTable: React.FC<HistoricalSummaryTableProps> = ({ historicalData }) => {
+const HistoricalSummaryTable: React.FC<HistoricalSummaryTableProps> = ({ historicalData, selected, onSelect }) => {
     
     const { tableData, zones } = useMemo(() => {
         if (!historicalData || Object.keys(historicalData).length === 0) {
@@ -116,6 +118,11 @@ const HistoricalSummaryTable: React.FC<HistoricalSummaryTableProps> = ({ histori
       return null;
     }
 
+    const handleRowClick = (month: string, zone: string) => {
+        const isCurrentlySelected = selected?.month === month && selected?.zone === zone;
+        onSelect(isCurrentlySelected ? null : { month, zone });
+    };
+
     return (
         <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-700 text-sm">
@@ -131,28 +138,44 @@ const HistoricalSummaryTable: React.FC<HistoricalSummaryTableProps> = ({ histori
                 </thead>
                 <tbody className="bg-gray-800 divide-y divide-gray-700">
                     {tableData.flatMap((row, rowIndex) => 
-                        zones.map((zone, zoneIndex) => (
-                            <tr key={`${row.monthKey}-${zone}`} className={`hover:bg-gray-700/50 ${zoneIndex > 0 ? 'border-t-0' : ''}`}>
-                                {zoneIndex === 0 ? (
-                                    <td rowSpan={zones.length} className="sticky left-0 bg-gray-800 px-3 py-4 whitespace-nowrap font-medium text-gray-300 capitalize border-t border-gray-700 align-top">
-                                        {row.monthName}
+                        zones.map((zone, zoneIndex) => {
+                            const isSelected = selected?.month === row.monthKey && selected?.zone === zone;
+                            return (
+                                <tr 
+                                    key={`${row.monthKey}-${zone}`} 
+                                    onClick={() => handleRowClick(row.monthKey, zone)}
+                                    className={`cursor-pointer transition-colors duration-150 ${
+                                        isSelected ? 'bg-cyan-900/50' : 'hover:bg-gray-700/50'
+                                    } ${zoneIndex > 0 ? 'border-t-0' : ''}`}
+                                >
+                                    {zoneIndex === 0 ? (
+                                        <td rowSpan={zones.length} className="sticky left-0 bg-gray-800 px-3 py-4 whitespace-nowrap font-medium text-gray-300 capitalize border-t border-gray-700 align-top">
+                                            {row.monthName}
+                                        </td>
+                                    ) : null}
+                                    <td className="px-3 py-4 whitespace-nowrap font-medium text-gray-300">{zone}</td>
+                                    <td className="px-3 py-4 whitespace-nowrap text-center text-gray-400">
+                                        {(row.zoneAverages[zone]?.porcentaje || 0).toFixed(2)}%
                                     </td>
-                                ) : null}
-                                <td className="px-3 py-4 whitespace-nowrap font-medium text-gray-300">{zone}</td>
-                                <td className="px-3 py-4 whitespace-nowrap text-center text-gray-400">
-                                    {(row.zoneAverages[zone]?.porcentaje || 0).toFixed(2)}%
-                                </td>
-                                <td className="px-3 py-4 whitespace-nowrap text-center text-gray-400">
-                                    {(row.zoneAverages[zone]?.porcentajeGabinete || 0).toFixed(2)}%
-                                </td>
-                                <td className="px-3 py-4 whitespace-nowrap text-center text-gray-400">
-                                    {(row.zoneAverages[zone]?.porcentajeVandalismo || 0).toFixed(2)}%
-                                </td>
-                                <td className={`px-3 py-4 whitespace-nowrap text-center font-bold ${getColorForPercentage(row.zoneAverages[zone]?.porcentajeReal || 0)}`}>
-                                    {(row.zoneAverages[zone]?.porcentajeReal || 0).toFixed(2)}%
-                                </td>
-                            </tr>
-                        ))
+                                    <td className="px-3 py-4 whitespace-nowrap text-center text-gray-400">
+                                        <div className="relative group inline-block">
+                                            <span>{(row.zoneAverages[zone]?.porcentajeGabinete || 0).toFixed(2)}%</span>
+                                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-72 p-3 bg-gray-900 border border-gray-600 text-white text-xs rounded-lg shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-300 invisible group-hover:visible z-10 text-left">
+                                                <p>Este es el porcentaje promedio de luminarias que fallaron porque todo su gabinete asociado quedó inaccesible (sin comunicación).</p>
+                                                <p className="font-bold mt-2 text-cyan-300">Haga clic en esta fila para ver la lista detallada de luminarias, fechas y gabinetes afectados.</p>
+                                                <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-x-4 border-x-transparent border-t-4 border-t-gray-900"></div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td className="px-3 py-4 whitespace-nowrap text-center text-gray-400">
+                                        {(row.zoneAverages[zone]?.porcentajeVandalismo || 0).toFixed(2)}%
+                                    </td>
+                                    <td className={`px-3 py-4 whitespace-nowrap text-center font-bold ${getColorForPercentage(row.zoneAverages[zone]?.porcentajeReal || 0)}`}>
+                                        {(row.zoneAverages[zone]?.porcentajeReal || 0).toFixed(2)}%
+                                    </td>
+                                </tr>
+                            )
+                        })
                     )}
                 </tbody>
             </table>

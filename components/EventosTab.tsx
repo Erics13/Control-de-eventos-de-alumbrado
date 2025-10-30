@@ -9,6 +9,8 @@ import CollapsibleSection from './CollapsibleSection';
 import FailurePercentageTable from './FailurePercentageTable';
 import EventTable from './EventTable';
 import OldestEventsByZone from './OldestEventsByZone';
+import FailedCabinetsByZoneTable from './FailedCabinetsByZoneTable';
+import FailedCabinetAccountsTable from './FailedCabinetAccountsTable';
 import type { LuminaireEvent } from '../types';
 
 interface EventosTabProps {
@@ -30,12 +32,20 @@ interface EventosTabProps {
 
     // State
     cardFilter: string | null;
+    cabinetFailureAnalysisData: {
+        name: string;
+        count: number;
+        accounts: string[];
+    }[];
+    selectedZoneForCabinetDetails: string | null;
 
     // Handlers
     handleCardClick: (filter: string) => void;
     handleExportFailureByZone: () => void;
     handleExportFailureByMunicipio: () => void;
     handleExportFilteredEvents: () => void;
+    handleCabinetZoneRowClick: (zoneName: string) => void;
+    handleExportCabinetFailureAnalysis: () => void;
 }
 
 
@@ -53,11 +63,17 @@ const EventosTab: React.FC<EventosTabProps> = ({
     hurtoFailures,
     vandalizadoFailures,
     cardFilter,
+    cabinetFailureAnalysisData,
+    selectedZoneForCabinetDetails,
+    handleCabinetZoneRowClick,
     handleCardClick,
     handleExportFailureByZone,
     handleExportFailureByMunicipio,
     handleExportFilteredEvents,
+    handleExportCabinetFailureAnalysis,
 }) => {
+    const selectedZoneData = cabinetFailureAnalysisData.find(d => d.name === selectedZoneForCabinetDetails);
+
     return (
         <div className="space-y-6">
             <div className="bg-gray-800 shadow-lg rounded-xl p-4">
@@ -73,6 +89,28 @@ const EventosTab: React.FC<EventosTabProps> = ({
                     <DashboardCard title="Vandalizados" value={vandalizadoFailures.toLocaleString()} onClick={() => handleCardClick('vandalizado')} isActive={cardFilter === 'vandalizado'} />
                 </div>
             </div>
+
+             <CollapsibleSection title="Análisis de Tableros con Falla por Zona" defaultOpen onExport={handleExportCabinetFailureAnalysis}>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+                    <div>
+                        <FailedCabinetsByZoneTable 
+                            data={cabinetFailureAnalysisData}
+                            onRowClick={handleCabinetZoneRowClick}
+                            selectedZone={selectedZoneForCabinetDetails}
+                        />
+                    </div>
+                    <div>
+                        {selectedZoneData ? (
+                            <FailedCabinetAccountsTable accounts={selectedZoneData.accounts} />
+                        ) : (
+                            <div className="flex items-center justify-center h-full text-gray-500 rounded-lg bg-gray-900/50 p-4">
+                                Haga clic en una fila a la izquierda para ver el listado de servicios con falla.
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </CollapsibleSection>
+
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <div id="category-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-4"><h3 className="text-lg font-semibold text-cyan-400 mb-3">Eventos por Categoría</h3><FailureByCategoryChart data={baseFilteredEvents} /></div>
                 <div id="special-events-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-4"><h3 className="text-lg font-semibold text-cyan-400 mb-3">Eventos por Hurto, Vandalismo y Caídas</h3><SpecialEventsChart data={baseFilteredEvents} /></div>
