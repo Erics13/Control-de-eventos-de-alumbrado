@@ -1,5 +1,3 @@
-
-
 import React from 'react';
 import CollapsibleSection from './CollapsibleSection';
 import MonthlyEventSummaryChart from './MonthlyEventSummaryChart';
@@ -9,7 +7,9 @@ import UniqueFailuresByZoneTable from './UniqueFailuresByZoneTable';
 import CabinetFailuresTable from './CabinetFailuresTable';
 import type { HistoricalData } from '../types';
 import type { CabinetFailureDetail } from './CabinetFailuresTable';
-import { format, parse } from 'date-fns';
+// FIX: The 'parse' and 'format' functions should be imported from their respective sub-modules in date-fns.
+import { format } from 'date-fns/format';
+import { parse } from 'date-fns/parse';
 import { es } from 'date-fns/locale/es';
 
 interface HistorialTabProps {

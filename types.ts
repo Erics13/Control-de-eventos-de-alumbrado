@@ -1,3 +1,5 @@
+import L from 'leaflet';
+
 export interface LuminaireEvent {
   uniqueEventId: string;
   id: string;
@@ -59,7 +61,25 @@ export interface InventoryItem {
   designacionTipo?: string;
 }
 
-export type ActiveTab = 'eventos' | 'cambios' | 'inventario' | 'historial';
+export interface ServicePoint {
+  nroCuenta: string;
+  tarifa: string;
+  potenciaContratada: number;
+  tension: string;
+  fases: string;
+  cantidadLuminarias: number;
+  direccion: string;
+  lat: number;
+  lon: number;
+}
+
+export interface ZoneBase {
+  zoneName: string;
+  lat: number;
+  lon: number;
+}
+
+export type ActiveTab = 'eventos' | 'cambios' | 'inventario' | 'historial' | 'mantenimiento';
 
 export type BroadcastMessageType = 'STATE_UPDATE' | 'DOCK_TAB' | 'REQUEST_INITIAL_STATE' | 'INITIAL_STATE_RESPONSE';
 
@@ -72,6 +92,8 @@ export interface DataSourceURLs {
     events: string;
     changes: string;
     inventory: string;
+    servicePoints: string;
+    zoneBases: string;
 }
 
 // Represents the detailed failure data for a single zone on a specific day
@@ -101,3 +123,39 @@ export interface HistoricalData {
     [zone: string]: HistoricalZoneData; // e.g., "ZONA A"
   };
 }
+
+
+export interface WorksheetRow {
+  index: number;
+  idLuminariaOlc: string;
+  idGabinete?: string;
+  potencia?: string;
+  fechaReporte: string;
+  categoria?: string;
+  situacion?: string;
+  mensajeDeError: string;
+  accion: string;
+  posibleSolucion: string;
+  event: LuminaireEvent;
+}
+
+
+interface BaseWorksheet {
+  id: string;
+  title: string;
+  municipio?: string;
+}
+
+export interface LuminariaWorksheet extends BaseWorksheet {
+  type: 'luminaria';
+  failures: WorksheetRow[];
+  totalFailuresInZone: number;
+}
+
+export interface CabinetWorksheet extends BaseWorksheet {
+  type: 'cabinet_inaccesible' | 'cabinet_voltage' | 'cabinet_general';
+  servicePoint: ServicePoint;
+  luminaires: InventoryItem[];
+}
+
+export type WorksheetData = LuminariaWorksheet | CabinetWorksheet;

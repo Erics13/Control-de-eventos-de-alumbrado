@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import DashboardCard from './DashboardCard';
 import FailureByCategoryChart from './FailureByCategoryChart';
 import SpecialEventsChart from './SpecialEventsChart';
@@ -11,7 +11,7 @@ import EventTable from './EventTable';
 import OldestEventsByZone from './OldestEventsByZone';
 import FailedCabinetsByZoneTable from './FailedCabinetsByZoneTable';
 import FailedCabinetAccountsTable from './FailedCabinetAccountsTable';
-import type { LuminaireEvent } from '../types';
+import type { LuminaireEvent, ServicePoint } from '../types';
 
 interface EventosTabProps {
     // Data
@@ -20,6 +20,7 @@ interface EventosTabProps {
     oldestEventsByZone: LuminaireEvent[];
     failureDataByZone: { data: any[]; categories: string[] };
     failureDataByMunicipio: { data: any[]; categories: string[] };
+    servicePoints: ServicePoint[];
     
     // Metrics
     inaccesibleFailures: number;
@@ -46,6 +47,7 @@ interface EventosTabProps {
     handleExportFilteredEvents: () => void;
     handleCabinetZoneRowClick: (zoneName: string) => void;
     handleExportCabinetFailureAnalysis: () => void;
+    handleOpenMapModal: (zoneName: string) => void;
 }
 
 
@@ -55,6 +57,7 @@ const EventosTab: React.FC<EventosTabProps> = ({
     oldestEventsByZone,
     failureDataByZone,
     failureDataByMunicipio,
+    servicePoints,
     inaccesibleFailures,
     lowCurrentFailures,
     highCurrentFailures,
@@ -71,8 +74,15 @@ const EventosTab: React.FC<EventosTabProps> = ({
     handleExportFailureByMunicipio,
     handleExportFilteredEvents,
     handleExportCabinetFailureAnalysis,
+    handleOpenMapModal,
 }) => {
     const selectedZoneData = cabinetFailureAnalysisData.find(d => d.name === selectedZoneForCabinetDetails);
+    
+    const enrichedAccountDetails = useMemo(() => {
+        if (!selectedZoneData || !servicePoints) return [];
+        const accounts = new Set(selectedZoneData.accounts);
+        return servicePoints.filter(sp => accounts.has(sp.nroCuenta));
+    }, [selectedZoneData, servicePoints]);
 
     return (
         <div className="space-y-6">
@@ -97,11 +107,12 @@ const EventosTab: React.FC<EventosTabProps> = ({
                             data={cabinetFailureAnalysisData}
                             onRowClick={handleCabinetZoneRowClick}
                             selectedZone={selectedZoneForCabinetDetails}
+                            onShowMap={handleOpenMapModal}
                         />
                     </div>
                     <div>
                         {selectedZoneData ? (
-                            <FailedCabinetAccountsTable accounts={selectedZoneData.accounts} />
+                            <FailedCabinetAccountsTable servicePoints={enrichedAccountDetails} />
                         ) : (
                             <div className="flex items-center justify-center h-full text-gray-500 rounded-lg bg-gray-900/50 p-4">
                                 Haga clic en una fila a la izquierda para ver el listado de servicios con falla.

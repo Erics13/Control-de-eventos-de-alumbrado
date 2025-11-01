@@ -13,7 +13,10 @@
     "date-fns": "^4.1.0",
     "react-dom": "^19.1.1",
     "recharts": "^3.2.1",
-    "idb": "^8.0.0"
+    "idb": "^8.0.0",
+    "leaflet": "^1.9.4",
+    "react-leaflet": "^4.2.1",
+    "leaflet-routing-machine": "^3.2.12"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

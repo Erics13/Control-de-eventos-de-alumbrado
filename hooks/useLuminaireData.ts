@@ -1,16 +1,18 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
-import type { LuminaireEvent, ChangeEvent, InventoryItem, DataSourceURLs, HistoricalData, HistoricalZoneData } from '../types';
+import type { LuminaireEvent, ChangeEvent, InventoryItem, DataSourceURLs, HistoricalData, HistoricalZoneData, ServicePoint, ZoneBase } from '../types';
 import { MUNICIPIO_TO_ZONE_MAP, FAILURE_CATEGORY_TRANSLATIONS, ZONE_ORDER } from '../constants';
 import { format } from 'date-fns/format';
 
 // --- IndexedDB Logic ---
 const DB_NAME = 'LuminaireDataDB';
-const DB_VERSION = 7; 
+const DB_VERSION = 9; 
 const LUMINAIRE_EVENTS_STORE = 'luminaireEvents';
 const CHANGE_EVENTS_STORE = 'changeEvents';
 const INVENTORY_STORE = 'inventory'; 
+const SERVICE_POINTS_STORE = 'servicePoints';
+const ZONE_BASES_STORE = 'zoneBases';
 
 // --- Firebase Config ---
 const FIREBASE_BASE_URL = 'https://gestion-de-fallas-default-rtdb.firebaseio.com';
@@ -33,6 +35,14 @@ interface LuminaireDB extends DBSchema {
     key: string;
     value: InventoryItem;
   };
+  [SERVICE_POINTS_STORE]: {
+    key: string;
+    value: ServicePoint;
+  };
+  [ZONE_BASES_STORE]: {
+    key: string;
+    value: ZoneBase;
+  };
 }
 
 let dbPromise: Promise<IDBPDatabase<LuminaireDB>> | null = null;
@@ -51,6 +61,12 @@ const getDb = () => {
                 }
                  if (!db.objectStoreNames.contains(INVENTORY_STORE)) {
                     db.createObjectStore(INVENTORY_STORE, { keyPath: 'streetlightIdExterno' });
+                }
+                 if (!db.objectStoreNames.contains(SERVICE_POINTS_STORE)) {
+                    db.createObjectStore(SERVICE_POINTS_STORE, { keyPath: 'nroCuenta' });
+                }
+                 if (!db.objectStoreNames.contains(ZONE_BASES_STORE)) {
+                    db.createObjectStore(ZONE_BASES_STORE, { keyPath: 'zoneName' });
                 }
             },
         });
@@ -109,6 +125,8 @@ export const useLuminaireData = () => {
     const [allEvents, setAllEvents] = useState<LuminaireEvent[]>([]);
     const [changeEvents, setChangeEvents] = useState<ChangeEvent[]>([]);
     const [inventory, setInventory] = useState<InventoryItem[]>([]);
+    const [servicePoints, setServicePoints] = useState<ServicePoint[]>([]);
+    const [zoneBases, setZoneBases] = useState<ZoneBase[]>([]);
     const [historicalData, setHistoricalData] = useState<HistoricalData>({});
     const [loading, setLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
@@ -248,6 +266,65 @@ export const useLuminaireData = () => {
         return parsedItems;
     };
 
+    const processServicePointsCSV = (text: string): ServicePoint[] => {
+        const lines = text.split('\n');
+        const header = lines[0] || '';
+        const rows = lines.slice(1);
+        const delimiter = (header.match(/;/g) || []).length > (header.match(/,/g) || []).length ? ';' : ',';
+        const parsedItems: ServicePoint[] = [];
+
+        rows.forEach((row) => {
+            if (row.trim() === '') return;
+            const columns = parseCsvRow(row, delimiter);
+            if (columns.length < 9) return;
+            const nroCuenta = columns[0]?.trim();
+            if (!nroCuenta) return;
+
+            const lat = parseFloat(columns[7]?.trim().replace(',', '.'));
+            const lon = parseFloat(columns[8]?.trim().replace(',', '.'));
+            if (isNaN(lat) || isNaN(lon)) return;
+
+            parsedItems.push({
+                nroCuenta,
+                tarifa: columns[1]?.trim(),
+                potenciaContratada: parseSpanishNumber(columns[2]) ?? 0,
+                tension: columns[3]?.trim(),
+                fases: columns[4]?.trim(),
+                cantidadLuminarias: parseSpanishNumber(columns[5]) ?? 0,
+                direccion: columns[6]?.trim(),
+                lat,
+                lon,
+            });
+        });
+        return parsedItems;
+    };
+
+    const processZoneBasesCSV = (text: string): ZoneBase[] => {
+        const lines = text.split('\n');
+        const header = lines[0] || '';
+        const rows = lines.slice(1);
+        const delimiter = (header.match(/;/g) || []).length > (header.match(/,/g) || []).length ? ';' : ',';
+
+        const parsedItems: ZoneBase[] = [];
+        rows.forEach((row) => {
+            if (row.trim() === '') return;
+            const columns = parseCsvRow(row.trim(), delimiter);
+            if (columns.length < 3) return;
+
+            const zoneName = columns[0]?.trim().toUpperCase();
+            if (!zoneName) return;
+
+            const lat = parseFloat(columns[1]?.trim().replace(',', '.'));
+            const lon = parseFloat(columns[2]?.trim().replace(',', '.'));
+            
+            if (!isNaN(lat) && !isNaN(lon)) {
+                 parsedItems.push({ zoneName, lat, lon });
+            }
+        });
+        return parsedItems;
+    };
+
+
     const calculateDailySnapshot = (
         dailyEvents: LuminaireEvent[],
         fullInventory: InventoryItem[]
@@ -375,7 +452,7 @@ export const useLuminaireData = () => {
                 throw new Error(`Error al conectar con Firebase: ${firebaseResponse.statusText}`);
             }
             const data = await firebaseResponse.json();
-            if (!data || !data.events || !data.changes || !data.inventory) {
+            if (!data || !data.events || !data.changes || !data.inventory || !data.servicePoints || !data.zoneBases) {
                 throw new Error("La configuración de URLs en Firebase es inválida o no se encontró.");
             }
             urls = data as DataSourceURLs;
@@ -383,15 +460,19 @@ export const useLuminaireData = () => {
             console.error("Failed to fetch URLs from Firebase", e);
             setError(`No se pudo obtener la configuración de Firebase: ${e.message}. Intentando cargar desde la caché...`);
             try {
-                const [cachedEvents, cachedChanges, cachedInventory, cachedHistory] = await Promise.all([
+                const [cachedEvents, cachedChanges, cachedInventory, cachedServicePoints, cachedZoneBases, cachedHistory] = await Promise.all([
                     db.getAll(LUMINAIRE_EVENTS_STORE),
                     db.getAll(CHANGE_EVENTS_STORE),
                     db.getAll(INVENTORY_STORE),
+                    db.getAll(SERVICE_POINTS_STORE),
+                    db.getAll(ZONE_BASES_STORE),
                     fetch(FIREBASE_BASE_URL + FIREBASE_HISTORY_PATH + '.json').then(res => res.json())
                 ]);
                 setAllEvents(cachedEvents.sort((a,b) => b.date.getTime() - a.date.getTime()));
                 setChangeEvents(cachedChanges.sort((a,b) => b.fechaRetiro.getTime() - a.fechaRetiro.getTime()));
                 setInventory(cachedInventory);
+                setServicePoints(cachedServicePoints);
+                setZoneBases(cachedZoneBases);
                 setHistoricalData(cachedHistory || {});
                  if (cachedEvents.length === 0 && cachedChanges.length === 0 && cachedInventory.length === 0) {
                     setError(`No se pudo obtener la configuración de Firebase: ${e.message}. No hay datos en la caché.`);
@@ -414,6 +495,8 @@ export const useLuminaireData = () => {
                     fetch(urls.events).catch(e => { throw new Error(`Eventos: ${e.message}`); }),
                     fetch(urls.changes).catch(e => { throw new Error(`Cambios: ${e.message}`); }),
                     fetch(urls.inventory).catch(e => { throw new Error(`Inventario: ${e.message}`); }),
+                    fetch(urls.servicePoints).catch(e => { throw new Error(`Puntos de Servicio: ${e.message}`); }),
+                    fetch(urls.zoneBases).catch(e => { throw new Error(`Bases de Zona: ${e.message}`); }),
                 ]),
                 fetch(FIREBASE_BASE_URL + FIREBASE_HISTORY_PATH + '.json').catch(e => { throw new Error(`Historial: ${e.message}`); })
             ]);
@@ -430,12 +513,14 @@ export const useLuminaireData = () => {
                 setHistoricalData(history || {});
             }
 
-            const [eventsText, changesText, inventoryText] = await Promise.all(responses.map(res => res.text()));
+            const [eventsText, changesText, inventoryText, servicePointsText, zoneBasesText] = await Promise.all(responses.map(res => res.text()));
             
-            const [parsedEvents, parsedChanges, parsedInventory] = await Promise.all([
+            const [parsedEvents, parsedChanges, parsedInventory, parsedServicePoints, parsedZoneBases] = await Promise.all([
                 Promise.resolve(processEventsCSV(eventsText)),
                 Promise.resolve(processChangeEventsCSV(changesText)),
                 Promise.resolve(processInventoryCSV(inventoryText)),
+                Promise.resolve(processServicePointsCSV(servicePointsText)),
+                Promise.resolve(processZoneBasesCSV(zoneBasesText)),
             ]);
 
             const inventoryDataMap = new Map<string, { olcHardwareDir?: string; potenciaNominal?: number }>();
@@ -457,20 +542,26 @@ export const useLuminaireData = () => {
                 };
             });
             
-            const tx = db.transaction([LUMINAIRE_EVENTS_STORE, CHANGE_EVENTS_STORE, INVENTORY_STORE], 'readwrite');
+            const tx = db.transaction([LUMINAIRE_EVENTS_STORE, CHANGE_EVENTS_STORE, INVENTORY_STORE, SERVICE_POINTS_STORE, ZONE_BASES_STORE], 'readwrite');
             await Promise.all([
                 tx.objectStore(LUMINAIRE_EVENTS_STORE).clear(),
                 tx.objectStore(CHANGE_EVENTS_STORE).clear(),
                 tx.objectStore(INVENTORY_STORE).clear(),
+                tx.objectStore(SERVICE_POINTS_STORE).clear(),
+                tx.objectStore(ZONE_BASES_STORE).clear(),
                 ...augmentedEvents.map(e => tx.objectStore(LUMINAIRE_EVENTS_STORE).put(e)),
                 ...parsedChanges.map(c => tx.objectStore(CHANGE_EVENTS_STORE).put(c)),
                 ...parsedInventory.map(i => tx.objectStore(INVENTORY_STORE).put(i)),
+                ...parsedServicePoints.map(s => tx.objectStore(SERVICE_POINTS_STORE).put(s)),
+                ...parsedZoneBases.map(b => tx.objectStore(ZONE_BASES_STORE).put(b)),
             ]);
             await tx.done;
 
             setAllEvents(augmentedEvents.sort((a,b) => b.date.getTime() - a.date.getTime()));
             setChangeEvents(parsedChanges.sort((a,b) => b.fechaRetiro.getTime() - a.fechaRetiro.getTime()));
             setInventory(parsedInventory);
+            setServicePoints(parsedServicePoints);
+            setZoneBases(parsedZoneBases);
             
             // --- Save Daily Snapshot to Firebase ---
             const dailySnapshot = calculateDailySnapshot(augmentedEvents, parsedInventory);
@@ -500,7 +591,7 @@ export const useLuminaireData = () => {
 
 
     return { 
-        allEvents, changeEvents, inventory, historicalData,
+        allEvents, changeEvents, inventory, servicePoints, zoneBases, historicalData,
         loading, error 
     };
 };

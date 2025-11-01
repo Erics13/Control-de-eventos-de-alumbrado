@@ -47,6 +47,87 @@ export const FAILURE_CATEGORY_TRANSLATIONS: Record<string, string> = {
     'Information': 'Información',
 };
 
+export const ACTION_SOLUTION_MAP = [
+  // Categoria: Inaccesible (Unreachable)
+  {
+    category: 'Inaccesible',
+    messageSubstring: 'el punto de luz no tiene energía',
+    action: 'Revisar código de OLC, revisar energía, que no sea un problema eléctrico, llave térmica, conectores, probar luminaria con puente, etc. Aplicar reseteo de OLC.',
+    solution: 'Corregir código de OLC en Interact. Reparar posible problema eléctrico.'
+  },
+  {
+    category: 'Inaccesible',
+    messageSubstring: 'el olc no está accesible',
+    action: 'Revisar código de OLC, revisar energía, que no sea un problema eléctrico, llave térmica, conectores, probar luminaria con puente, etc. Aplicar reseteo de OLC.',
+    solution: 'Corregir código de OLC en Interact. Reparar posible problema eléctrico.'
+  },
+  // Categoria: Roto (Broken)
+  {
+    category: 'Roto',
+    messageSubstring: 'la corriente medida es menor que lo esperado',
+    action: 'Medir consumo de luminaria en sitio, comparar con el consumo medido en Interact (RTP).',
+    solution: 'Posible cambio de Luminaria.'
+  },
+  {
+    category: 'Roto',
+    messageSubstring: 'la corriente medida para la combinación de driver y lámpara es mayor que la esperada',
+    action: 'Medir consumo de luminaria en sitio, comparar con el consumo medido en Interact (RTP).',
+    solution: 'Posible cambio de Luminaria.'
+  },
+  {
+    category: 'Roto',
+    messageSubstring: 'corte de luz parcial',
+    action: 'Medir consumo de luminaria, posible placa de led rota o algunos led quemados. Revisar posible vandalismo.',
+    solution: 'Posible cambio de Luminaria.'
+  },
+  {
+    category: 'Roto',
+    messageSubstring: 'Posible falla en el driver',
+    action: 'Medir consumo de luminaria en sitio, comparar con el consumo medido en Interact (RTP).',
+    solution: 'Posible cambio de Luminaria.'
+  },
+  {
+    category: 'Roto',
+    messageSubstring: 'el componente de medición de energía está roto',
+    action: 'Cambio de OLC.',
+    solution: 'Cambio de OLC.'
+  },
+  {
+    category: 'Roto',
+    messageSubstring: 'el chip del gps en el nodo está roto',
+    action: 'Cambio de OLC.',
+    solution: 'Cambio de OLC.'
+  },
+  {
+    category: 'Roto',
+    messageSubstring: 'la luminaria no se regula',
+    action: 'Medir consumo de luminaria en sitio, comparar con el consumo medido en Interact (RTP).',
+    solution: 'Revisar configuración de tipo de luminaria en Interact. Reconectar a Gabinete.'
+  },
+  // Categoria: Error de configuración (Configuration error)
+  {
+    category: 'Error de configuración',
+    messageSubstring: 'se puso en servicio incorrectamente el olc',
+    action: 'La OLC instalada no se puede comunicar con el gabinete porque ya esta vinculada con otro gabinete. Cambio de OLC.',
+    solution: 'Cambio de OLC.'
+  },
+  // Categoria: Falla de hardware (Hardware failure)
+  {
+    category: 'Falla de hardware',
+    messageSubstring: 'posible falla del relé en el olc',
+    action: 'Comprobar encendido y apagado para ver correcto funcionamiento del relé de la OLC.',
+    solution: 'Cambio de OLC.'
+  },
+  // Categoria: Falla de voltaje (Unspecific warning)
+  {
+    category: 'Falla de voltaje',
+    messageSubstring: 'el voltaje de la red eléctrica de entrada detectado del sistema es muy bajo o muy alto',
+    action: 'Medir voltaje en llave térmica individual de la luminaria, comparar con el consumo medido en Interact (RTP). Posible falla en térmica o conectores.',
+    solution: 'Cambio de llave térmica o conectores.'
+  },
+];
+
+
 const FAILURE_CATEGORY_PALETTE = [
     '#ef4444', '#f97316', '#eab308', '#84cc16', '#22c55e',
     '#14b8a6', '#06b6d4', '#3b82f6', '#8b5cf6', '#d946ef',

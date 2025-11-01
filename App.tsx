@@ -1,5 +1,9 @@
 
 
+
+
+
+
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { subDays } from 'date-fns/subDays';
 import { startOfMonth } from 'date-fns/startOfMonth';
@@ -17,7 +21,7 @@ import { parse } from 'date-fns/parse';
 
 import { useLuminaireData } from './hooks/useLuminaireData';
 import { useBroadcastChannel } from './hooks/useBroadcastChannel';
-import type { LuminaireEvent, InventoryItem, ActiveTab, ChangeEvent, BroadcastMessage, HistoricalData, HistoricalZoneData } from './types';
+import type { LuminaireEvent, InventoryItem, ActiveTab, ChangeEvent, BroadcastMessage, HistoricalData, HistoricalZoneData, ServicePoint, ZoneBase } from './types';
 import { ALL_ZONES, MUNICIPIO_TO_ZONE_MAP, ZONE_ORDER } from './constants';
 
 import Header from './components/Header';
@@ -27,6 +31,8 @@ import EventosTab from './components/EventosTab';
 import CambiosTab from './components/CambiosTab';
 import InventarioTab from './components/InventarioTab';
 import HistorialTab from './components/HistorialTab';
+import MantenimientoTab from './components/RutasTab';
+import MapModal from './components/MapModal';
 import { exportToXlsxMultiSheet, exportToXlsx } from './utils/export';
 
 const ERROR_DESC_LOW_CURRENT = "La corriente medida es menor que lo esperado o no hay corriente que fluya a través de la combinación de driver y lámpara.";
@@ -70,7 +76,7 @@ const App: React.FC = () => {
     const portalTab = urlParams.get('portal') as ActiveTab | null;
 
     const {
-        allEvents, changeEvents, inventory, historicalData,
+        allEvents, changeEvents, inventory, servicePoints, zoneBases, historicalData,
         loading, error
     } = useLuminaireData();
 
@@ -93,6 +99,10 @@ const App: React.FC = () => {
     const [selectedOperatingHoursRange, setSelectedOperatingHoursRange] = useState<string | null>(null);
     const [selectedHistoricalMonthZone, setSelectedHistoricalMonthZone] = useState<{ month: string, zone: string } | null>(null);
     const [selectedZoneForCabinetDetails, setSelectedZoneForCabinetDetails] = useState<string | null>(null);
+
+    // Map Modal State
+    const [isMapModalOpen, setIsMapModalOpen] = useState(false);
+    const [mapModalData, setMapModalData] = useState<{ title: string; servicePoints: ServicePoint[] }>({ title: '', servicePoints: [] });
 
 
     // New state for windowing
@@ -185,7 +195,7 @@ const App: React.FC = () => {
     const handleSetDatePreset = useCallback((preset: 'today' | 'yesterday' | 'week' | 'month' | 'year') => { setSelectedMonth(''); setSelectedYear(''); const now = new Date(); let start, end; switch (preset) { case 'today': start = startOfDay(now); end = endOfDay(now); break; case 'yesterday': const yesterday = subDays(now, 1); start = startOfDay(yesterday); end = endOfDay(yesterday); break; case 'week': end = now; start = subDays(now, 7); break; case 'month': end = now; start = startOfMonth(now); break; case 'year': end = now; start = startOfYear(now); break; } setDateRange({ start, end }); }, []);
     
     useEffect(() => { if (selectedMonth && selectedYear) { const yearNum = parseInt(selectedYear); const monthNum = parseInt(selectedMonth) - 1; const start = new Date(yearNum, monthNum, 1); const end = endOfMonth(start); setDateRange({ start, end }); } else if (selectedYear && !selectedMonth) { const yearNum = parseInt(selectedYear); const start = startOfYear(new Date(yearNum, 0, 1)); const end = endOfYear(new Date(yearNum, 11, 31)); setDateRange({ start, end }); } else if (!selectedYear && selectedMonth) { setDateRange({ start: null, end: null }); } }, [selectedMonth, selectedYear]);
-    useEffect(() => { if (loading) return; const hasInventory = inventory.length > 0; const hasChanges = changeEvents.length > 0; const hasEvents = allEvents.length > 0; const hasHistory = Object.keys(historicalData).length > 0; const tabs: { id: ActiveTab; hasData: boolean }[] = [ { id: 'inventario', hasData: hasInventory }, { id: 'cambios', hasData: hasChanges }, { id: 'eventos', hasData: hasEvents }, { id: 'historial', hasData: hasHistory }, ]; const currentTab = tabs.find(t => t.id === activeTab); if (currentTab && !currentTab.hasData) { const firstAvailableTab = tabs.find(t => t.hasData); if (firstAvailableTab) { setActiveTab(firstAvailableTab.id as ActiveTab); } } else if (!hasInventory && !hasChanges && !hasEvents && !hasHistory) { setActiveTab('inventario'); } }, [inventory.length, changeEvents.length, allEvents.length, historicalData, activeTab, loading]);
+    useEffect(() => { if (loading) return; const hasInventory = inventory.length > 0; const hasChanges = changeEvents.length > 0; const hasEvents = allEvents.length > 0; const hasHistory = Object.keys(historicalData).length > 0; const hasMantenimiento = allEvents.length > 0 && inventory.length > 0; const tabs: { id: ActiveTab; hasData: boolean }[] = [ { id: 'inventario', hasData: hasInventory }, { id: 'cambios', hasData: hasChanges }, { id: 'eventos', hasData: hasEvents }, { id: 'historial', hasData: hasHistory }, { id: 'mantenimiento', hasData: hasMantenimiento }, ]; const currentTab = tabs.find(t => t.id === activeTab); if (currentTab && !currentTab.hasData) { const firstAvailableTab = tabs.find(t => t.hasData); if (firstAvailableTab) { setActiveTab(firstAvailableTab.id as ActiveTab); } } else if (!hasInventory && !hasChanges && !hasEvents && !hasHistory && !hasMantenimiento) { setActiveTab('inventario'); } }, [inventory.length, changeEvents.length, allEvents.length, historicalData, activeTab, loading]);
 
     const handleOperatingHoursRowClick = useCallback((range: string) => { setSelectedOperatingHoursRange(prev => (prev === range ? null : range)); }, []);
     const handleCabinetZoneRowClick = useCallback((zoneName: string) => { setSelectedZoneForCabinetDetails(prev => prev === zoneName ? null : zoneName); }, []);
@@ -264,12 +274,17 @@ const App: React.FC = () => {
         const data = Object.keys(inventoryCountByZone).map(zone => {
             const eventData = counts[zone] || { total: 0, categories: {} };
             const totalInventario = inventoryCountByZone[zone];
-            const catCounts: Record<string, number> = {};
+            // FIX: Replaced Object.assign with manual construction to avoid a cryptic "Spread types" error.
+            const rowData: { name: string; eventos: number; totalInventario: number; porcentaje: number; [key: string]: any; } = {
+                name: zone,
+                eventos: eventData.total,
+                totalInventario,
+                porcentaje: totalInventario > 0 ? (eventData.total / totalInventario) * 100 : 0
+            };
             filteredFailureCategories.forEach(cat => {
-                catCounts[cat] = eventData.categories[cat] || 0;
+                rowData[cat] = eventData.categories[cat] || 0;
             });
-            // FIX: Replaced spread syntax with Object.assign to resolve issue with spreading types from objects with index signatures.
-            return Object.assign({ name: zone, eventos: eventData.total, totalInventario, porcentaje: totalInventario > 0 ? (eventData.total / totalInventario) * 100 : 0 }, catCounts);
+            return rowData;
         });
         const sorted = data.sort((a, b) => {
             const iA = ZONE_ORDER.indexOf(a.name);
@@ -318,8 +333,7 @@ const App: React.FC = () => {
         return { data, categories: filteredFailureCategories };
     }, [baseFilteredEvents, displayInventory, filteredFailureCategories]);
 
-    // FIX: Replaced spread syntax with Object.assign to resolve issue with spreading types from objects with index signatures.
-    const changesByMunicipioData = useMemo(() => { const counts = baseFilteredChangeEvents.reduce((acc, event) => { if (!event.municipio) return acc; if (!acc[event.municipio]) acc[event.municipio] = { LUMINARIA: 0, OLC: 0, total: 0 }; const component = event.componente.toUpperCase(); if (component.includes('LUMINARIA')) { acc[event.municipio].LUMINARIA++; acc[event.municipio].total++; } else if (component.includes('OLC')) { acc[event.municipio].OLC++; acc[event.municipio].total++; } return acc; }, {} as Record<string, { LUMINARIA: number; OLC: number; total: number }>); return Object.entries(counts).map(([name, data]) => Object.assign({ name }, data)).sort((a, b) => b.total - a.total); }, [baseFilteredChangeEvents]);
+    const changesByMunicipioData = useMemo(() => { const counts = baseFilteredChangeEvents.reduce((acc, event) => { if (!event.municipio) return acc; if (!acc[event.municipio]) acc[event.municipio] = { LUMINARIA: 0, OLC: 0, total: 0 }; const component = event.componente.toUpperCase(); if (component.includes('LUMINARIA')) { acc[event.municipio].LUMINARIA++; acc[event.municipio].total++; } else if (component.includes('OLC')) { acc[event.municipio].OLC++; acc[event.municipio].total++; } return acc; }, {} as Record<string, { LUMINARIA: number; OLC: number; total: number }>); return Object.entries(counts).map(([name, data]) => ({ name, ...data })).sort((a, b) => b.total - a.total); }, [baseFilteredChangeEvents]);
     const cabinetSummaryData = useMemo(() => { const counts = inventory.reduce((acc, item) => { if (item.cabinetIdExterno) acc[item.cabinetIdExterno] = (acc[item.cabinetIdExterno] || 0) + 1; return acc; }, {} as Record<string, number>); return Object.entries(counts).map(([cabinetId, luminaireCount]) => ({ cabinetId, luminaireCount })).filter(item => item.cabinetId && item.cabinetId !== '-' && item.cabinetId.trim() !== ''); }, [inventory]);
     const serviceSummaryData = useMemo(() => { const map = inventory.reduce((acc, item) => { if (item.nroCuenta && item.nroCuenta.trim() !== '' && item.nroCuenta.trim() !== '-') { const cuenta = item.nroCuenta.trim(); if (!acc.has(cuenta)) acc.set(cuenta, { luminaireCount: 0, totalPower: 0 }); const summary = acc.get(cuenta)!; summary.luminaireCount += 1; summary.totalPower += item.potenciaNominal || 0; } return acc; }, new Map<string, { luminaireCount: number; totalPower: number }>()); return Array.from(map.entries()).map(([nroCuenta, data]) => ({ nroCuenta, luminaireCount: data.luminaireCount, totalPower: data.totalPower })); }, [inventory]);
     const powerSummary = useMemo(() => { const items = finalDisplayInventory; if (items.length === 0) return { powerData: [], locationColumns: [], columnTotals: {}, grandTotal: 0 }; const isGroupingByZone = currentAppState.selectedZone === 'all'; const locationColumns: string[] = isGroupingByZone ? ALL_ZONES.filter(zone => items.some(item => item.zone === zone)) : Array.from(new Set<string>(items.map(item => item.municipio).filter((m): m is string => !!m))).sort(); const powers: number[] = Array.from(new Set<number>(items.map(item => item.potenciaNominal).filter((p): p is number => p != null))).sort((a, b) => a - b); const powerMap = new Map<number, Record<string, number>>(); for (const item of items) { if (item.potenciaNominal != null) { if (!powerMap.has(item.potenciaNominal)) powerMap.set(item.potenciaNominal, {}); const powerRow = powerMap.get(item.potenciaNominal)!; const location = isGroupingByZone ? item.zone : item.municipio; if (location) powerRow[location] = (powerRow[location] || 0) + 1; } } const powerData = powers.map(power => { const rowData: Record<string, number> = powerMap.get(power) || {}; const total = locationColumns.reduce((sum, loc) => sum + (rowData[loc] || 0), 0); // FIX: Replaced spread syntax with Object.assign to resolve issue with spreading types from objects with index signatures.
@@ -503,7 +517,17 @@ const summary = Object.entries(countsByRange).map(([range, counts]) => Object.as
     }, [historicalData, currentAppState.selectedHistoricalMonthZone, luminaireIdToInfoMap]);
 
     const cabinetFailureAnalysis = useMemo(() => {
-        const inventoryWithAccounts = inventory.filter(item => item.nroCuenta && item.nroCuenta.trim() !== '' && item.nroCuenta.trim() !== '-');
+        const zoneFilter = currentAppState.selectedZone;
+    
+        const relevantInventory = zoneFilter === 'all'
+            ? inventory
+            : inventory.filter(item => item.zone === zoneFilter);
+        
+        const relevantEvents = zoneFilter === 'all'
+            ? allEvents
+            : allEvents.filter(e => e.zone === zoneFilter);
+
+        const inventoryWithAccounts = relevantInventory.filter(item => item.nroCuenta && item.nroCuenta.trim() !== '' && item.nroCuenta.trim() !== '-');
         const luminairesByAccount = inventoryWithAccounts.reduce((acc, item) => {
             const account = item.nroCuenta!;
             if (!acc[account]) {
@@ -513,7 +537,7 @@ const summary = Object.entries(countsByRange).map(([range, counts]) => Object.as
             return acc;
         }, {} as Record<string, { total: number, zone: string }>);
     
-        const inaccessibleEvents = allEvents.filter(e => e.failureCategory === 'Inaccesible');
+        const inaccessibleEvents = relevantEvents.filter(e => e.failureCategory === 'Inaccesible');
         const luminaireIdToAccountMap = new Map<string, string>();
         inventoryWithAccounts.forEach(item => {
             if(item.streetlightIdExterno && item.nroCuenta) {
@@ -533,7 +557,8 @@ const summary = Object.entries(countsByRange).map(([range, counts]) => Object.as
         });
     
         const failedCabinets: { nroCuenta: string; zone: string; }[] = [];
-        Object.entries(luminairesByAccount).forEach(([nroCuenta, data]) => {
+        Object.keys(luminairesByAccount).forEach(nroCuenta => {
+            const data = luminairesByAccount[nroCuenta];
             const totalLuminaires = data.total;
             const inaccessibleCount = inaccessibleUniqueLuminairesByAccount[nroCuenta]?.size || 0;
             if (totalLuminaires > 0) {
@@ -553,9 +578,9 @@ const summary = Object.entries(countsByRange).map(([range, counts]) => Object.as
             return acc;
         }, {} as Record<string, { count: number; accounts: string[] }>);
     
-        const summaryTableData = Object.entries(summaryByZone).map(([zone, data]) => ({
-            name: zone, ...data
-        })).sort((a, b) => {
+        const summaryTableData = Object.entries(summaryByZone).map(([zone, data]) => (Object.assign({
+            name: zone
+        }, data))).sort((a, b) => {
             const iA = ZONE_ORDER.indexOf(a.name);
             const iB = ZONE_ORDER.indexOf(b.name);
             if (iA !== -1 && iB !== -1) return iA - iB;
@@ -566,7 +591,24 @@ const summary = Object.entries(countsByRange).map(([range, counts]) => Object.as
     
         return { summaryTableData };
     
-    }, [allEvents, inventory]);
+    }, [allEvents, inventory, currentAppState.selectedZone]);
+
+
+    // --- Map Modal Handlers ---
+    const handleOpenMapModal = useCallback((zoneName: string) => {
+        const zoneFailureData = cabinetFailureAnalysis.summaryTableData.find(d => d.name === zoneName);
+        if (!zoneFailureData) return;
+        const failedAccounts = new Set(zoneFailureData.accounts);
+        const pointsForMap = servicePoints.filter(sp => failedAccounts.has(sp.nroCuenta));
+
+        setMapModalData({
+            title: `Mapa de Tableros con Falla - ${zoneName}`,
+            servicePoints: pointsForMap,
+        });
+        setIsMapModalOpen(true);
+    }, [cabinetFailureAnalysis.summaryTableData, servicePoints]);
+
+    const handleCloseMapModal = useCallback(() => setIsMapModalOpen(false), []);
 
 
     // --- Export Handlers ---
@@ -599,7 +641,7 @@ const summary = Object.entries(countsByRange).map(([range, counts]) => Object.as
 
     const handleExportCabinetSummary = useCallback(() => { exportToXlsx(cabinetSummaryData, generateExportFilename('resumen_gabinetes')); }, [cabinetSummaryData, generateExportFilename]);
     const handleExportServiceSummary = useCallback(() => { exportToXlsx(serviceSummaryData, generateExportFilename('resumen_servicios')); }, [serviceSummaryData, generateExportFilename]);
-    const handleExportPowerSummary = useCallback(() => { const { powerData, locationColumns, columnTotals, grandTotal } = powerSummary; if (powerData.length === 0) return; const exportData = powerData.map(row => { const flatRow: Record<string, any> = { Potencia: row.power }; locationColumns.forEach(loc => { flatRow[loc] = (row as any)[loc] || 0; }); flatRow['Total'] = row.total; return flatRow; }); const totalsRow: Record<string, any> = { Potencia: 'Total General' }; locationColumns.forEach(loc => { totalsRow[loc] = columnTotals[loc] || 0; }); totalsRow['Total'] = grandTotal; exportData.push(totalsRow); exportToXlsx(exportData, generateExportFilename('resumen_potencias')); }, [powerSummary, generateExportFilename]);
+    const handleExportPowerSummary = useCallback(() => { const { powerData, locationColumns, columnTotals, grandTotal } = powerSummary; if (powerData.length === 0) return; const exportData = powerData.map((row: { power: string; total: number;[key: string]: any }) => { const flatRow: Record<string, any> = { Potencia: row.power }; locationColumns.forEach(loc => { flatRow[loc] = (row as any)[loc] || 0; }); flatRow['Total'] = row.total; return flatRow; }); const totalsRow: Record<string, any> = { Potencia: 'Total General' }; locationColumns.forEach(loc => { totalsRow[loc] = columnTotals[loc] || 0; }); totalsRow['Total'] = grandTotal; exportData.push(totalsRow); exportToXlsx(exportData, generateExportFilename('resumen_potencias')); }, [powerSummary, generateExportFilename]);
     const handleExportFailureByZone = useCallback(() => { const { data: dataToExport, categories } = failureDataByZone; if (dataToExport.length === 0) return; const dataForSheet = dataToExport.map(item => { const row: Record<string, any> = { 'Zona': item.name, 'Porcentaje Fallas (%)': item.porcentaje.toFixed(2), 'Total Fallas': item.eventos, 'Total Inventario': item.totalInventario }; categories.forEach(cat => { row[cat] = item[cat] || 0; }); return row; }); exportToXlsx(dataForSheet, generateExportFilename('fallas_por_zona')); }, [failureDataByZone, generateExportFilename]);
     const handleExportFailureByMunicipio = useCallback(() => { const { data: dataToExport, categories } = failureDataByMunicipio; if (dataToExport.length === 0) return; const dataForSheet = dataToExport.map(item => { const row: Record<string, any> = { 'Municipio': item.name, 'Porcentaje Fallas (%)': item.porcentaje.toFixed(2), 'Total Fallas': item.eventos, 'Total Inventario': item.totalInventario }; categories.forEach(cat => { row[cat] = item[cat] || 0; }); return row; }); exportToXlsx(dataForSheet, generateExportFilename('fallas_por_municipio')); }, [failureDataByMunicipio, generateExportFilename]);
     const handleExportChangesByMunicipio = useCallback(() => { exportToXlsx(changesByMunicipioData, generateExportFilename('cambios_por_municipio')); }, [changesByMunicipioData, generateExportFilename]);
@@ -694,7 +736,7 @@ const summary = Object.entries(countsByRange).map(([range, counts]) => Object.as
                         row[`${zone} (Cant. Eventos)`] = data ? data.eventos.total : 0;
                     }
                 });
-                return { ...row, date: parse(monthKey, 'yyyy-MM', new Date()) };
+                return Object.assign(row, { date: parse(monthKey, 'yyyy-MM', new Date()) });
             }).sort((a, b) => b.date.getTime() - a.date.getTime()).map(({ date, ...rest }) => rest);
         };
     
@@ -753,6 +795,7 @@ const summary = Object.entries(countsByRange).map(([range, counts]) => Object.as
             'cambios': 'Cambios',
             'eventos': 'Eventos',
             'historial': 'Historial de Eventos',
+            'mantenimiento': 'Generador de Hojas de Ruta',
         };
 
         const tabProps = {
@@ -762,9 +805,9 @@ const summary = Object.entries(countsByRange).map(([range, counts]) => Object.as
             cardFilter: currentAppState.cardFilter, 
             cabinetFailureAnalysisData: cabinetFailureAnalysis.summaryTableData,
             selectedZoneForCabinetDetails: currentAppState.selectedZoneForCabinetDetails,
-            handleCabinetZoneRowClick: () => {},
-            handleCardClick: () => {}, handleExportFailureByZone: () => {}, handleExportFailureByMunicipio: () => {}, handleExportFilteredEvents: () => {},
+            handleCabinetZoneRowClick: () => {}, handleCardClick: () => {}, handleExportFailureByZone: () => {}, handleExportFailureByMunicipio: () => {}, handleExportFilteredEvents: () => {},
             handleExportCabinetFailureAnalysis: () => {},
+            servicePoints, handleOpenMapModal: () => {},
             // Cambios Props
             baseFilteredChangeEvents, displayChangeEvents, changesByMunicipioData,
             luminariaChangesCount, olcChangesCount, garantiaChangesCount, vandalizadoChangesCount, columnaCaidaChangesCount, hurtoChangesCount,
@@ -785,6 +828,11 @@ const summary = Object.entries(countsByRange).map(([range, counts]) => Object.as
             dateRange: currentAppState.dateRange,
             selectedHistoricalMonthZone: currentAppState.selectedHistoricalMonthZone,
             setSelectedHistoricalMonthZone: () => {},
+            // Mantenimiento Props
+            allEvents,
+            inventory,
+            zoneBases,
+            zones,
         };
 
         const renderTabContent = () => {
@@ -793,6 +841,7 @@ const summary = Object.entries(countsByRange).map(([range, counts]) => Object.as
                 case 'cambios': return <CambiosTab {...tabProps} setSearchTerm={undefined} />;
                 case 'inventario': return <InventarioTab {...tabProps} />;
                 case 'historial': return <HistorialTab {...tabProps} />;
+                case 'mantenimiento': return <MantenimientoTab {...tabProps} />;
                 default: return <div>Tab no encontrado</div>;
             }
         };
@@ -841,6 +890,7 @@ const summary = Object.entries(countsByRange).map(([range, counts]) => Object.as
                              <TabButton tabId="cambios" title="Cambios" activeTab={activeTab} setActiveTab={setActiveTab} disabled={changeEvents.length === 0} onPopOut={handlePopOut} />
                              <TabButton tabId="eventos" title="Eventos" activeTab={activeTab} setActiveTab={setActiveTab} disabled={allEvents.length === 0} onPopOut={handlePopOut} />
                              <TabButton tabId="historial" title="Historial de Eventos" activeTab={activeTab} setActiveTab={setActiveTab} disabled={Object.keys(historicalData).length === 0} onPopOut={handlePopOut} />
+                             <TabButton tabId="mantenimiento" title="Mantenimiento" activeTab={activeTab} setActiveTab={setActiveTab} disabled={allEvents.length === 0 || inventory.length === 0} onPopOut={handlePopOut} />
                         </nav>
                         <button
                             onClick={() => setIsFiltersVisible(v => !v)}
@@ -914,6 +964,8 @@ const summary = Object.entries(countsByRange).map(([range, counts]) => Object.as
                                         handleExportFailureByMunicipio={handleExportFailureByMunicipio}
                                         handleExportFilteredEvents={handleExportFilteredEvents}
                                         handleExportCabinetFailureAnalysis={handleExportCabinetFailureAnalysis}
+                                        servicePoints={servicePoints}
+                                        handleOpenMapModal={handleOpenMapModal}
                                     />
                                 )
                            )}
@@ -1011,10 +1063,36 @@ const summary = Object.entries(countsByRange).map(([range, counts]) => Object.as
                                     />
                                 )
                            )}
+                           {activeTab === 'mantenimiento' && (allEvents.length > 0 && inventory.length > 0) && (
+                                poppedOutTabs.includes('mantenimiento') ? (
+                                    <div className="text-center p-16 bg-gray-800 rounded-lg">
+                                        <h2 className="text-2xl font-semibold text-gray-300">Pestaña Activa en Otra Ventana</h2>
+                                        <p className="text-gray-500 mt-2">
+                                            El contenido de la pestaña "Mantenimiento" se está mostrando en una ventana separada.
+                                            Cierre esa ventana para volver a ver el contenido aquí.
+                                        </p>
+                                    </div>
+                                ) : (
+                                    <MantenimientoTab
+                                        allEvents={allEvents}
+                                        inventory={inventory}
+                                        servicePoints={servicePoints}
+                                        zoneBases={zoneBases}
+                                        zones={zones}
+                                        cabinetFailureAnalysisData={cabinetFailureAnalysis.summaryTableData}
+                                    />
+                                )
+                           )}
                         </>
                     )}
                 </div>
             </main>
+            <MapModal 
+                isOpen={isMapModalOpen}
+                onClose={handleCloseMapModal}
+                title={mapModalData.title}
+                servicePoints={mapModalData.servicePoints}
+            />
         </div>
     );
 };

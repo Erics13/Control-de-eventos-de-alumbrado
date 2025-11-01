@@ -76,6 +76,36 @@ const FailurePercentageTable: React.FC<FailurePercentageTableProps> = ({ data, c
         return sortConfig.direction === 'ascending' ? '▲' : '▼';
     };
 
+    const totals = useMemo(() => {
+        if (!data || data.length === 0) {
+            return null;
+        }
+
+        const initialTotals: { [key: string]: any } = {
+            name: 'Total General',
+            eventos: 0,
+            totalInventario: 0,
+            porcentaje: 0,
+            ...categories.reduce((acc, cat) => ({ ...acc, [cat]: 0 }), {})
+        };
+
+        const calculatedTotals = data.reduce((acc, item) => {
+            acc.eventos += item.eventos || 0;
+            acc.totalInventario += item.totalInventario || 0;
+            categories.forEach(cat => {
+                acc[cat] += item[cat] || 0;
+            });
+            return acc;
+        }, initialTotals);
+
+        calculatedTotals.porcentaje = calculatedTotals.totalInventario > 0
+            ? (calculatedTotals.eventos / calculatedTotals.totalInventario) * 100
+            : 0;
+
+        return calculatedTotals;
+    }, [data, categories]);
+
+
     if (data.length === 0) {
         return <div className="flex items-center justify-center h-40 text-gray-500">No hay datos de fallas para mostrar con los filtros actuales.</div>;
     }
@@ -107,6 +137,22 @@ const FailurePercentageTable: React.FC<FailurePercentageTableProps> = ({ data, c
                             </tr>
                         ))}
                     </tbody>
+                     {totals && (
+                        <tfoot className="bg-gray-700/50 font-bold">
+                            <tr>
+                                {columns.map(({ key }) => (
+                                    <td key={`total-${key}`} className={`px-4 py-3 whitespace-nowrap text-sm border-t-2 border-gray-600 ${key === 'name' ? 'text-gray-200' : 'text-cyan-300'}`}>
+                                        {key === 'name' 
+                                            ? totals.name 
+                                            : key === 'porcentaje' 
+                                                ? `${totals.porcentaje.toFixed(2)}%` 
+                                                : (totals[key] ?? 0).toLocaleString()
+                                        }
+                                    </td>
+                                ))}
+                            </tr>
+                        </tfoot>
+                    )}
                 </table>
             </div>
             {totalPages > 1 && (

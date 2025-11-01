@@ -1,7 +1,9 @@
 import React, { useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import type { HistoricalData, HistoricalZoneData } from '../types';
-import { format, parse } from 'date-fns';
+// FIX: The 'parse' and 'format' functions should be imported from their respective sub-modules in date-fns.
+import { format } from 'date-fns/format';
+import { parse } from 'date-fns/parse';
 import { es } from 'date-fns/locale/es';
 import { getZoneColor, ZONE_ORDER } from '../constants';
 
@@ -97,7 +99,6 @@ const MonthlyEventSummaryChart: React.FC<MonthlyEventSummaryChartProps> = ({ his
 
             sortedZones.forEach(zone => {
                 const avgData = zoneAvgs[zone];
-                // FIX: Accessing properties is now type-safe.
                 const count = avgData ? avgData.porcentaje.count : 0;
                 if (avgData && count > 0) {
                     monthData[zone] = avgData.porcentajeReal.total / count;
@@ -109,6 +110,12 @@ const MonthlyEventSummaryChart: React.FC<MonthlyEventSummaryChartProps> = ({ his
                     };
                 } else {
                     monthData[zone] = 0;
+                    monthData.originalData[zone] = {
+                        porcentaje: 0,
+                        porcentajeGabinete: 0,
+                        porcentajeVandalismo: 0,
+                        porcentajeReal: 0,
+                    };
                 }
             });
             
