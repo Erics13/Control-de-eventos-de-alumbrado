@@ -83,6 +83,7 @@ const generateCabinetTableHtml = (worksheet: CabinetWorksheet): string => {
                 <p><strong>Dirección:</strong> ${sp.direccion}</p>
                 <p><strong>Nro. Cuenta:</strong> ${sp.nroCuenta}</p>
                 <p><strong>Cant. Luminarias:</strong> ${sp.cantidadLuminarias}</p>
+                 ${worksheet.inaccessibleCount !== undefined ? `<p><strong>Luminarias Inaccesibles:</strong> ${worksheet.inaccessibleCount} (${worksheet.inaccessiblePercentage?.toFixed(1)}%)</p>`: ''}
             </div>
         </div>
     `;
@@ -118,23 +119,28 @@ const getHtmlContentForWorksheet = (worksheet: WorksheetData) => {
     }
 
     let mapScript = '';
-    let waypointsForHtml: {lat: number, lng: number, popup: string}[] = [];
+    let waypointsForHtml: {lat: number, lng: number, popup: string, situacion?: string}[] = [];
     
     if (worksheet.type === 'luminaria') {
         waypointsForHtml = (worksheet as LuminariaWorksheet).failures
             .filter(f => f.event.lat && f.event.lon)
-            .map((f, index) => ({
-                lat: f.event.lat!,
-                lng: f.event.lon!,
-                popup: `<b>Punto #${index + 1}</b><br>${f.idLuminariaOlc.split('\n')[0].replace(/"/g, '\\"')}`
-            }));
+            .map((f, index) => {
+                const popupContent = `<b>Punto #${index + 1}</b><br><b>ID Luminaire:</b> ${f.event.id}<br><b>ID OLC:</b> ${f.event.olcHardwareDir || 'N/A'}<br><b>Potencia:</b> ${f.potencia || 'N/A'}<br><b>Situación:</b> ${f.situacion || 'N/A'}`;
+                return {
+                    lat: f.event.lat!,
+                    lng: f.event.lon!,
+                    popup: popupContent,
+                    situacion: f.situacion || ''
+                };
+            });
     } else {
          const cabinetWorksheet = worksheet as CabinetWorksheet;
          if (cabinetWorksheet.servicePoint.lat && cabinetWorksheet.servicePoint.lon) {
             waypointsForHtml.push({
                 lat: cabinetWorksheet.servicePoint.lat,
                 lng: cabinetWorksheet.servicePoint.lon,
-                popup: `<b>Tablero Prioritario:</b><br/>${cabinetWorksheet.servicePoint.nroCuenta}`
+                popup: `<b>Tablero Prioritario:</b><br/>${cabinetWorksheet.servicePoint.nroCuenta}`,
+                situacion: ''
             });
          }
     }
@@ -148,10 +154,13 @@ const getHtmlContentForWorksheet = (worksheet: WorksheetData) => {
                 }).addTo(map);
 
                 var waypoints = ${JSON.stringify(waypointsForHtml)};
+                var specialSituations = ["COLUMNA CAIDA", "HURTO", "VANDALIZADO", "FALTA PODA", "FALTA LINEA", "VANDALIZADO VR", "VANDALIZADO NF", "ROADFORCE SIN POTENCIA", "SIN ENERGÍA", "RETIRADA", "SIN OLC", "RETIRADA POR OBRA"];
                 var bounds = [];
 
                 waypoints.forEach(function(wp, index) {
-                    var iconHtml = '<div style="background-color: #2563eb; color: white; border-radius: 50%; width: 25px; height: 25px; display: flex; align-items: center; justify-content: center; font-weight: bold; border: 2px solid white;">' + (index + 1) + '</div>';
+                    var isSpecial = specialSituations.includes((wp.situacion || '').toUpperCase());
+                    var bgColor = isSpecial ? '#1f2937' : '#2563eb';
+                    var iconHtml = '<div style="background-color: ' + bgColor + '; color: white; border-radius: 50%; width: 25px; height: 25px; display: flex; align-items: center; justify-content: center; font-weight: bold; border: 2px solid white;">' + (index + 1) + '</div>';
                     var customIcon = L.divIcon({
                         html: iconHtml,
                         className: '',
@@ -274,63 +283,95 @@ const MantenimientoTab: React.FC<MantenimientoTabProps> = ({ allEvents, inventor
 
         setTimeout(() => {
             const generatedWorksheets: WorksheetData[] = [];
-            const processedLuminaires = new Set<string>();
+            const processedLuminaires = new Set<string>(); // Stores streetlightIdExterno
             let worksheetCounter = 1;
-            
-            // 1. Critical Failure Detection
-            const zoneFailureEvents = allEvents.filter(e => e.zone === selectedZone && e.status === 'FAILURE');
-            // FIX: Correctly type reduce by providing a typed initial value. This fixes multiple downstream type errors.
-            const failuresByAccount = zoneFailureEvents.reduce((acc, event) => {
-                const inventoryItem = inventoryMap.get(event.id);
-                const account = inventoryItem?.nroCuenta;
-                if (account) {
-                    if (!acc[account]) {
-                        acc[account] = [];
+
+            // 1. New Critical Failure Detection based on percentages
+            const zoneInventory = inventory.filter(item => item.zone === selectedZone);
+
+            const luminairesByAccount = zoneInventory.reduce((acc, item) => {
+                if (item.nroCuenta && item.nroCuenta !== '-') {
+                    if (!acc[item.nroCuenta]) {
+                        acc[item.nroCuenta] = [];
                     }
-                    acc[account].push(event);
+                    acc[item.nroCuenta].push(item);
                 }
                 return acc;
-            }, {} as Record<string, LuminaireEvent[]>);
+            }, {} as Record<string, InventoryItem[]>);
 
-            Object.entries(failuresByAccount).forEach(([account, events]) => {
-                const servicePoint = servicePointMap.get(account);
-                if (!servicePoint) return;
+            const inaccessibleEvents = allEvents.filter(e =>
+                e.zone === selectedZone &&
+                e.status === 'FAILURE' &&
+                e.failureCategory === 'Inaccesible'
+            );
 
-                const inaccessibleCount = events.filter(e => e.failureCategory === 'Inaccesible').length;
-                const voltageCount = events.filter(e => e.failureCategory === 'Falla de voltaje').length;
+            const inaccessibleUniqueLuminairesByAccount = inaccessibleEvents.reduce((acc, event) => {
+                const inventoryItem = inventoryMap.get(event.id);
+                const account = inventoryItem?.nroCuenta;
+                if (account && account !== '-') {
+                    if (!acc[account]) {
+                        acc[account] = new Set<string>();
+                    }
+                    acc[account].add(event.id);
+                }
+                return acc;
+            }, {} as Record<string, Set<string>>);
+            
+            Object.keys(luminairesByAccount).forEach(account => {
+                const totalLuminairesInAccount = luminairesByAccount[account].length;
+                const inaccessibleCount = inaccessibleUniqueLuminairesByAccount[account]?.size || 0;
 
-                let criticalType: CabinetWorksheet['type'] | null = null;
-                if (inaccessibleCount >= 10) criticalType = 'cabinet_inaccesible';
-                else if (voltageCount >= 10) criticalType = 'cabinet_voltage';
-                else if (events.length >= 10) criticalType = 'cabinet_general';
+                if (totalLuminairesInAccount === 0) return;
 
-                if (criticalType) {
-                    events.forEach(e => processedLuminaires.add(e.id));
-                    const associatedLuminaires = inventory.filter(item => item.nroCuenta === account);
-                    generatedWorksheets.push({
-                        id: `cabinet-${account}-${worksheetCounter}`,
-                        title: `Hoja de Ruta ${worksheetCounter++} (Prioritaria) - Tablero ${account}`,
-                        type: criticalType,
-                        servicePoint,
-                        luminaires: associatedLuminaires,
-                        municipio: associatedLuminaires[0]?.municipio
-                    });
+                const percentage = (inaccessibleCount / totalLuminairesInAccount) * 100;
+                let worksheetType: CabinetWorksheet['type'] | null = null;
+                let titlePrefix = '';
+
+                if (percentage > 90) {
+                    worksheetType = 'cabinet_falla_total';
+                    titlePrefix = 'Falla de Tablero';
+                } else if (percentage >= 50) {
+                    worksheetType = 'cabinet_falla_parcial';
+                    titlePrefix = 'Falla Parcial de Tablero / Ramal';
+                }
+
+                if (worksheetType) {
+                    const servicePoint = servicePointMap.get(account);
+                    if (servicePoint) {
+                        const associatedLuminaires = luminairesByAccount[account];
+                        // Mark all luminaires from this account as processed
+                        associatedLuminaires.forEach(lum => processedLuminaires.add(lum.streetlightIdExterno));
+                        
+                        generatedWorksheets.push({
+                            id: `cabinet-${account}-${worksheetCounter}`,
+                            title: `Hoja de Ruta ${worksheetCounter++} (Prioritaria) - ${titlePrefix} - ${account}`,
+                            type: worksheetType,
+                            servicePoint,
+                            luminaires: associatedLuminaires,
+                            municipio: associatedLuminaires[0]?.municipio,
+                            inaccessiblePercentage: percentage,
+                            inaccessibleCount: inaccessibleCount
+                        });
+                    }
                 }
             });
 
-            // 2. Regular Route Creation
-            const individualFailures = zoneFailureEvents.filter(e => !processedLuminaires.has(e.id) && e.lat && e.lon)
-                .sort((a,b) => a.date.getTime() - b.date.getTime());
+            // 2. Regular Route Creation for remaining failures
+            const individualFailures = allEvents.filter(e =>
+                e.zone === selectedZone &&
+                e.status === 'FAILURE' &&
+                !processedLuminaires.has(e.id) && // Exclude already processed luminaires
+                e.lat && e.lon
+            ).sort((a, b) => a.date.getTime() - b.date.getTime());
 
-            // FIX: Correctly type reduce by providing a typed initial value. This fixes multiple downstream type errors.
-            const failuresByMunicipality = individualFailures.reduce((acc, event) => {
+            const failuresByMunicipality: Record<string, LuminaireEvent[]> = {};
+            for (const event of individualFailures) {
                 const municipio = event.municipio || 'Sin Municipio';
-                if (!acc[municipio]) {
-                    acc[municipio] = [];
+                if (!failuresByMunicipality[municipio]) {
+                    failuresByMunicipality[municipio] = [];
                 }
-                acc[municipio].push(event);
-                return acc;
-            }, {} as Record<string, LuminaireEvent[]>);
+                failuresByMunicipality[municipio].push(event);
+            }
 
             Object.entries(failuresByMunicipality).forEach(([municipio, events]) => {
                 let remainingEvents = [...events];

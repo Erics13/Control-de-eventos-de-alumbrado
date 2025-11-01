@@ -20,6 +20,20 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 });
 
+const SPECIAL_SITUATIONS_FOR_MAP = [
+    "COLUMNA CAIDA",
+    "HURTO",
+    "VANDALIZADO",
+    "VANDALIZADO VR",
+    "VANDALIZADO NF",
+    "FALTA PODA",
+    "FALTA LINEA",
+    "ROADFORCE SIN POTENCIA",
+    "SIN ENERGÍA",
+    "RETIRADA",
+    "SIN OLC",
+    "RETIRADA POR OBRA"
+];
 
 const ServicePointDetails: React.FC<{ servicePoint: ServicePoint }> = ({ servicePoint }) => (
     <div className="space-y-2 text-sm mb-4">
@@ -174,14 +188,27 @@ const LuminariaWorksheetMap: React.FC<{ worksheet: LuminariaWorksheet }> = ({ wo
             }).addTo(map);
 
             waypoints.forEach((wp, index) => {
+                const failure = worksheet.failures[index];
+                const situation = failure.situacion?.toUpperCase() || '';
+                const isSpecial = SPECIAL_SITUATIONS_FOR_MAP.includes(situation);
+                const bgColor = isSpecial ? '#1f2937' : '#2563eb'; // black vs blue
+
                 const icon = L.divIcon({
-                    html: `<div style="background-color: #2563eb; color: white; border-radius: 50%; width: 25px; height: 25px; display: flex; align-items: center; justify-content: center; font-weight: bold; border: 2px solid white; box-shadow: 0 0 5px rgba(0,0,0,0.5);">${index + 1}</div>`,
+                    html: `<div style="background-color: ${bgColor}; color: white; border-radius: 50%; width: 25px; height: 25px; display: flex; align-items: center; justify-content: center; font-weight: bold; border: 2px solid white; box-shadow: 0 0 5px rgba(0,0,0,0.5);">${index + 1}</div>`,
                     className: '',
                     iconSize: [25, 25],
                     iconAnchor: [12, 12]
                 });
-                L.marker(wp, { icon }).addTo(map)
-                    .bindPopup(`<b>Punto #${index + 1}</b><br>${worksheet.failures[index].idLuminariaOlc.split('\n')[0]}`);
+
+                const popupContent = `
+                    <b>Punto #${index + 1}</b><br>
+                    <b>ID Luminaria:</b> ${failure.event.id}<br>
+                    <b>ID OLC:</b> ${failure.event.olcHardwareDir || 'N/A'}<br>
+                    <b>Potencia:</b> ${failure.potencia || 'N/A'}<br>
+                    <b>Situación:</b> ${failure.situacion || 'N/A'}
+                `;
+
+                L.marker(wp, { icon }).addTo(map).bindPopup(popupContent);
             });
             
             if (waypoints.length > 1) {
@@ -291,22 +318,27 @@ const Worksheet: React.FC<WorksheetProps> = ({ worksheet }) => {
         }
 
         let mapScript = '';
-        let waypointsForHtml: {lat: number, lng: number, popup: string}[] = [];
+        let waypointsForHtml: {lat: number, lng: number, popup: string, situacion?: string}[] = [];
         
         if (worksheet.type === 'luminaria') {
             waypointsForHtml = worksheet.failures
                 .filter(f => f.event.lat && f.event.lon)
-                .map((f, index) => ({
-                    lat: f.event.lat!,
-                    lng: f.event.lon!,
-                    popup: `<b>Punto #${index + 1}</b><br>${f.idLuminariaOlc.split('\n')[0].replace(/"/g, '\\"')}`
-                }));
+                .map((f, index) => {
+                    const popupContent = `<b>Punto #${index + 1}</b><br><b>ID Luminaire:</b> ${f.event.id}<br><b>ID OLC:</b> ${f.event.olcHardwareDir || 'N/A'}<br><b>Potencia:</b> ${f.potencia || 'N/A'}<br><b>Situación:</b> ${f.situacion || 'N/A'}`;
+                    return {
+                        lat: f.event.lat!,
+                        lng: f.event.lon!,
+                        popup: popupContent,
+                        situacion: f.situacion || ''
+                    };
+                });
         } else {
              if (worksheet.servicePoint.lat && worksheet.servicePoint.lon) {
                 waypointsForHtml.push({
                     lat: worksheet.servicePoint.lat,
                     lng: worksheet.servicePoint.lon,
-                    popup: `<b>Tablero Prioritario:</b><br/>${worksheet.servicePoint.nroCuenta}`
+                    popup: `<b>Tablero Prioritario:</b><br/>${worksheet.servicePoint.nroCuenta}`,
+                    situacion: ''
                 });
              }
         }
@@ -320,10 +352,14 @@ const Worksheet: React.FC<WorksheetProps> = ({ worksheet }) => {
                     }).addTo(map);
 
                     var waypoints = ${JSON.stringify(waypointsForHtml)};
+                    var specialSituations = ${JSON.stringify(SPECIAL_SITUATIONS_FOR_MAP)};
                     var bounds = [];
 
                     waypoints.forEach(function(wp, index) {
-                        var iconHtml = '<div style="background-color: #2563eb; color: white; border-radius: 50%; width: 25px; height: 25px; display: flex; align-items: center; justify-content: center; font-weight: bold; border: 2px solid white;">' + (index + 1) + '</div>';
+                        var isSpecial = specialSituations.includes((wp.situacion || '').toUpperCase());
+                        var bgColor = isSpecial ? '#1f2937' : '#2563eb'; // black vs blue
+
+                        var iconHtml = '<div style="background-color: ' + bgColor + '; color: white; border-radius: 50%; width: 25px; height: 25px; display: flex; align-items: center; justify-content: center; font-weight: bold; border: 2px solid white;">' + (index + 1) + '</div>';
                         var customIcon = L.divIcon({
                             html: iconHtml,
                             className: '',

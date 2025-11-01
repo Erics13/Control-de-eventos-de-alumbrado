@@ -153,9 +153,11 @@ export interface LuminariaWorksheet extends BaseWorksheet {
 }
 
 export interface CabinetWorksheet extends BaseWorksheet {
-  type: 'cabinet_inaccesible' | 'cabinet_voltage' | 'cabinet_general';
+  type: 'cabinet_falla_total' | 'cabinet_falla_parcial';
   servicePoint: ServicePoint;
   luminaires: InventoryItem[];
+  inaccessiblePercentage?: number;
+  inaccessibleCount?: number;
 }
 
 export type WorksheetData = LuminariaWorksheet | CabinetWorksheet;

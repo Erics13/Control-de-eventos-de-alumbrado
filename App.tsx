@@ -4,6 +4,10 @@
 
 
 
+
+
+
+
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { subDays } from 'date-fns/subDays';
 import { startOfMonth } from 'date-fns/startOfMonth';
@@ -322,12 +326,17 @@ const App: React.FC = () => {
         const data = Object.keys(inventoryCountByMunicipio).map(muni => {
             const eventData = counts[muni] || { total: 0, categories: {} };
             const totalInventario = inventoryCountByMunicipio[muni];
-            const catCounts: Record<string, number> = {};
+            // FIX: Replaced Object.assign with manual object construction to resolve a TypeScript type inference issue with index signatures.
+            const rowData: { name: string; eventos: number; totalInventario: number; porcentaje: number; [key: string]: any; } = {
+                name: muni,
+                eventos: eventData.total,
+                totalInventario,
+                porcentaje: totalInventario > 0 ? (eventData.total / totalInventario) * 100 : 0,
+            };
             filteredFailureCategories.forEach(cat => {
-                catCounts[cat] = eventData.categories[cat] || 0;
+                rowData[cat] = eventData.categories[cat] || 0;
             });
-            // FIX: Replaced spread syntax with Object.assign to resolve issue with spreading types from objects with index signatures.
-            return Object.assign({ name: muni, eventos: eventData.total, totalInventario, porcentaje: totalInventario > 0 ? (eventData.total / totalInventario) * 100 : 0 }, catCounts);
+            return rowData;
         }).sort((a,b) => b.porcentaje - a.porcentaje);
 
         return { data, categories: filteredFailureCategories };
