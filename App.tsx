@@ -1,13 +1,4 @@
 
-
-
-
-
-
-
-
-
-
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { subDays } from 'date-fns/subDays';
 import { startOfMonth } from 'date-fns/startOfMonth';
@@ -63,6 +54,7 @@ interface FullAppState {
     selectedPower: string;
     selectedCalendar: string;
     searchTerm: string;
+    selectedChangesYear: string;
     // Card Filters
     cardFilter: string | null;
     cardChangeFilter: string | null;
@@ -94,6 +86,7 @@ const App: React.FC = () => {
     const [selectedPower, setSelectedPower] = useState<string>('all');
     const [selectedCalendar, setSelectedCalendar] = useState<string>('all');
     const [searchTerm, setSearchTerm] = useState<string>('');
+    const [selectedChangesYear, setSelectedChangesYear] = useState<string>('');
     const [cardFilter, setCardFilter] = useState<string | null>(null);
     const [cardChangeFilter, setCardChangeFilter] = useState<string | null>(null);
     const [cardInventoryFilter, setCardInventoryFilter] = useState<{key: keyof InventoryItem, value: string} | null>(null);
@@ -134,7 +127,7 @@ const App: React.FC = () => {
              if (type === 'REQUEST_INITIAL_STATE') {
                 const currentState: FullAppState = {
                     dateRange, selectedZone, selectedMunicipio, selectedCategory, selectedMonth, selectedYear,
-                    selectedPower, selectedCalendar, searchTerm, cardFilter, cardChangeFilter, cardInventoryFilter,
+                    selectedPower, selectedCalendar, searchTerm, selectedChangesYear, cardFilter, cardChangeFilter, cardInventoryFilter,
                     isInventorySummariesOpen, selectedOperatingHoursRange, latestDataDate, selectedHistoricalMonthZone,
                     selectedZoneForCabinetDetails,
                 };
@@ -151,7 +144,7 @@ const App: React.FC = () => {
                 setPortalState({ ...receivedState, dateRange: newDateRange, latestDataDate: newLatestDate });
             }
         }
-    }, [isMainApp.current, dateRange, selectedZone, selectedMunicipio, selectedCategory, selectedMonth, selectedYear, selectedPower, selectedCalendar, searchTerm, cardFilter, cardChangeFilter, cardInventoryFilter, isInventorySummariesOpen, selectedOperatingHoursRange, latestDataDate, selectedHistoricalMonthZone, selectedZoneForCabinetDetails]);
+    }, [isMainApp.current, dateRange, selectedZone, selectedMunicipio, selectedCategory, selectedMonth, selectedYear, selectedPower, selectedCalendar, searchTerm, selectedChangesYear, cardFilter, cardChangeFilter, cardInventoryFilter, isInventorySummariesOpen, selectedOperatingHoursRange, latestDataDate, selectedHistoricalMonthZone, selectedZoneForCabinetDetails]);
 
     const { postMessage } = useBroadcastChannel(handleBroadcastMessage);
 
@@ -160,7 +153,7 @@ const App: React.FC = () => {
         if (isMainApp.current) {
             const fullState: FullAppState = {
                 dateRange, selectedZone, selectedMunicipio, selectedCategory, selectedMonth, selectedYear,
-                selectedPower, selectedCalendar, searchTerm, cardFilter, cardChangeFilter, cardInventoryFilter,
+                selectedPower, selectedCalendar, searchTerm, selectedChangesYear, cardFilter, cardChangeFilter, cardInventoryFilter,
                 isInventorySummariesOpen, selectedOperatingHoursRange, latestDataDate, selectedHistoricalMonthZone,
                 selectedZoneForCabinetDetails,
             };
@@ -168,7 +161,7 @@ const App: React.FC = () => {
         }
     }, [
         dateRange, selectedZone, selectedMunicipio, selectedCategory, selectedMonth, selectedYear,
-        selectedPower, selectedCalendar, searchTerm, cardFilter, cardChangeFilter, cardInventoryFilter,
+        selectedPower, selectedCalendar, searchTerm, selectedChangesYear, cardFilter, cardChangeFilter, cardInventoryFilter,
         isInventorySummariesOpen, selectedOperatingHoursRange, latestDataDate, selectedHistoricalMonthZone, selectedZoneForCabinetDetails, postMessage,
     ]);
     
@@ -212,7 +205,7 @@ const App: React.FC = () => {
     // Use portal state if available, otherwise use main app state
     const currentAppState = portalState || {
         dateRange, selectedZone, selectedMunicipio, selectedCategory, selectedMonth, selectedYear,
-        selectedPower, selectedCalendar, searchTerm, cardFilter, cardChangeFilter, cardInventoryFilter,
+        selectedPower, selectedCalendar, searchTerm, selectedChangesYear, cardFilter, cardChangeFilter, cardInventoryFilter,
         isInventorySummariesOpen, selectedOperatingHoursRange, latestDataDate, selectedHistoricalMonthZone,
         selectedZoneForCabinetDetails,
     };
@@ -235,6 +228,12 @@ const App: React.FC = () => {
     const availablePowers = useMemo(() => { const powers = new Set(inventory.map(i => i.potenciaNominal).filter((p): p is number => p != null)); return Array.from(powers).sort((a: number, b: number) => a - b).map(String); }, [inventory]);
     const availableCalendars = useMemo(() => { const calendars = new Set(inventory.map(i => i.dimmingCalendar).filter((c): c is string => !!c && c !== '-')); return Array.from(calendars).sort(); }, [inventory]);
     
+    useEffect(() => {
+        if (availableYears.length > 0 && !selectedChangesYear) {
+            setSelectedChangesYear(availableYears[0]);
+        }
+    }, [availableYears, selectedChangesYear]);
+
     // --- Metrics Calculations ---
     const uniqueCabinetCount = useMemo(() => new Set(displayInventory.map(i => i.cabinetIdExterno).filter((c): c is string => !!c && c.trim() !== '' && c.trim() !== '-')).size, [displayInventory]);
     const inauguratedCount = useMemo(() => displayInventory.filter(item => item.fechaInauguracion).length, [displayInventory]);
@@ -261,6 +260,7 @@ const App: React.FC = () => {
     const oldestEventsByZone = useMemo(() => { if (allEvents.length === 0) return []; const map = new Map<string, LuminaireEvent>(); for (let i = allEvents.length - 1; i >= 0; i--) { const event = allEvents[i]; if (!map.has(event.zone)) { map.set(event.zone, event); } } return Array.from(map.values()).sort((a, b) => a.zone.localeCompare(b.zone)); }, [allEvents]);
     const inventoryCountByZone = useMemo(() => inventory.reduce((acc, item) => { if (item.zone) { acc[item.zone] = (acc[item.zone] || 0) + 1; } return acc; }, {} as Record<string, number>), [inventory]);
     const filteredFailureCategories = useMemo(() => { const order = ['Inaccesible', 'Roto', 'Error de configuración', 'Falla de hardware', 'Falla de voltaje', 'Hurto', 'Vandalizado', 'Columna Caída']; const allCats = Array.from(new Set(baseFilteredEvents.map(e => e.failureCategory).filter((c): c is string => !!c))); return allCats.sort((a: string, b: string) => { const iA = order.indexOf(a); const iB = order.indexOf(b); if (iA !== -1 && iB !== -1) return iA - iB; if (iA !== -1) return -1; if (iB !== -1) return 1; return a.localeCompare(b); }); }, [baseFilteredEvents]);
+    // FIX: A potential "Spread types" error can occur when an object with an index signature is spread. Replaced with manual construction for safety.
     const failureDataByZone = useMemo(() => {
         if (Object.keys(inventoryCountByZone).length === 0) return { data: [], categories: [] };
         const counts = baseFilteredEvents.reduce((acc, event) => {
@@ -278,7 +278,6 @@ const App: React.FC = () => {
         const data = Object.keys(inventoryCountByZone).map(zone => {
             const eventData = counts[zone] || { total: 0, categories: {} };
             const totalInventario = inventoryCountByZone[zone];
-            // FIX: Replaced Object.assign with manual construction to avoid a cryptic "Spread types" error.
             const rowData: { name: string; eventos: number; totalInventario: number; porcentaje: number; [key: string]: any; } = {
                 name: zone,
                 eventos: eventData.total,
@@ -345,10 +344,8 @@ const App: React.FC = () => {
     const changesByMunicipioData = useMemo(() => { const counts = baseFilteredChangeEvents.reduce((acc, event) => { if (!event.municipio) return acc; if (!acc[event.municipio]) acc[event.municipio] = { LUMINARIA: 0, OLC: 0, total: 0 }; const component = event.componente.toUpperCase(); if (component.includes('LUMINARIA')) { acc[event.municipio].LUMINARIA++; acc[event.municipio].total++; } else if (component.includes('OLC')) { acc[event.municipio].OLC++; acc[event.municipio].total++; } return acc; }, {} as Record<string, { LUMINARIA: number; OLC: number; total: number }>); return Object.entries(counts).map(([name, data]) => ({ name, ...data })).sort((a, b) => b.total - a.total); }, [baseFilteredChangeEvents]);
     const cabinetSummaryData = useMemo(() => { const counts = inventory.reduce((acc, item) => { if (item.cabinetIdExterno) acc[item.cabinetIdExterno] = (acc[item.cabinetIdExterno] || 0) + 1; return acc; }, {} as Record<string, number>); return Object.entries(counts).map(([cabinetId, luminaireCount]) => ({ cabinetId, luminaireCount })).filter(item => item.cabinetId && item.cabinetId !== '-' && item.cabinetId.trim() !== ''); }, [inventory]);
     const serviceSummaryData = useMemo(() => { const map = inventory.reduce((acc, item) => { if (item.nroCuenta && item.nroCuenta.trim() !== '' && item.nroCuenta.trim() !== '-') { const cuenta = item.nroCuenta.trim(); if (!acc.has(cuenta)) acc.set(cuenta, { luminaireCount: 0, totalPower: 0 }); const summary = acc.get(cuenta)!; summary.luminaireCount += 1; summary.totalPower += item.potenciaNominal || 0; } return acc; }, new Map<string, { luminaireCount: number; totalPower: number }>()); return Array.from(map.entries()).map(([nroCuenta, data]) => ({ nroCuenta, luminaireCount: data.luminaireCount, totalPower: data.totalPower })); }, [inventory]);
-    const powerSummary = useMemo(() => { const items = finalDisplayInventory; if (items.length === 0) return { powerData: [], locationColumns: [], columnTotals: {}, grandTotal: 0 }; const isGroupingByZone = currentAppState.selectedZone === 'all'; const locationColumns: string[] = isGroupingByZone ? ALL_ZONES.filter(zone => items.some(item => item.zone === zone)) : Array.from(new Set<string>(items.map(item => item.municipio).filter((m): m is string => !!m))).sort(); const powers: number[] = Array.from(new Set<number>(items.map(item => item.potenciaNominal).filter((p): p is number => p != null))).sort((a, b) => a - b); const powerMap = new Map<number, Record<string, number>>(); for (const item of items) { if (item.potenciaNominal != null) { if (!powerMap.has(item.potenciaNominal)) powerMap.set(item.potenciaNominal, {}); const powerRow = powerMap.get(item.potenciaNominal)!; const location = isGroupingByZone ? item.zone : item.municipio; if (location) powerRow[location] = (powerRow[location] || 0) + 1; } } const powerData = powers.map(power => { const rowData: Record<string, number> = powerMap.get(power) || {}; const total = locationColumns.reduce((sum, loc) => sum + (rowData[loc] || 0), 0); // FIX: Replaced spread syntax with Object.assign to resolve issue with spreading types from objects with index signatures.
-return Object.assign({ power: `${power}W` }, rowData, { total }); }); const columnTotals: Record<string, number> = {}; let grandTotal = 0; locationColumns.forEach(loc => { const total = powerData.reduce((sum, row) => sum + ((row as any)[loc] || 0), 0); columnTotals[loc] = total; grandTotal += total; }); return { powerData, locationColumns, columnTotals, grandTotal }; }, [finalDisplayInventory, currentAppState.selectedZone]);
-    const { operatingHoursSummary, operatingHoursZones } = useMemo(() => { const items = inventory; if (items.length === 0) return { operatingHoursSummary: [], operatingHoursZones: [] }; const RANGE_STEP = 5000, MAX_HOURS = 100000; const presentZones = new Set<string>(); const countsByRange = items.reduce((acc, item) => { if (item.horasFuncionamiento != null && item.horasFuncionamiento >= 0 && item.zone) { let rangeLabel; if (item.horasFuncionamiento > MAX_HOURS) rangeLabel = `> ${MAX_HOURS.toLocaleString('es-ES')} hs`; else if (item.horasFuncionamiento <= RANGE_STEP) rangeLabel = `0 - ${RANGE_STEP.toLocaleString('es-ES')} hs`; else { const rangeIndex = Math.floor((item.horasFuncionamiento - 1) / RANGE_STEP); const rangeStart = rangeIndex * RANGE_STEP + 1; const rangeEnd = (rangeIndex + 1) * RANGE_STEP; rangeLabel = `${rangeStart.toLocaleString('es-ES')} - ${rangeEnd.toLocaleString('es-ES')} hs`; } if (!acc[rangeLabel]) acc[rangeLabel] = { total: 0 }; acc[rangeLabel].total = (acc[rangeLabel].total || 0) + 1; acc[rangeLabel][item.zone] = (acc[rangeLabel][item.zone] || 0) + 1; presentZones.add(item.zone); } return acc; }, {} as Record<string, { total: number; [zone: string]: number }>); const sortedZones = Array.from(presentZones).sort((a, b) => { const iA = ZONE_ORDER.indexOf(a); const iB = ZONE_ORDER.indexOf(b); if (iA !== -1 && iB !== -1) return iA - iB; if (iA !== -1) return -1; if (iB !== -1) return 1; return a.localeCompare(b); }); // FIX: Replaced spread syntax with Object.assign to resolve issue with spreading types from objects with index signatures.
-const summary = Object.entries(countsByRange).map(([range, counts]) => Object.assign({ range }, counts)); return { operatingHoursSummary: summary, operatingHoursZones: sortedZones }; }, [inventory]);
+    const powerSummary = useMemo(() => { const items = finalDisplayInventory; if (items.length === 0) return { powerData: [], locationColumns: [], columnTotals: {}, grandTotal: 0 }; const isGroupingByZone = currentAppState.selectedZone === 'all'; const locationColumns: string[] = isGroupingByZone ? ALL_ZONES.filter(zone => items.some(item => item.zone === zone)) : Array.from(new Set<string>(items.map(item => item.municipio).filter((m): m is string => !!m))).sort(); const powers: number[] = Array.from(new Set<number>(items.map(item => item.potenciaNominal).filter((p): p is number => p != null))).sort((a, b) => a - b); const powerMap = new Map<number, Record<string, number>>(); for (const item of items) { if (item.potenciaNominal != null) { if (!powerMap.has(item.potenciaNominal)) powerMap.set(item.potenciaNominal, {}); const powerRow = powerMap.get(item.potenciaNominal)!; const location = isGroupingByZone ? item.zone : item.municipio; if (location) powerRow[location] = (powerRow[location] || 0) + 1; } } const powerData = powers.map(power => { const rowData: Record<string, number> = powerMap.get(power) || {}; const total = locationColumns.reduce((sum, loc) => sum + (rowData[loc] || 0), 0); const result: {[key: string]: any} = { power: `${power}W`, total }; locationColumns.forEach(loc => { result[loc] = (rowData as any)[loc] || 0; }); return result; }); const columnTotals: Record<string, number> = {}; let grandTotal = 0; locationColumns.forEach(loc => { const total = powerData.reduce((sum, row) => sum + ((row as any)[loc] || 0), 0); columnTotals[loc] = total; grandTotal += total; }); return { powerData, locationColumns, columnTotals, grandTotal }; }, [finalDisplayInventory, currentAppState.selectedZone]);
+    const { operatingHoursSummary, operatingHoursZones } = useMemo(() => { const items = inventory; if (items.length === 0) return { operatingHoursSummary: [], operatingHoursZones: [] }; const RANGE_STEP = 5000, MAX_HOURS = 100000; const presentZones = new Set<string>(); const countsByRange = items.reduce((acc, item) => { if (item.horasFuncionamiento != null && item.horasFuncionamiento >= 0 && item.zone) { let rangeLabel; if (item.horasFuncionamiento > MAX_HOURS) rangeLabel = `> ${MAX_HOURS.toLocaleString('es-ES')} hs`; else if (item.horasFuncionamiento <= RANGE_STEP) rangeLabel = `0 - ${RANGE_STEP.toLocaleString('es-ES')} hs`; else { const rangeIndex = Math.floor((item.horasFuncionamiento - 1) / RANGE_STEP); const rangeStart = rangeIndex * RANGE_STEP + 1; const rangeEnd = (rangeIndex + 1) * RANGE_STEP; rangeLabel = `${rangeStart.toLocaleString('es-ES')} - ${rangeEnd.toLocaleString('es-ES')} hs`; } if (!acc[rangeLabel]) acc[rangeLabel] = { total: 0 }; acc[rangeLabel].total = (acc[rangeLabel].total || 0) + 1; acc[rangeLabel][item.zone] = (acc[rangeLabel][item.zone] || 0) + 1; presentZones.add(item.zone); } return acc; }, {} as Record<string, { total: number; [zone: string]: number }>); const sortedZones = Array.from(presentZones).sort((a, b) => { const iA = ZONE_ORDER.indexOf(a); const iB = ZONE_ORDER.indexOf(b); if (iA !== -1 && iB !== -1) return iA - iB; if (iA !== -1) return -1; if (iB !== -1) return 1; return a.localeCompare(b); }); const summary = Object.entries(countsByRange).map(([range, counts]) => { const item: Record<string, any> = { range }; for (const key in counts) { item[key] = counts[key as keyof typeof counts]; } return item; }); return { operatingHoursSummary: summary, operatingHoursZones: sortedZones }; }, [inventory]);
     const operatingHoursDetailData = useMemo((): InventoryItem[] => { if (!currentAppState.selectedOperatingHoursRange) return []; const parseRange = (rangeStr: string): { start: number; end: number } => { if (rangeStr.startsWith('>')) { const start = parseInt(rangeStr.replace(/\D/g, ''), 10); return { start, end: Infinity }; } const parts = rangeStr.replace(/ hs/g, '').replace(/\./g, '').split(' - '); return { start: parseInt(parts[0], 10), end: parseInt(parts[1], 10) }; }; const { start, end } = parseRange(currentAppState.selectedOperatingHoursRange); return inventory.filter(item => { if (item.horasFuncionamiento == null) return false; if (end === Infinity) return item.horasFuncionamiento > start; return item.horasFuncionamiento >= start && item.horasFuncionamiento <= end; }); }, [inventory, currentAppState.selectedOperatingHoursRange]);
     
      // --- Historical Data Calculations ---
@@ -393,7 +390,10 @@ const summary = Object.entries(countsByRange).map(([range, counts]) => Object.as
                         dailyFilteredData[targetZone] = dayData[targetZone];
                     }
                 } else { // No zone filter, include all zones
-                    Object.assign(dailyFilteredData, dayData);
+                    // FIX: Replaced Object.assign with a for...in loop to avoid losing type information.
+                    for (const zoneKey in dayData) {
+                        dailyFilteredData[zoneKey] = dayData[zoneKey];
+                    }
                 }
 
                 if (Object.keys(dailyFilteredData).length > 0) {
@@ -587,9 +587,12 @@ const summary = Object.entries(countsByRange).map(([range, counts]) => Object.as
             return acc;
         }, {} as Record<string, { count: number; accounts: string[] }>);
     
-        const summaryTableData = Object.entries(summaryByZone).map(([zone, data]) => (Object.assign({
-            name: zone
-        }, data))).sort((a, b) => {
+        // FIX: Replaced Object.assign with an explicit object literal to prevent potential TypeScript type inference issues.
+        const summaryTableData = Object.entries(summaryByZone).map(([zone, data]) => ({
+            name: zone,
+            count: data.count,
+            accounts: data.accounts
+        })).sort((a, b) => {
             const iA = ZONE_ORDER.indexOf(a.name);
             const iB = ZONE_ORDER.indexOf(b.name);
             if (iA !== -1 && iB !== -1) return iA - iB;
@@ -601,6 +604,74 @@ const summary = Object.entries(countsByRange).map(([range, counts]) => Object.as
         return { summaryTableData };
     
     }, [allEvents, inventory, currentAppState.selectedZone]);
+
+    // --- New calculations for CambiosTab ---
+    const changesByMonthData = useMemo(() => {
+        if (!currentAppState.selectedChangesYear) return { data: [] };
+
+        const yearData = changeEvents.filter(e => format(e.fechaRetiro, 'yyyy') === currentAppState.selectedChangesYear);
+        
+        const counts = yearData.reduce((acc, event) => {
+            const monthName = format(event.fechaRetiro, 'MMMM', { locale: es });
+            const monthKey = format(event.fechaRetiro, 'yyyy-MM');
+            if (!acc[monthKey]) {
+                acc[monthKey] = { name: monthName, LUMINARIA: 0, OLC: 0, date: event.fechaRetiro };
+            }
+            const component = event.componente.toUpperCase();
+            if (component.includes('LUMINARIA')) {
+                acc[monthKey].LUMINARIA++;
+            } else if (component.includes('OLC')) {
+                acc[monthKey].OLC++;
+            }
+            return acc;
+        }, {} as Record<string, { name: string; LUMINARIA: number; OLC: number, date: Date }>);
+
+        const sortedData = Object.values(counts).sort((a, b) => a.date.getTime() - b.date.getTime());
+        
+        return { data: sortedData };
+    }, [changeEvents, currentAppState.selectedChangesYear]);
+
+    const historicalChangesByCondition = useMemo(() => {
+        const countsByYear: Record<string, {
+            garantiaLuminaria: number; garantiaOlc: number;
+            columnaCaidaLuminaria: number; columnaCaidaOlc: number;
+            hurtoLuminaria: number; hurtoOlc: number;
+            vandalizadoLuminaria: number; vandalizadoOlc: number;
+        }> = {};
+
+        changeEvents.forEach(event => {
+            const year = format(event.fechaRetiro, 'yyyy');
+            if (!countsByYear[year]) {
+                countsByYear[year] = {
+                    garantiaLuminaria: 0, garantiaOlc: 0,
+                    columnaCaidaLuminaria: 0, columnaCaidaOlc: 0,
+                    hurtoLuminaria: 0, hurtoOlc: 0,
+                    vandalizadoLuminaria: 0, vandalizadoOlc: 0,
+                };
+            }
+
+            const component = event.componente.toUpperCase();
+            const condicion = event.condicion.toLowerCase();
+
+            if (condicion === 'garantia') {
+                if (component.includes('LUMINARIA')) countsByYear[year].garantiaLuminaria++;
+                else if (component.includes('OLC')) countsByYear[year].garantiaOlc++;
+            } else if (condicion === 'columna caída') {
+                if (component.includes('LUMINARIA')) countsByYear[year].columnaCaidaLuminaria++;
+                else if (component.includes('OLC')) countsByYear[year].columnaCaidaOlc++;
+            } else if (condicion === 'hurto') {
+                if (component.includes('LUMINARIA')) countsByYear[year].hurtoLuminaria++;
+                else if (component.includes('OLC')) countsByYear[year].hurtoOlc++;
+            } else if (condicion === 'vandalizado') {
+                if (component.includes('LUMINARIA')) countsByYear[year].vandalizadoLuminaria++;
+                else if (component.includes('OLC')) countsByYear[year].vandalizadoOlc++;
+            }
+        });
+        
+        return Object.entries(countsByYear)
+            .map(([year, data]) => ({ year, ...data }))
+            .sort((a, b) => parseInt(b.year) - parseInt(a.year));
+    }, [changeEvents]);
 
 
     // --- Map Modal Handlers ---
@@ -732,7 +803,8 @@ const summary = Object.entries(countsByRange).map(([range, counts]) => Object.as
         const processData = (
             dataType: 'percentage' | 'count'
         ) => {
-            return Object.entries(monthlySummaries).map(([monthKey, zoneAvgs]) => {
+            // FIX: Add explicit return type to map callback to ensure correct type inference for sort.
+            return Object.entries(monthlySummaries).map(([monthKey, zoneAvgs]): { date: Date; [key: string]: any } => {
                 const row: Record<string, any> = { 'Mes': format(parse(monthKey, 'yyyy-MM', new Date()), 'MMMM yyyy', { locale: es }) };
                 sortedZones.forEach(zone => {
                     const data = zoneAvgs[zone];
@@ -746,10 +818,12 @@ const summary = Object.entries(countsByRange).map(([range, counts]) => Object.as
                     }
                 });
                 return Object.assign(row, { date: parse(monthKey, 'yyyy-MM', new Date()) });
-            }).sort((a, b) => b.date.getTime() - a.date.getTime()).map(({ date, ...rest }) => rest);
+// FIX: Added explicit types to sort callback parameters to resolve 'property does not exist on type unknown' error.
+            }).sort((a: { date: Date }, b: { date: Date }) => b.date.getTime() - a.date.getTime()).map(({ date, ...rest }) => rest);
         };
     
-        const percentageData = Object.entries(monthlySummaries).map(([monthKey, zoneSummaries]) => {
+        // FIX: Add explicit return type to map callback to ensure correct type inference for sort.
+        const percentageData = Object.entries(monthlySummaries).map(([monthKey, zoneSummaries]): { rows: any[], date: Date } => {
             const rowsForMonth: any[] = [];
             sortedZones.forEach(zone => {
                 const summary = zoneSummaries[zone];
@@ -766,7 +840,8 @@ const summary = Object.entries(countsByRange).map(([range, counts]) => Object.as
                 });
             });
             return { rows: rowsForMonth, date: parse(monthKey, 'yyyy-MM', new Date()) };
-        }).sort((a, b) => b.date.getTime() - a.date.getTime()).flatMap(item => item.rows);
+// FIX: Added explicit types to sort callback parameters to resolve 'property does not exist on type unknown' error.
+        }).sort((a: { date: Date }, b: { date: Date }) => b.date.getTime() - a.date.getTime()).flatMap(item => item.rows);
 
 
         const countsData = processData('count');
@@ -822,6 +897,7 @@ const summary = Object.entries(countsByRange).map(([range, counts]) => Object.as
             luminariaChangesCount, olcChangesCount, garantiaChangesCount, vandalizadoChangesCount, columnaCaidaChangesCount, hurtoChangesCount,
             cardChangeFilter: currentAppState.cardChangeFilter, searchTerm: currentAppState.searchTerm,
             handleCardChangeClick: () => {}, handleExportChangesByMunicipio: () => {},
+            availableYears, selectedChangesYear: currentAppState.selectedChangesYear, setSelectedChangesYear: () => {}, changesByMonthData, historicalChangesByCondition,
             // Inventario Props
             displayInventory, finalDisplayInventory, powerSummary, operatingHoursSummary, operatingHoursZones, operatingHoursDetailData, cabinetSummaryData, serviceSummaryData,
             uniqueCabinetCount, inauguratedCount, markedCount, uniqueAccountCount, vandalizadoInventoryCount, hurtoInventoryCount, columnaCaidaInventoryCount, faltaPodaInventoryCount, faltaLineaInventoryCount,
@@ -1003,6 +1079,11 @@ const summary = Object.entries(countsByRange).map(([range, counts]) => Object.as
                                         handleCardChangeClick={handleCardChangeClick}
                                         handleExportChangesByMunicipio={handleExportChangesByMunicipio}
                                         setSearchTerm={setSearchTerm}
+                                        availableYears={availableYears}
+                                        selectedChangesYear={selectedChangesYear}
+                                        setSelectedChangesYear={setSelectedChangesYear}
+                                        changesByMonthData={changesByMonthData}
+                                        historicalChangesByCondition={historicalChangesByCondition}
                                     />
                                 )
                            )}

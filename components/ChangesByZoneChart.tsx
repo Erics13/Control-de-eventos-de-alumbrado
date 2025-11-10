@@ -22,8 +22,9 @@ const ChangesByZoneChart: React.FC<{ data: ChangeEvent[] }> = ({ data }) => {
 
         const unsortedData = Object.entries(countsByZone).map(([zoneName, counts]) => ({
             name: zoneName,
-            // FIX: Cast 'counts' to its expected type to resolve spread operator error.
-            ...(counts as { LUMINARIA: number; OLC: number })
+            // FIX: Replaced spread operator with explicit assignment for type safety.
+            LUMINARIA: counts.LUMINARIA,
+            OLC: counts.OLC,
         }));
         
 // FIX: Explicitly type `a` and `b` in the sort function to resolve type errors.

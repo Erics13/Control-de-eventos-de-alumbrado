@@ -4,6 +4,9 @@ import ChangesByZoneChart from './ChangesByZoneChart';
 import CollapsibleSection from './CollapsibleSection';
 import ChangesByMunicipioTable from './ChangesByMunicipioTable';
 import ChangeEventTable from './ChangeEventTable';
+import ChangesByMonthChart from './ChangesByMonthChart';
+import ChangesByMonthTable from './ChangesByMonthTable';
+import HistoricalChangesByConditionTable from './HistoricalChangesByConditionTable';
 import type { ChangeEvent } from '../types';
 
 interface CambiosTabProps {
@@ -11,6 +14,8 @@ interface CambiosTabProps {
     baseFilteredChangeEvents: ChangeEvent[];
     displayChangeEvents: ChangeEvent[];
     changesByMunicipioData: any[];
+    changesByMonthData: { data: { name: string; LUMINARIA: number; OLC: number }[] };
+    historicalChangesByCondition: any[];
 
     // Metrics
     luminariaChangesCount: number;
@@ -23,11 +28,14 @@ interface CambiosTabProps {
     // State
     cardChangeFilter: string | null;
     searchTerm: string;
+    availableYears: string[];
+    selectedChangesYear: string;
     
     // Handlers
     handleCardChangeClick: (filter: string) => void;
     handleExportChangesByMunicipio: () => void;
     setSearchTerm?: (term: string) => void; // Optional for portal view
+    setSelectedChangesYear: (year: string) => void;
 }
 
 const CambiosTab: React.FC<CambiosTabProps> = ({
@@ -45,6 +53,11 @@ const CambiosTab: React.FC<CambiosTabProps> = ({
     handleCardChangeClick,
     handleExportChangesByMunicipio,
     setSearchTerm,
+    availableYears,
+    selectedChangesYear,
+    setSelectedChangesYear,
+    changesByMonthData,
+    historicalChangesByCondition,
 }) => {
     return (
         <div className="space-y-6">
@@ -60,6 +73,29 @@ const CambiosTab: React.FC<CambiosTabProps> = ({
                     <DashboardCard title="Por Hurto" value={hurtoChangesCount.toLocaleString()} onClick={() => handleCardChangeClick('hurtoChange')} isActive={cardChangeFilter === 'hurtoChange'}/>
                 </div>
             </div>
+            
+            <CollapsibleSection title={`Análisis Mensual de Cambios para el Año ${selectedChangesYear}`} defaultOpen>
+                 <div className="mb-4 max-w-xs">
+                    <label htmlFor="changes-year-select" className="block text-sm font-medium text-gray-400 mb-1">Seleccionar Año para Análisis Mensual</label>
+                    <select 
+                        id="changes-year-select" 
+                        value={selectedChangesYear} 
+                        onChange={(e) => setSelectedChangesYear(e.target.value)}
+                        className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500"
+                    >
+                        {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
+                    </select>
+                </div>
+                <ChangesByMonthChart data={changesByMonthData.data} />
+                <div className="mt-6">
+                    <ChangesByMonthTable data={changesByMonthData.data} />
+                </div>
+            </CollapsibleSection>
+            
+            <CollapsibleSection title="Análisis Histórico de Cambios por Condición">
+                <HistoricalChangesByConditionTable data={historicalChangesByCondition} />
+            </CollapsibleSection>
+
             <div className="grid grid-cols-1 gap-4"><div id="changes-by-zone-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-4"><h3 className="text-lg font-semibold text-cyan-400 mb-3">Cambios por Zona</h3><ChangesByZoneChart data={baseFilteredChangeEvents} /></div></div>
             <CollapsibleSection title="Resumen de Cambios por Municipio" onExport={handleExportChangesByMunicipio}><ChangesByMunicipioTable data={changesByMunicipioData} /></CollapsibleSection>
             <CollapsibleSection 

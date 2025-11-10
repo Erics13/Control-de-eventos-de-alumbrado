@@ -26,10 +26,14 @@ const InaugurationsByYearZoneChart: React.FC<{ data: InventoryItem[] }> = ({ dat
         const allZones = Array.from(new Set(inauguratedItems.map(item => item.zone).filter((z): z is string => !!z))).sort();
         
         const finalChartData = Object.entries(countsByYearAndZone)
-            .map(([year, zoneCounts]) =>
-                // FIX: Replaced spread operator with Object.assign to avoid issues with index signature types.
-                Object.assign({ year }, zoneCounts)
-            )
+            .map(([year, zoneCounts]) => {
+                // FIX: Replaced Object.assign with manual construction to avoid issues with index signature types.
+                const entry: { year: string, [key: string]: any } = { year };
+                for (const zone in zoneCounts) {
+                    entry[zone] = zoneCounts[zone];
+                }
+                return entry;
+            })
             .sort((a, b) => a.year.localeCompare(b.year));
 
         return { chartData: finalChartData, zones: allZones };
