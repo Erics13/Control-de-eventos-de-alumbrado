@@ -1,13 +1,21 @@
+
 import React from 'react';
 import { format } from 'date-fns/format';
+import { signOut } from 'firebase/auth';
+import { auth } from '../firebase';
+import type { UserProfile } from '../types';
 
 interface HeaderProps {
     latestDataDate: Date | null;
+    userProfile: UserProfile | null;
 }
 
-const Header: React.FC<HeaderProps> = ({
-    latestDataDate,
-}) => {
+const Header: React.FC<HeaderProps> = ({ latestDataDate, userProfile }) => {
+    
+    const handleLogout = () => {
+        signOut(auth).catch(error => console.error('Logout Error:', error));
+    };
+
     return (
         <header className="bg-gray-800/50 backdrop-blur-sm shadow-lg flex-shrink-0 z-20">
             <div className="container mx-auto px-4 md:px-8 py-4 flex justify-between items-center">
@@ -26,6 +34,19 @@ const Header: React.FC<HeaderProps> = ({
                         )}
                     </div>
                 </div>
+                {userProfile && (
+                     <div className="flex items-center gap-4">
+                        <span className="text-sm text-gray-300 hidden sm:block">
+                            Bienvenido, <span className="font-semibold">{userProfile.name}</span>
+                        </span>
+                        <button 
+                            onClick={handleLogout}
+                            className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md transition-colors text-sm"
+                        >
+                            Cerrar Sesión
+                        </button>
+                    </div>
+                )}
             </div>
         </header>
     );

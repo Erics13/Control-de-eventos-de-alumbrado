@@ -79,7 +79,7 @@ export interface ZoneBase {
   lon: number;
 }
 
-export type ActiveTab = 'eventos' | 'cambios' | 'inventario' | 'historial' | 'mantenimiento';
+export type ActiveTab = 'eventos' | 'cambios' | 'inventario' | 'historial' | 'mantenimiento' | 'admin';
 
 export type BroadcastMessageType = 'STATE_UPDATE' | 'DOCK_TAB' | 'REQUEST_INITIAL_STATE' | 'INITIAL_STATE_RESPONSE';
 
@@ -161,3 +161,13 @@ export interface CabinetWorksheet extends BaseWorksheet {
 }
 
 export type WorksheetData = LuminariaWorksheet | CabinetWorksheet;
+
+export interface UserProfile {
+    uid: string;
+    email: string;
+    name: string;
+    createdAt: string; // ISO String
+    accessStatus: 'pending' | 'approved' | 'rejected';
+    role?: 'administrador' | 'capataz' | 'regional' | 'cuadrilla' | null;
+    zone?: string | string[] | null;
+}

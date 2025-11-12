@@ -1,3 +1,4 @@
+
 import React, { useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import type { InventoryItem } from '../types';
@@ -29,8 +30,11 @@ const InaugurationsByYearZoneChart: React.FC<{ data: InventoryItem[] }> = ({ dat
             .map(([year, zoneCounts]) => {
                 // FIX: Replaced Object.assign with manual construction to avoid issues with index signature types.
                 const entry: { year: string, [key: string]: any } = { year };
-                for (const zone in zoneCounts) {
-                    entry[zone] = zoneCounts[zone];
+                const zoneCountsObj = zoneCounts as Record<string, number>;
+                for (const zone in zoneCountsObj) {
+                    if (Object.prototype.hasOwnProperty.call(zoneCountsObj, zone)) {
+                       entry[zone] = zoneCountsObj[zone];
+                    }
                 }
                 return entry;
             })

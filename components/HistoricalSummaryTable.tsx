@@ -1,6 +1,7 @@
+
 import React, { useMemo } from 'react';
 import type { HistoricalData, HistoricalZoneData } from '../types';
-// FIX: The 'parse' and 'format' functions should be imported from their respective sub-modules in date-fns.
+// FIX: The 'parse' and 'format' functions should be imported from their specific subpaths.
 import { format } from 'date-fns/format';
 import { parse } from 'date-fns/parse';
 import { es } from 'date-fns/locale/es';

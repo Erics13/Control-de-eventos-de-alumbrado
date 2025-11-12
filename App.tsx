@@ -1,5 +1,7 @@
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { signOut } from 'firebase/auth';
+import { auth } from './firebase';
 import { subDays } from 'date-fns/subDays';
 import { startOfMonth } from 'date-fns/startOfMonth';
 import { startOfYear } from 'date-fns/startOfYear';
@@ -13,21 +15,24 @@ import { format } from 'date-fns/format';
 import { es } from 'date-fns/locale/es';
 import { parse } from 'date-fns/parse';
 
-
 import { useLuminaireData } from './hooks/useLuminaireData';
 import { useBroadcastChannel } from './hooks/useBroadcastChannel';
-import type { LuminaireEvent, InventoryItem, ActiveTab, ChangeEvent, BroadcastMessage, HistoricalData, HistoricalZoneData, ServicePoint, ZoneBase } from './types';
+import { useAuth } from './hooks/useAuth';
+import type { LuminaireEvent, InventoryItem, ActiveTab, ChangeEvent, BroadcastMessage, HistoricalData, HistoricalZoneData, ServicePoint, ZoneBase, UserProfile } from './types';
 import { ALL_ZONES, MUNICIPIO_TO_ZONE_MAP, ZONE_ORDER } from './constants';
 
 import Header from './components/Header';
-import FilterControls from './components/FilterControls';
+// FIX: Changed to a named import as FilterControls does not have a default export.
+import { FilterControls } from './components/FilterControls';
 import TabButton from './components/TabButton';
 import EventosTab from './components/EventosTab';
 import CambiosTab from './components/CambiosTab';
 import InventarioTab from './components/InventarioTab';
 import HistorialTab from './components/HistorialTab';
 import MantenimientoTab from './components/RutasTab';
+import AdminTab from './components/AdminTab';
 import MapModal from './components/MapModal';
+import AuthPage from './components/AuthPage';
 import { exportToXlsxMultiSheet, exportToXlsx } from './utils/export';
 
 const ERROR_DESC_LOW_CURRENT = "La corriente medida es menor que lo esperado o no hay corriente que fluya a través de la combinación de driver y lámpara.";
@@ -65,15 +70,18 @@ interface FullAppState {
     latestDataDate: Date | null;
     selectedHistoricalMonthZone: { month: string, zone: string } | null;
     selectedZoneForCabinetDetails: string | null;
+    // Auth State
+    userProfile: UserProfile | null;
 }
 
 const App: React.FC = () => {
     const urlParams = new URLSearchParams(window.location.search);
     const portalTab = urlParams.get('portal') as ActiveTab | null;
-
+    const { user, userProfile, loading: authLoading } = useAuth();
+    
     const {
         allEvents, changeEvents, inventory, servicePoints, zoneBases, historicalData,
-        loading, error
+        loading: dataLoading, error: dataError
     } = useLuminaireData();
 
     // All state is managed here in the main component
@@ -106,15 +114,59 @@ const App: React.FC = () => {
     const [poppedOutTabs, setPoppedOutTabs] = useState<ActiveTab[]>([]);
     const [portalState, setPortalState] = useState<FullAppState | null>(null);
     const isMainApp = useRef(!portalTab);
+    
+     // --- Role-Based Access Control ---
+    useEffect(() => {
+        if ((userProfile?.role === 'capataz' || userProfile?.role === 'cuadrilla') && userProfile.zone && typeof userProfile.zone === 'string') {
+            setSelectedZone(userProfile.zone);
+        } else if (userProfile?.role === 'regional' || userProfile?.role === 'administrador') {
+            // For regional and admin, allow them to see all (their) zones.
+            // The data is pre-filtered for regional users.
+        }
+    }, [userProfile]);
+
+    const dataForUser = useMemo(() => {
+        if (!userProfile) {
+            return { allEvents, changeEvents, inventory, servicePoints, zoneBases, historicalData };
+        }
+        const { role, zone } = userProfile;
+    
+        if ((role === 'capataz' || role === 'cuadrilla') && zone && typeof zone === 'string') {
+            return {
+                allEvents: allEvents.filter(e => e.zone === zone),
+                changeEvents: changeEvents.filter(e => e.zone === zone),
+                inventory: inventory.filter(i => i.zone === zone),
+                servicePoints: servicePoints, // Keep all service points for now, can be filtered if needed
+                zoneBases: zoneBases.filter(b => b.zoneName === zone),
+                historicalData, // Historical data is filtered later in its own memo
+            };
+        }
+    
+        if (role === 'regional' && zone && Array.isArray(zone)) {
+            const userZones = new Set(zone);
+            return {
+                allEvents: allEvents.filter(e => e.zone && userZones.has(e.zone)),
+                changeEvents: changeEvents.filter(e => e.zone && userZones.has(e.zone)),
+                inventory: inventory.filter(i => i.zone && userZones.has(i.zone)),
+                servicePoints: servicePoints, // Keep all service points for now, can be filtered if needed
+                zoneBases: zoneBases.filter(b => userZones.has(b.zoneName)),
+                historicalData, // Historical data is filtered later in its own memo
+            };
+        }
+    
+        // Admin or other roles see everything
+        return { allEvents, changeEvents, inventory, servicePoints, zoneBases, historicalData };
+    }, [userProfile, allEvents, changeEvents, inventory, servicePoints, zoneBases, historicalData]);
+
 
     const latestDataDate = useMemo(() => {
         const allDates: number[] = [];
-        allEvents.forEach(e => { if (e.date) allDates.push(e.date.getTime()); });
-        changeEvents.forEach(e => { if (e.fechaRetiro) allDates.push(e.fechaRetiro.getTime()); });
-        inventory.forEach(i => { if (i.ultimoInforme) allDates.push(i.ultimoInforme.getTime()); });
+        dataForUser.allEvents.forEach(e => { if (e.date) allDates.push(e.date.getTime()); });
+        dataForUser.changeEvents.forEach(e => { if (e.fechaRetiro) allDates.push(e.fechaRetiro.getTime()); });
+        dataForUser.inventory.forEach(i => { if (i.ultimoInforme) allDates.push(i.ultimoInforme.getTime()); });
         if (allDates.length === 0) return null;
         return new Date(Math.max(...allDates));
-    }, [allEvents, changeEvents, inventory]);
+    }, [dataForUser.allEvents, dataForUser.changeEvents, dataForUser.inventory]);
 
     // ---- Broadcast Channel Logic ----
     const handleBroadcastMessage = useCallback((message: BroadcastMessage) => {
@@ -129,7 +181,7 @@ const App: React.FC = () => {
                     dateRange, selectedZone, selectedMunicipio, selectedCategory, selectedMonth, selectedYear,
                     selectedPower, selectedCalendar, searchTerm, selectedChangesYear, cardFilter, cardChangeFilter, cardInventoryFilter,
                     isInventorySummariesOpen, selectedOperatingHoursRange, latestDataDate, selectedHistoricalMonthZone,
-                    selectedZoneForCabinetDetails,
+                    selectedZoneForCabinetDetails, userProfile
                 };
                  postMessage({ type: 'INITIAL_STATE_RESPONSE', payload: currentState });
             }
@@ -144,7 +196,7 @@ const App: React.FC = () => {
                 setPortalState({ ...receivedState, dateRange: newDateRange, latestDataDate: newLatestDate });
             }
         }
-    }, [isMainApp.current, dateRange, selectedZone, selectedMunicipio, selectedCategory, selectedMonth, selectedYear, selectedPower, selectedCalendar, searchTerm, selectedChangesYear, cardFilter, cardChangeFilter, cardInventoryFilter, isInventorySummariesOpen, selectedOperatingHoursRange, latestDataDate, selectedHistoricalMonthZone, selectedZoneForCabinetDetails]);
+    }, [isMainApp.current, dateRange, selectedZone, selectedMunicipio, selectedCategory, selectedMonth, selectedYear, selectedPower, selectedCalendar, searchTerm, selectedChangesYear, cardFilter, cardChangeFilter, cardInventoryFilter, isInventorySummariesOpen, selectedOperatingHoursRange, latestDataDate, selectedHistoricalMonthZone, selectedZoneForCabinetDetails, userProfile]);
 
     const { postMessage } = useBroadcastChannel(handleBroadcastMessage);
 
@@ -155,14 +207,14 @@ const App: React.FC = () => {
                 dateRange, selectedZone, selectedMunicipio, selectedCategory, selectedMonth, selectedYear,
                 selectedPower, selectedCalendar, searchTerm, selectedChangesYear, cardFilter, cardChangeFilter, cardInventoryFilter,
                 isInventorySummariesOpen, selectedOperatingHoursRange, latestDataDate, selectedHistoricalMonthZone,
-                selectedZoneForCabinetDetails,
+                selectedZoneForCabinetDetails, userProfile,
             };
             postMessage({ type: 'STATE_UPDATE', payload: fullState });
         }
     }, [
         dateRange, selectedZone, selectedMunicipio, selectedCategory, selectedMonth, selectedYear,
         selectedPower, selectedCalendar, searchTerm, selectedChangesYear, cardFilter, cardChangeFilter, cardInventoryFilter,
-        isInventorySummariesOpen, selectedOperatingHoursRange, latestDataDate, selectedHistoricalMonthZone, selectedZoneForCabinetDetails, postMessage,
+        isInventorySummariesOpen, selectedOperatingHoursRange, latestDataDate, selectedHistoricalMonthZone, selectedZoneForCabinetDetails, postMessage, userProfile
     ]);
     
      // Effect for portal app to request initial state on load
@@ -192,7 +244,7 @@ const App: React.FC = () => {
     const handleSetDatePreset = useCallback((preset: 'today' | 'yesterday' | 'week' | 'month' | 'year') => { setSelectedMonth(''); setSelectedYear(''); const now = new Date(); let start, end; switch (preset) { case 'today': start = startOfDay(now); end = endOfDay(now); break; case 'yesterday': const yesterday = subDays(now, 1); start = startOfDay(yesterday); end = endOfDay(yesterday); break; case 'week': end = now; start = subDays(now, 7); break; case 'month': end = now; start = startOfMonth(now); break; case 'year': end = now; start = startOfYear(now); break; } setDateRange({ start, end }); }, []);
     
     useEffect(() => { if (selectedMonth && selectedYear) { const yearNum = parseInt(selectedYear); const monthNum = parseInt(selectedMonth) - 1; const start = new Date(yearNum, monthNum, 1); const end = endOfMonth(start); setDateRange({ start, end }); } else if (selectedYear && !selectedMonth) { const yearNum = parseInt(selectedYear); const start = startOfYear(new Date(yearNum, 0, 1)); const end = endOfYear(new Date(yearNum, 11, 31)); setDateRange({ start, end }); } else if (!selectedYear && selectedMonth) { setDateRange({ start: null, end: null }); } }, [selectedMonth, selectedYear]);
-    useEffect(() => { if (loading) return; const hasInventory = inventory.length > 0; const hasChanges = changeEvents.length > 0; const hasEvents = allEvents.length > 0; const hasHistory = Object.keys(historicalData).length > 0; const hasMantenimiento = allEvents.length > 0 && inventory.length > 0; const tabs: { id: ActiveTab; hasData: boolean }[] = [ { id: 'inventario', hasData: hasInventory }, { id: 'cambios', hasData: hasChanges }, { id: 'eventos', hasData: hasEvents }, { id: 'historial', hasData: hasHistory }, { id: 'mantenimiento', hasData: hasMantenimiento }, ]; const currentTab = tabs.find(t => t.id === activeTab); if (currentTab && !currentTab.hasData) { const firstAvailableTab = tabs.find(t => t.hasData); if (firstAvailableTab) { setActiveTab(firstAvailableTab.id as ActiveTab); } } else if (!hasInventory && !hasChanges && !hasEvents && !hasHistory && !hasMantenimiento) { setActiveTab('inventario'); } }, [inventory.length, changeEvents.length, allEvents.length, historicalData, activeTab, loading]);
+    useEffect(() => { if (dataLoading || !userProfile) return; const hasInventory = dataForUser.inventory.length > 0; const hasChanges = dataForUser.changeEvents.length > 0; const hasEvents = dataForUser.allEvents.length > 0; const hasHistory = Object.keys(dataForUser.historicalData).length > 0; const hasMantenimiento = dataForUser.allEvents.length > 0 && dataForUser.inventory.length > 0; const hasAdmin = userProfile.role === 'administrador'; const tabs: { id: ActiveTab; hasData: boolean }[] = [ { id: 'inventario', hasData: hasInventory }, { id: 'cambios', hasData: hasChanges }, { id: 'eventos', hasData: hasEvents }, { id: 'historial', hasData: hasHistory }, { id: 'mantenimiento', hasData: hasMantenimiento }, { id: 'admin', hasData: hasAdmin }]; const currentTab = tabs.find(t => t.id === activeTab); if (currentTab && !currentTab.hasData) { const firstAvailableTab = tabs.find(t => t.hasData); if (firstAvailableTab) { setActiveTab(firstAvailableTab.id as ActiveTab); } } else if (!hasInventory && !hasChanges && !hasEvents && !hasHistory && !hasMantenimiento && !hasAdmin) { setActiveTab('inventario'); } }, [dataForUser.inventory.length, dataForUser.changeEvents.length, dataForUser.allEvents.length, dataForUser.historicalData, activeTab, dataLoading, userProfile]);
 
     const handleOperatingHoursRowClick = useCallback((range: string) => { setSelectedOperatingHoursRange(prev => (prev === range ? null : range)); }, []);
     const handleCabinetZoneRowClick = useCallback((zoneName: string) => { setSelectedZoneForCabinetDetails(prev => prev === zoneName ? null : zoneName); }, []);
@@ -207,26 +259,26 @@ const App: React.FC = () => {
         dateRange, selectedZone, selectedMunicipio, selectedCategory, selectedMonth, selectedYear,
         selectedPower, selectedCalendar, searchTerm, selectedChangesYear, cardFilter, cardChangeFilter, cardInventoryFilter,
         isInventorySummariesOpen, selectedOperatingHoursRange, latestDataDate, selectedHistoricalMonthZone,
-        selectedZoneForCabinetDetails,
+        selectedZoneForCabinetDetails, userProfile
     };
     
     // --- All data calculations are performed once, based on the current state ---
-    const baseFilteredEvents = useMemo(() => { return allEvents.filter(event => { const eventDate = typeof event.date === 'string' ? parseISO(event.date) : event.date; let isDateInRange = true; if (currentAppState.dateRange.start && currentAppState.dateRange.end) { isDateInRange = isWithinInterval(eventDate, { start: currentAppState.dateRange.start, end: currentAppState.dateRange.end }); } else if (currentAppState.selectedMonth && !currentAppState.selectedYear) { isDateInRange = (eventDate.getMonth() + 1) === parseInt(currentAppState.selectedMonth, 10); } const isZoneMatch = currentAppState.selectedZone === 'all' || event.zone === currentAppState.selectedZone; const isMunicipioMatch = currentAppState.selectedMunicipio === 'all' || event.municipio === currentAppState.selectedMunicipio; const isCategoryMatch = currentAppState.selectedCategory === 'all' || event.failureCategory === currentAppState.selectedCategory; return isDateInRange && isZoneMatch && isMunicipioMatch && isCategoryMatch; }); }, [allEvents, currentAppState.dateRange, currentAppState.selectedZone, currentAppState.selectedMunicipio, currentAppState.selectedCategory, currentAppState.selectedMonth, currentAppState.selectedYear]);
-    const baseFilteredChangeEvents = useMemo(() => { return changeEvents.filter(event => { const eventDate = event.fechaRetiro; let isDateInRange = true; if (currentAppState.dateRange.start && currentAppState.dateRange.end) { isDateInRange = isWithinInterval(eventDate, { start: currentAppState.dateRange.start, end: currentAppState.dateRange.end }); } else if (currentAppState.selectedMonth && !currentAppState.selectedYear) { isDateInRange = (eventDate.getMonth() + 1) === parseInt(currentAppState.selectedMonth, 10); } const isZoneMatch = currentAppState.selectedZone === 'all' || event.zone === currentAppState.selectedZone; const isMunicipioMatch = currentAppState.selectedMunicipio === 'all' || event.municipio === currentAppState.selectedMunicipio; const searchLower = currentAppState.searchTerm.toLowerCase().trim(); if (searchLower === '') { return isDateInRange && isZoneMatch && isMunicipioMatch; } const normalizedSearchTerm = searchLower.replace(/:/g, '').replace(/\s/g, ''); const isSearchMatch = (event.poleIdExterno || '').toLowerCase().replace(/:/g, '').replace(/\s/g, '').includes(normalizedSearchTerm) || (event.streetlightIdExterno || '').toLowerCase().replace(/:/g, '').replace(/\s/g, '').includes(normalizedSearchTerm) || (event.componente || '').toLowerCase().includes(searchLower) || (event.designacionTipo || '').toLowerCase().includes(searchLower) || (event.cabinetIdExterno || '').toLowerCase().includes(searchLower); return isDateInRange && isZoneMatch && isMunicipioMatch && isSearchMatch; }); }, [changeEvents, currentAppState.dateRange, currentAppState.selectedZone, currentAppState.selectedMunicipio, currentAppState.searchTerm, currentAppState.selectedMonth, currentAppState.selectedYear]);
-    const displayInventory = useMemo(() => { return inventory.filter(item => { const relevantDate = item.fechaInauguracion && item.fechaInstalacion ? (item.fechaInauguracion > item.fechaInstalacion ? item.fechaInauguracion : item.fechaInstalacion) : item.fechaInauguracion || item.fechaInstalacion; let isDateInRange = true; if (relevantDate && currentAppState.dateRange.start && currentAppState.dateRange.end) { isDateInRange = isWithinInterval(relevantDate, { start: currentAppState.dateRange.start, end: currentAppState.dateRange.end }); } const isZoneMatch = currentAppState.selectedZone === 'all' || item.zone === currentAppState.selectedZone; const isMunicipioMatch = currentAppState.selectedMunicipio === 'all' || item.municipio === currentAppState.selectedMunicipio; const isPowerMatch = currentAppState.selectedPower === 'all' || String(item.potenciaNominal) === currentAppState.selectedPower; const isCalendarMatch = currentAppState.selectedCalendar === 'all' || item.dimmingCalendar === currentAppState.selectedCalendar; return isDateInRange && isZoneMatch && isMunicipioMatch && isPowerMatch && isCalendarMatch; }); }, [inventory, currentAppState.dateRange, currentAppState.selectedZone, currentAppState.selectedMunicipio, currentAppState.selectedPower, currentAppState.selectedCalendar]);
+    const baseFilteredEvents = useMemo(() => { return dataForUser.allEvents.filter(event => { const eventDate = typeof event.date === 'string' ? parseISO(event.date) : event.date; let isDateInRange = true; if (currentAppState.dateRange.start && currentAppState.dateRange.end) { isDateInRange = isWithinInterval(eventDate, { start: currentAppState.dateRange.start, end: currentAppState.dateRange.end }); } else if (currentAppState.selectedMonth && !currentAppState.selectedYear) { isDateInRange = (eventDate.getMonth() + 1) === parseInt(currentAppState.selectedMonth, 10); } const isZoneMatch = currentAppState.selectedZone === 'all' || event.zone === currentAppState.selectedZone; const isMunicipioMatch = currentAppState.selectedMunicipio === 'all' || event.municipio === currentAppState.selectedMunicipio; const isCategoryMatch = currentAppState.selectedCategory === 'all' || event.failureCategory === currentAppState.selectedCategory; return isDateInRange && isZoneMatch && isMunicipioMatch && isCategoryMatch; }); }, [dataForUser.allEvents, currentAppState.dateRange, currentAppState.selectedZone, currentAppState.selectedMunicipio, currentAppState.selectedCategory, currentAppState.selectedMonth, currentAppState.selectedYear]);
+    const baseFilteredChangeEvents = useMemo(() => { return dataForUser.changeEvents.filter(event => { const eventDate = event.fechaRetiro; let isDateInRange = true; if (currentAppState.dateRange.start && currentAppState.dateRange.end) { isDateInRange = isWithinInterval(eventDate, { start: currentAppState.dateRange.start, end: currentAppState.dateRange.end }); } else if (currentAppState.selectedMonth && !currentAppState.selectedYear) { isDateInRange = (eventDate.getMonth() + 1) === parseInt(currentAppState.selectedMonth, 10); } const isZoneMatch = currentAppState.selectedZone === 'all' || event.zone === currentAppState.selectedZone; const isMunicipioMatch = currentAppState.selectedMunicipio === 'all' || event.municipio === currentAppState.selectedMunicipio; const searchLower = currentAppState.searchTerm.toLowerCase().trim(); if (searchLower === '') { return isDateInRange && isZoneMatch && isMunicipioMatch; } const normalizedSearchTerm = searchLower.replace(/:/g, '').replace(/\s/g, ''); const isSearchMatch = (event.poleIdExterno || '').toLowerCase().replace(/:/g, '').replace(/\s/g, '').includes(normalizedSearchTerm) || (event.streetlightIdExterno || '').toLowerCase().replace(/:/g, '').replace(/\s/g, '').includes(normalizedSearchTerm) || (event.componente || '').toLowerCase().includes(searchLower) || (event.designacionTipo || '').toLowerCase().includes(searchLower) || (event.cabinetIdExterno || '').toLowerCase().includes(searchLower); return isDateInRange && isZoneMatch && isMunicipioMatch && isSearchMatch; }); }, [dataForUser.changeEvents, currentAppState.dateRange, currentAppState.selectedZone, currentAppState.selectedMunicipio, currentAppState.searchTerm, currentAppState.selectedMonth, currentAppState.selectedYear]);
+    const displayInventory = useMemo(() => { return dataForUser.inventory.filter(item => { const relevantDate = item.fechaInauguracion && item.fechaInstalacion ? (item.fechaInauguracion > item.fechaInstalacion ? item.fechaInauguracion : item.fechaInstalacion) : item.fechaInauguracion || item.fechaInstalacion; let isDateInRange = true; if (relevantDate && currentAppState.dateRange.start && currentAppState.dateRange.end) { isDateInRange = isWithinInterval(relevantDate, { start: currentAppState.dateRange.start, end: currentAppState.dateRange.end }); } const isZoneMatch = currentAppState.selectedZone === 'all' || item.zone === currentAppState.selectedZone; const isMunicipioMatch = currentAppState.selectedMunicipio === 'all' || item.municipio === currentAppState.selectedMunicipio; const isPowerMatch = currentAppState.selectedPower === 'all' || String(item.potenciaNominal) === currentAppState.selectedPower; const isCalendarMatch = currentAppState.selectedCalendar === 'all' || item.dimmingCalendar === currentAppState.selectedCalendar; return isDateInRange && isZoneMatch && isMunicipioMatch && isPowerMatch && isCalendarMatch; }); }, [dataForUser.inventory, currentAppState.dateRange, currentAppState.selectedZone, currentAppState.selectedMunicipio, currentAppState.selectedPower, currentAppState.selectedCalendar]);
     const finalDisplayInventory = useMemo(() => { if (!currentAppState.cardInventoryFilter) { return displayInventory; } return displayInventory.filter(item => { const itemValue = item[currentAppState.cardInventoryFilter.key]; if (typeof itemValue !== 'string') { return false; } const filterValue = currentAppState.cardInventoryFilter.value.toUpperCase().trim(); const processedItemValue = itemValue.toUpperCase().trim(); if (currentAppState.cardInventoryFilter.key === 'situacion' && filterValue === 'VANDALIZADO') { return processedItemValue.startsWith('VANDALIZADO'); } return processedItemValue === filterValue; }); }, [displayInventory, currentAppState.cardInventoryFilter]);
     const displayEvents = useMemo(() => { if (!currentAppState.cardFilter) { return baseFilteredEvents; } switch (currentAppState.cardFilter) { case 'lowCurrent': return baseFilteredEvents.filter(e => e.description.trim() === ERROR_DESC_LOW_CURRENT); case 'highCurrent': return baseFilteredEvents.filter(e => e.description.trim() === ERROR_DESC_HIGH_CURRENT); case 'voltage': return baseFilteredEvents.filter(e => e.description.trim() === ERROR_DESC_VOLTAGE); case 'columnaCaida': return baseFilteredEvents.filter(e => e.failureCategory === 'Columna Caída'); case 'hurto': return baseFilteredEvents.filter(e => e.failureCategory === 'Hurto'); case 'vandalizado': return baseFilteredEvents.filter(e => e.failureCategory === 'Vandalizado'); case 'inaccesible': return baseFilteredEvents.filter(e => e.failureCategory === 'Inaccesible'); default: return baseFilteredEvents; } }, [baseFilteredEvents, currentAppState.cardFilter]);
     const displayChangeEvents = useMemo(() => { if (!currentAppState.cardChangeFilter) { return baseFilteredChangeEvents; } switch (currentAppState.cardChangeFilter) { case 'luminaria': return baseFilteredChangeEvents.filter(e => e.componente.toUpperCase().includes('LUMINARIA')); case 'olc': return baseFilteredChangeEvents.filter(e => e.componente.toUpperCase().includes('OLC')); case 'garantia': return baseFilteredChangeEvents.filter(e => e.condicion.toLowerCase() === 'garantia'); case 'vandalizado': return baseFilteredChangeEvents.filter(e => e.condicion.toLowerCase() === 'vandalizado'); case 'columnaCaidaChange': return baseFilteredChangeEvents.filter(e => e.condicion.toLowerCase() === 'columna caída'); case 'hurtoChange': return baseFilteredChangeEvents.filter(e => e.condicion.toLowerCase() === 'hurto'); default: return baseFilteredChangeEvents; } }, [baseFilteredChangeEvents, currentAppState.cardChangeFilter]);
     
     // --- Memoized derived data for charts and tables ---
-    const failureCategories = useMemo(() => { const categories = new Set(allEvents.map(e => e.failureCategory).filter((c): c is string => !!c)); return Array.from(categories).sort(); }, [allEvents]);
-    const zones = useMemo(() => { const zoneSet = new Set([...allEvents.map(e => e.zone), ...changeEvents.map(e => e.zone), ...inventory.map(i => i.zone)]); return Array.from(zoneSet).sort(); }, [allEvents, changeEvents, inventory]);
-    const municipios = useMemo(() => { const municipioSet = new Set([...allEvents.map(e => e.municipio), ...changeEvents.map(e => e.municipio), ...inventory.map(i => i.municipio)]); return Array.from(municipioSet).sort(); }, [allEvents, changeEvents, inventory]);
+    const failureCategories = useMemo(() => { const categories = new Set(dataForUser.allEvents.map(e => e.failureCategory).filter((c): c is string => !!c)); return Array.from(categories).sort(); }, [dataForUser.allEvents]);
+    const zones = useMemo(() => { const zoneSet = new Set([...dataForUser.allEvents.map(e => e.zone), ...dataForUser.changeEvents.map(e => e.zone), ...dataForUser.inventory.map(i => i.zone)]); return Array.from(zoneSet).sort(); }, [dataForUser.allEvents, dataForUser.changeEvents, dataForUser.inventory]);
+    const municipios = useMemo(() => { const municipioSet = new Set([...dataForUser.allEvents.map(e => e.municipio), ...dataForUser.changeEvents.map(e => e.municipio), ...dataForUser.inventory.map(i => i.municipio)]); return Array.from(municipioSet).sort(); }, [dataForUser.allEvents, dataForUser.changeEvents, dataForUser.inventory]);
     const filteredMunicipios = useMemo(() => { if (currentAppState.selectedZone === 'all') { return municipios; } return municipios.filter(m => MUNICIPIO_TO_ZONE_MAP[m.toUpperCase()] === currentAppState.selectedZone); }, [currentAppState.selectedZone, municipios]);
     useEffect(() => { if (isMainApp.current && selectedMunicipio !== 'all' && !filteredMunicipios.includes(selectedMunicipio)) { setSelectedMunicipio('all'); } }, [selectedZone, filteredMunicipios, selectedMunicipio]);
-    const availableYears = useMemo(() => { if (allEvents.length === 0 && changeEvents.length === 0) return []; const years = new Set<string>(); allEvents.forEach(event => { years.add(format(event.date, 'yyyy')); }); changeEvents.forEach(event => { years.add(format(event.fechaRetiro, 'yyyy')); }); return Array.from(years).sort((a: string, b: string) => parseInt(b) - parseInt(a)); }, [allEvents, changeEvents]);
-    const availablePowers = useMemo(() => { const powers = new Set(inventory.map(i => i.potenciaNominal).filter((p): p is number => p != null)); return Array.from(powers).sort((a: number, b: number) => a - b).map(String); }, [inventory]);
-    const availableCalendars = useMemo(() => { const calendars = new Set(inventory.map(i => i.dimmingCalendar).filter((c): c is string => !!c && c !== '-')); return Array.from(calendars).sort(); }, [inventory]);
+    const availableYears = useMemo(() => { if (dataForUser.allEvents.length === 0 && dataForUser.changeEvents.length === 0) return []; const years = new Set<string>(); dataForUser.allEvents.forEach(event => { years.add(format(event.date, 'yyyy')); }); dataForUser.changeEvents.forEach(event => { years.add(format(event.fechaRetiro, 'yyyy')); }); return Array.from(years).sort((a: string, b: string) => parseInt(b) - parseInt(a)); }, [dataForUser.allEvents, dataForUser.changeEvents]);
+    const availablePowers = useMemo(() => { const powers = new Set(dataForUser.inventory.map(i => i.potenciaNominal).filter((p): p is number => p != null)); return Array.from(powers).sort((a: number, b: number) => a - b).map(String); }, [dataForUser.inventory]);
+    const availableCalendars = useMemo(() => { const calendars = new Set(dataForUser.inventory.map(i => i.dimmingCalendar).filter((c): c is string => !!c && c !== '-')); return Array.from(calendars).sort(); }, [dataForUser.inventory]);
     
     useEffect(() => {
         if (availableYears.length > 0 && !selectedChangesYear) {
@@ -237,7 +289,7 @@ const App: React.FC = () => {
     // --- Metrics Calculations ---
     const uniqueCabinetCount = useMemo(() => new Set(displayInventory.map(i => i.cabinetIdExterno).filter((c): c is string => !!c && c.trim() !== '' && c.trim() !== '-')).size, [displayInventory]);
     const inauguratedCount = useMemo(() => displayInventory.filter(item => item.fechaInauguracion).length, [displayInventory]);
-    const markedCount = useMemo(() => inventory.filter(item => item.marked?.trim().toUpperCase() === 'YES').length, [inventory]);
+    const markedCount = useMemo(() => dataForUser.inventory.filter(item => item.marked?.trim().toUpperCase() === 'YES').length, [dataForUser.inventory]);
     const uniqueAccountCount = useMemo(() => new Set(displayInventory.map(i => i.nroCuenta).filter((c): c is string => !!c && c.trim() !== '' && c.trim() !== '-')).size, [displayInventory]);
     const vandalizadoInventoryCount = useMemo(() => displayInventory.filter(item => item.situacion?.toUpperCase().trim().startsWith('VANDALIZADO')).length, [displayInventory]);
     const hurtoInventoryCount = useMemo(() => displayInventory.filter(item => item.situacion?.toUpperCase().trim() === 'HURTO').length, [displayInventory]);
@@ -257,10 +309,9 @@ const App: React.FC = () => {
     const vandalizadoChangesCount = useMemo(() => baseFilteredChangeEvents.filter(e => e.condicion.toLowerCase() === 'vandalizado').length, [baseFilteredChangeEvents]);
     const columnaCaidaChangesCount = useMemo(() => baseFilteredChangeEvents.filter(e => e.condicion.toLowerCase() === 'columna caída').length, [baseFilteredChangeEvents]);
     const hurtoChangesCount = useMemo(() => baseFilteredChangeEvents.filter(e => e.condicion.toLowerCase() === 'hurto').length, [baseFilteredChangeEvents]);
-    const oldestEventsByZone = useMemo(() => { if (allEvents.length === 0) return []; const map = new Map<string, LuminaireEvent>(); for (let i = allEvents.length - 1; i >= 0; i--) { const event = allEvents[i]; if (!map.has(event.zone)) { map.set(event.zone, event); } } return Array.from(map.values()).sort((a, b) => a.zone.localeCompare(b.zone)); }, [allEvents]);
-    const inventoryCountByZone = useMemo(() => inventory.reduce((acc, item) => { if (item.zone) { acc[item.zone] = (acc[item.zone] || 0) + 1; } return acc; }, {} as Record<string, number>), [inventory]);
+    const oldestEventsByZone = useMemo(() => { if (dataForUser.allEvents.length === 0) return []; const map = new Map<string, LuminaireEvent>(); for (let i = dataForUser.allEvents.length - 1; i >= 0; i--) { const event = dataForUser.allEvents[i]; if (!map.has(event.zone)) { map.set(event.zone, event); } } return Array.from(map.values()).sort((a, b) => a.zone.localeCompare(b.zone)); }, [dataForUser.allEvents]);
+    const inventoryCountByZone = useMemo(() => dataForUser.inventory.reduce((acc, item) => { if (item.zone) { acc[item.zone] = (acc[item.zone] || 0) + 1; } return acc; }, {} as Record<string, number>), [dataForUser.inventory]);
     const filteredFailureCategories = useMemo(() => { const order = ['Inaccesible', 'Roto', 'Error de configuración', 'Falla de hardware', 'Falla de voltaje', 'Hurto', 'Vandalizado', 'Columna Caída']; const allCats = Array.from(new Set(baseFilteredEvents.map(e => e.failureCategory).filter((c): c is string => !!c))); return allCats.sort((a: string, b: string) => { const iA = order.indexOf(a); const iB = order.indexOf(b); if (iA !== -1 && iB !== -1) return iA - iB; if (iA !== -1) return -1; if (iB !== -1) return 1; return a.localeCompare(b); }); }, [baseFilteredEvents]);
-    // FIX: A potential "Spread types" error can occur when an object with an index signature is spread. Replaced with manual construction for safety.
     const failureDataByZone = useMemo(() => {
         if (Object.keys(inventoryCountByZone).length === 0) return { data: [], categories: [] };
         const counts = baseFilteredEvents.reduce((acc, event) => {
@@ -325,7 +376,6 @@ const App: React.FC = () => {
         const data = Object.keys(inventoryCountByMunicipio).map(muni => {
             const eventData = counts[muni] || { total: 0, categories: {} };
             const totalInventario = inventoryCountByMunicipio[muni];
-            // FIX: Replaced Object.assign with manual object construction to resolve a TypeScript type inference issue with index signatures.
             const rowData: { name: string; eventos: number; totalInventario: number; porcentaje: number; [key: string]: any; } = {
                 name: muni,
                 eventos: eventData.total,
@@ -342,25 +392,25 @@ const App: React.FC = () => {
     }, [baseFilteredEvents, displayInventory, filteredFailureCategories]);
 
     const changesByMunicipioData = useMemo(() => { const counts = baseFilteredChangeEvents.reduce((acc, event) => { if (!event.municipio) return acc; if (!acc[event.municipio]) acc[event.municipio] = { LUMINARIA: 0, OLC: 0, total: 0 }; const component = event.componente.toUpperCase(); if (component.includes('LUMINARIA')) { acc[event.municipio].LUMINARIA++; acc[event.municipio].total++; } else if (component.includes('OLC')) { acc[event.municipio].OLC++; acc[event.municipio].total++; } return acc; }, {} as Record<string, { LUMINARIA: number; OLC: number; total: number }>); return Object.entries(counts).map(([name, data]) => ({ name, ...data })).sort((a, b) => b.total - a.total); }, [baseFilteredChangeEvents]);
-    const cabinetSummaryData = useMemo(() => { const counts = inventory.reduce((acc, item) => { if (item.cabinetIdExterno) acc[item.cabinetIdExterno] = (acc[item.cabinetIdExterno] || 0) + 1; return acc; }, {} as Record<string, number>); return Object.entries(counts).map(([cabinetId, luminaireCount]) => ({ cabinetId, luminaireCount })).filter(item => item.cabinetId && item.cabinetId !== '-' && item.cabinetId.trim() !== ''); }, [inventory]);
-    const serviceSummaryData = useMemo(() => { const map = inventory.reduce((acc, item) => { if (item.nroCuenta && item.nroCuenta.trim() !== '' && item.nroCuenta.trim() !== '-') { const cuenta = item.nroCuenta.trim(); if (!acc.has(cuenta)) acc.set(cuenta, { luminaireCount: 0, totalPower: 0 }); const summary = acc.get(cuenta)!; summary.luminaireCount += 1; summary.totalPower += item.potenciaNominal || 0; } return acc; }, new Map<string, { luminaireCount: number; totalPower: number }>()); return Array.from(map.entries()).map(([nroCuenta, data]) => ({ nroCuenta, luminaireCount: data.luminaireCount, totalPower: data.totalPower })); }, [inventory]);
+    const cabinetSummaryData = useMemo(() => { const counts = dataForUser.inventory.reduce((acc, item) => { if (item.cabinetIdExterno) acc[item.cabinetIdExterno] = (acc[item.cabinetIdExterno] || 0) + 1; return acc; }, {} as Record<string, number>); return Object.entries(counts).map(([cabinetId, luminaireCount]) => ({ cabinetId, luminaireCount })).filter(item => item.cabinetId && item.cabinetId !== '-' && item.cabinetId.trim() !== ''); }, [dataForUser.inventory]);
+    const serviceSummaryData = useMemo(() => { const map = dataForUser.inventory.reduce((acc, item) => { if (item.nroCuenta && item.nroCuenta.trim() !== '' && item.nroCuenta.trim() !== '-') { const cuenta = item.nroCuenta.trim(); if (!acc.has(cuenta)) acc.set(cuenta, { luminaireCount: 0, totalPower: 0 }); const summary = acc.get(cuenta)!; summary.luminaireCount += 1; summary.totalPower += item.potenciaNominal || 0; } return acc; }, new Map<string, { luminaireCount: number; totalPower: number }>()); return Array.from(map.entries()).map(([nroCuenta, data]) => ({ nroCuenta, luminaireCount: data.luminaireCount, totalPower: data.totalPower })); }, [dataForUser.inventory]);
     const powerSummary = useMemo(() => { const items = finalDisplayInventory; if (items.length === 0) return { powerData: [], locationColumns: [], columnTotals: {}, grandTotal: 0 }; const isGroupingByZone = currentAppState.selectedZone === 'all'; const locationColumns: string[] = isGroupingByZone ? ALL_ZONES.filter(zone => items.some(item => item.zone === zone)) : Array.from(new Set<string>(items.map(item => item.municipio).filter((m): m is string => !!m))).sort(); const powers: number[] = Array.from(new Set<number>(items.map(item => item.potenciaNominal).filter((p): p is number => p != null))).sort((a, b) => a - b); const powerMap = new Map<number, Record<string, number>>(); for (const item of items) { if (item.potenciaNominal != null) { if (!powerMap.has(item.potenciaNominal)) powerMap.set(item.potenciaNominal, {}); const powerRow = powerMap.get(item.potenciaNominal)!; const location = isGroupingByZone ? item.zone : item.municipio; if (location) powerRow[location] = (powerRow[location] || 0) + 1; } } const powerData = powers.map(power => { const rowData: Record<string, number> = powerMap.get(power) || {}; const total = locationColumns.reduce((sum, loc) => sum + (rowData[loc] || 0), 0); const result: {[key: string]: any} = { power: `${power}W`, total }; locationColumns.forEach(loc => { result[loc] = (rowData as any)[loc] || 0; }); return result; }); const columnTotals: Record<string, number> = {}; let grandTotal = 0; locationColumns.forEach(loc => { const total = powerData.reduce((sum, row) => sum + ((row as any)[loc] || 0), 0); columnTotals[loc] = total; grandTotal += total; }); return { powerData, locationColumns, columnTotals, grandTotal }; }, [finalDisplayInventory, currentAppState.selectedZone]);
-    const { operatingHoursSummary, operatingHoursZones } = useMemo(() => { const items = inventory; if (items.length === 0) return { operatingHoursSummary: [], operatingHoursZones: [] }; const RANGE_STEP = 5000, MAX_HOURS = 100000; const presentZones = new Set<string>(); const countsByRange = items.reduce((acc, item) => { if (item.horasFuncionamiento != null && item.horasFuncionamiento >= 0 && item.zone) { let rangeLabel; if (item.horasFuncionamiento > MAX_HOURS) rangeLabel = `> ${MAX_HOURS.toLocaleString('es-ES')} hs`; else if (item.horasFuncionamiento <= RANGE_STEP) rangeLabel = `0 - ${RANGE_STEP.toLocaleString('es-ES')} hs`; else { const rangeIndex = Math.floor((item.horasFuncionamiento - 1) / RANGE_STEP); const rangeStart = rangeIndex * RANGE_STEP + 1; const rangeEnd = (rangeIndex + 1) * RANGE_STEP; rangeLabel = `${rangeStart.toLocaleString('es-ES')} - ${rangeEnd.toLocaleString('es-ES')} hs`; } if (!acc[rangeLabel]) acc[rangeLabel] = { total: 0 }; acc[rangeLabel].total = (acc[rangeLabel].total || 0) + 1; acc[rangeLabel][item.zone] = (acc[rangeLabel][item.zone] || 0) + 1; presentZones.add(item.zone); } return acc; }, {} as Record<string, { total: number; [zone: string]: number }>); const sortedZones = Array.from(presentZones).sort((a, b) => { const iA = ZONE_ORDER.indexOf(a); const iB = ZONE_ORDER.indexOf(b); if (iA !== -1 && iB !== -1) return iA - iB; if (iA !== -1) return -1; if (iB !== -1) return 1; return a.localeCompare(b); }); const summary = Object.entries(countsByRange).map(([range, counts]) => { const item: Record<string, any> = { range }; for (const key in counts) { item[key] = counts[key as keyof typeof counts]; } return item; }); return { operatingHoursSummary: summary, operatingHoursZones: sortedZones }; }, [inventory]);
-    const operatingHoursDetailData = useMemo((): InventoryItem[] => { if (!currentAppState.selectedOperatingHoursRange) return []; const parseRange = (rangeStr: string): { start: number; end: number } => { if (rangeStr.startsWith('>')) { const start = parseInt(rangeStr.replace(/\D/g, ''), 10); return { start, end: Infinity }; } const parts = rangeStr.replace(/ hs/g, '').replace(/\./g, '').split(' - '); return { start: parseInt(parts[0], 10), end: parseInt(parts[1], 10) }; }; const { start, end } = parseRange(currentAppState.selectedOperatingHoursRange); return inventory.filter(item => { if (item.horasFuncionamiento == null) return false; if (end === Infinity) return item.horasFuncionamiento > start; return item.horasFuncionamiento >= start && item.horasFuncionamiento <= end; }); }, [inventory, currentAppState.selectedOperatingHoursRange]);
+    const { operatingHoursSummary, operatingHoursZones } = useMemo(() => { const items = dataForUser.inventory; if (items.length === 0) return { operatingHoursSummary: [], operatingHoursZones: [] }; const RANGE_STEP = 5000, MAX_HOURS = 100000; const presentZones = new Set<string>(); const countsByRange = items.reduce((acc, item) => { if (item.horasFuncionamiento != null && item.horasFuncionamiento >= 0 && item.zone) { let rangeLabel; if (item.horasFuncionamiento > MAX_HOURS) rangeLabel = `> ${MAX_HOURS.toLocaleString('es-ES')} hs`; else if (item.horasFuncionamiento <= RANGE_STEP) rangeLabel = `0 - ${RANGE_STEP.toLocaleString('es-ES')} hs`; else { const rangeIndex = Math.floor((item.horasFuncionamiento - 1) / RANGE_STEP); const rangeStart = rangeIndex * RANGE_STEP + 1; const rangeEnd = (rangeIndex + 1) * RANGE_STEP; rangeLabel = `${rangeStart.toLocaleString('es-ES')} - ${rangeEnd.toLocaleString('es-ES')} hs`; } if (!acc[rangeLabel]) acc[rangeLabel] = { total: 0 }; acc[rangeLabel].total = (acc[rangeLabel].total || 0) + 1; acc[rangeLabel][item.zone] = (acc[rangeLabel][item.zone] || 0) + 1; presentZones.add(item.zone); } return acc; }, {} as Record<string, { total: number; [zone: string]: number }>); const sortedZones = Array.from(presentZones).sort((a, b) => { const iA = ZONE_ORDER.indexOf(a); const iB = ZONE_ORDER.indexOf(b); if (iA !== -1 && iB !== -1) return iA - iB; if (iA !== -1) return -1; if (iB !== -1) return 1; return a.localeCompare(b); }); const summary = Object.entries(countsByRange).map(([range, counts]) => { const item: Record<string, any> = { range }; for (const key in counts) { item[key] = counts[key as keyof typeof counts]; } return item; }); return { operatingHoursSummary: summary, operatingHoursZones: sortedZones }; }, [dataForUser.inventory]);
+    const operatingHoursDetailData = useMemo((): InventoryItem[] => { if (!currentAppState.selectedOperatingHoursRange) return []; const parseRange = (rangeStr: string): { start: number; end: number } => { if (rangeStr.startsWith('>')) { const start = parseInt(rangeStr.replace(/\D/g, ''), 10); return { start, end: Infinity }; } const parts = rangeStr.replace(/ hs/g, '').replace(/\./g, '').split(' - '); return { start: parseInt(parts[0], 10), end: parseInt(parts[1], 10) }; }; const { start, end } = parseRange(currentAppState.selectedOperatingHoursRange); return dataForUser.inventory.filter(item => { if (item.horasFuncionamiento == null) return false; if (end === Infinity) return item.horasFuncionamiento > start; return item.horasFuncionamiento >= start && item.horasFuncionamiento <= end; }); }, [dataForUser.inventory, currentAppState.selectedOperatingHoursRange]);
     
      // --- Historical Data Calculations ---
     const luminaireIdToInfoMap = useMemo(() => {
         const map = new Map<string, { zone: string; municipio: string }>();
-        inventory.forEach(item => {
+        dataForUser.inventory.forEach(item => {
             if (item.streetlightIdExterno && item.zone && item.municipio) {
                 map.set(item.streetlightIdExterno, { zone: item.zone, municipio: item.municipio });
             }
         });
         return map;
-    }, [inventory]);
+    }, [dataForUser.inventory]);
 
     const filteredHistoricalData = useMemo(() => {
-        const dataToFilter = historicalData;
+        const dataToFilter = dataForUser.historicalData;
         const range = currentAppState.dateRange;
         const zone = currentAppState.selectedZone;
         const municipio = currentAppState.selectedMunicipio;
@@ -386,13 +436,18 @@ const App: React.FC = () => {
                 const dailyFilteredData: { [zone: string]: HistoricalZoneData } = {};
                 
                 if (targetZone) { // Filter by a specific zone
-                    if (dayData[targetZone]) {
-                        dailyFilteredData[targetZone] = dayData[targetZone];
+                    if (dayData && typeof dayData === 'object' && (dayData as any)[targetZone]) {
+                        dailyFilteredData[targetZone] = (dayData as any)[targetZone];
                     }
                 } else { // No zone filter, include all zones
-                    // FIX: Replaced Object.assign with a for...in loop to avoid losing type information.
-                    for (const zoneKey in dayData) {
-                        dailyFilteredData[zoneKey] = dayData[zoneKey];
+                    if (dayData && typeof dayData === 'object') {
+                        // FIX: Cast dayData to iterate in for...in loop, addressing potential 'unknown' type issue.
+                        const dayDataObj = dayData as Record<string, HistoricalZoneData>;
+                        for (const zoneKey in dayDataObj) {
+                            if (Object.prototype.hasOwnProperty.call(dayDataObj, zoneKey)) {
+                                dailyFilteredData[zoneKey] = dayDataObj[zoneKey];
+                            }
+                        }
                     }
                 }
 
@@ -403,7 +458,7 @@ const App: React.FC = () => {
             }
         });
         return filtered;
-    }, [historicalData, currentAppState.dateRange, currentAppState.selectedZone, currentAppState.selectedMunicipio]);
+    }, [dataForUser.historicalData, currentAppState.dateRange, currentAppState.selectedZone, currentAppState.selectedMunicipio]);
 
     const { uniqueFailuresInDateRange, uniqueFailuresByZoneInDateRange } = useMemo(() => {
         if (!currentAppState.dateRange.start || !currentAppState.dateRange.end) {
@@ -423,24 +478,26 @@ const App: React.FC = () => {
     
         // Process historical data
         Object.values(filteredHistoricalData).forEach(dayData => {
-            Object.entries(dayData).forEach(([zoneName, zoneData]) => {
-                if (zoneData.failedLuminaireIds) {
-                    zoneData.failedLuminaireIds.forEach(id => {
-                        if (municipioFilter !== 'all') {
-                            const luminaireInfo = luminaireIdToInfoMap.get(id);
-                            if (luminaireInfo && luminaireInfo.municipio === municipioFilter) {
+            if (dayData && typeof dayData === 'object') {
+                Object.entries(dayData).forEach(([zoneName, zoneData]) => {
+                    if (zoneData.failedLuminaireIds) {
+                        zoneData.failedLuminaireIds.forEach(id => {
+                            if (municipioFilter !== 'all') {
+                                const luminaireInfo = luminaireIdToInfoMap.get(id);
+                                if (luminaireInfo && luminaireInfo.municipio === municipioFilter) {
+                                    addToZone(zoneName, id);
+                                }
+                            } else {
                                 addToZone(zoneName, id);
                             }
-                        } else {
-                            addToZone(zoneName, id);
-                        }
-                    });
-                }
-            });
+                        });
+                    }
+                });
+            }
         });
     
         // Process current day's events
-        const failureEvents = allEvents.filter(e => e.status === 'FAILURE');
+        const failureEvents = dataForUser.allEvents.filter(e => e.status === 'FAILURE');
         failureEvents.forEach(event => {
             const isDateMatch = isWithinInterval(event.date, { start: currentAppState.dateRange.start!, end: currentAppState.dateRange.end! });
             const isZoneMatch = zoneFilter === 'all' || event.zone === zoneFilter;
@@ -474,26 +531,28 @@ const App: React.FC = () => {
             uniqueFailuresByZoneInDateRange: sortedResultByZone
         };
     
-    }, [allEvents, filteredHistoricalData, currentAppState.dateRange, currentAppState.selectedZone, currentAppState.selectedMunicipio, luminaireIdToInfoMap]);
+    }, [dataForUser.allEvents, filteredHistoricalData, currentAppState.dateRange, currentAppState.selectedZone, currentAppState.selectedMunicipio, luminaireIdToInfoMap]);
 
     const cabinetFailuresInDateRange = useMemo(() => {
         const failures: { date: Date; id: string; zone: string; municipio: string }[] = [];
     
         Object.entries(filteredHistoricalData).forEach(([dateStr, dayData]) => {
-            const date = parse(dateStr, 'yyyy-MM-dd', new Date());
-            Object.entries(dayData).forEach(([zoneName, zoneData]) => {
-                if (zoneData.cabinetFailureLuminaireIds) {
-                    zoneData.cabinetFailureLuminaireIds.forEach(id => {
-                        const luminaireInfo = luminaireIdToInfoMap.get(id);
-                        failures.push({
-                            date,
-                            id,
-                            zone: zoneName,
-                            municipio: luminaireInfo?.municipio || 'Desconocido (No en Inventario)',
+            if (dayData && typeof dayData === 'object') {
+                const date = parse(dateStr, 'yyyy-MM-dd', new Date());
+                Object.entries(dayData).forEach(([zoneName, zoneData]) => {
+                    if (zoneData.cabinetFailureLuminaireIds) {
+                        zoneData.cabinetFailureLuminaireIds.forEach(id => {
+                            const luminaireInfo = luminaireIdToInfoMap.get(id);
+                            failures.push({
+                                date,
+                                id,
+                                zone: zoneName,
+                                municipio: luminaireInfo?.municipio || 'Desconocido (No en Inventario)',
+                            });
                         });
-                    });
-                }
-            });
+                    }
+                });
+            }
         });
     
         return failures;
@@ -505,9 +564,9 @@ const App: React.FC = () => {
         const { month, zone } = currentAppState.selectedHistoricalMonthZone;
         const failures: { date: Date; id: string; zone: string; municipio: string }[] = [];
 
-        Object.entries(historicalData).forEach(([dateStr, dayData]) => {
-            if (dateStr.startsWith(month)) { // Match "YYYY-MM"
-                const zoneData = dayData[zone];
+        Object.entries(dataForUser.historicalData).forEach(([dateStr, dayData]) => {
+            if (dateStr.startsWith(month) && dayData && typeof dayData === 'object') { // Match "YYYY-MM"
+                const zoneData = (dayData as Record<string, HistoricalZoneData>)[zone];
                 if (zoneData && zoneData.cabinetFailureLuminaireIds) {
                      const date = parse(dateStr, 'yyyy-MM-dd', new Date());
                      zoneData.cabinetFailureLuminaireIds.forEach(id => {
@@ -523,18 +582,18 @@ const App: React.FC = () => {
             }
         });
         return failures;
-    }, [historicalData, currentAppState.selectedHistoricalMonthZone, luminaireIdToInfoMap]);
+    }, [dataForUser.historicalData, currentAppState.selectedHistoricalMonthZone, luminaireIdToInfoMap]);
 
     const cabinetFailureAnalysis = useMemo(() => {
         const zoneFilter = currentAppState.selectedZone;
     
         const relevantInventory = zoneFilter === 'all'
-            ? inventory
-            : inventory.filter(item => item.zone === zoneFilter);
+            ? dataForUser.inventory
+            : dataForUser.inventory.filter(item => item.zone === zoneFilter);
         
         const relevantEvents = zoneFilter === 'all'
-            ? allEvents
-            : allEvents.filter(e => e.zone === zoneFilter);
+            ? dataForUser.allEvents
+            : dataForUser.allEvents.filter(e => e.zone === zoneFilter);
 
         const inventoryWithAccounts = relevantInventory.filter(item => item.nroCuenta && item.nroCuenta.trim() !== '' && item.nroCuenta.trim() !== '-');
         const luminairesByAccount = inventoryWithAccounts.reduce((acc, item) => {
@@ -587,7 +646,6 @@ const App: React.FC = () => {
             return acc;
         }, {} as Record<string, { count: number; accounts: string[] }>);
     
-        // FIX: Replaced Object.assign with an explicit object literal to prevent potential TypeScript type inference issues.
         const summaryTableData = Object.entries(summaryByZone).map(([zone, data]) => ({
             name: zone,
             count: data.count,
@@ -603,13 +661,13 @@ const App: React.FC = () => {
     
         return { summaryTableData };
     
-    }, [allEvents, inventory, currentAppState.selectedZone]);
+    }, [dataForUser.allEvents, dataForUser.inventory, currentAppState.selectedZone]);
 
     // --- New calculations for CambiosTab ---
     const changesByMonthData = useMemo(() => {
         if (!currentAppState.selectedChangesYear) return { data: [] };
 
-        const yearData = changeEvents.filter(e => format(e.fechaRetiro, 'yyyy') === currentAppState.selectedChangesYear);
+        const yearData = dataForUser.changeEvents.filter(e => format(e.fechaRetiro, 'yyyy') === currentAppState.selectedChangesYear);
         
         const counts = yearData.reduce((acc, event) => {
             const monthName = format(event.fechaRetiro, 'MMMM', { locale: es });
@@ -629,7 +687,7 @@ const App: React.FC = () => {
         const sortedData = Object.values(counts).sort((a, b) => a.date.getTime() - b.date.getTime());
         
         return { data: sortedData };
-    }, [changeEvents, currentAppState.selectedChangesYear]);
+    }, [dataForUser.changeEvents, currentAppState.selectedChangesYear]);
 
     const historicalChangesByCondition = useMemo(() => {
         const countsByYear: Record<string, {
@@ -639,7 +697,7 @@ const App: React.FC = () => {
             vandalizadoLuminaria: number; vandalizadoOlc: number;
         }> = {};
 
-        changeEvents.forEach(event => {
+        dataForUser.changeEvents.forEach(event => {
             const year = format(event.fechaRetiro, 'yyyy');
             if (!countsByYear[year]) {
                 countsByYear[year] = {
@@ -671,7 +729,7 @@ const App: React.FC = () => {
         return Object.entries(countsByYear)
             .map(([year, data]) => ({ year, ...data }))
             .sort((a, b) => parseInt(b.year) - parseInt(a.year));
-    }, [changeEvents]);
+    }, [dataForUser.changeEvents]);
 
 
     // --- Map Modal Handlers ---
@@ -679,14 +737,14 @@ const App: React.FC = () => {
         const zoneFailureData = cabinetFailureAnalysis.summaryTableData.find(d => d.name === zoneName);
         if (!zoneFailureData) return;
         const failedAccounts = new Set(zoneFailureData.accounts);
-        const pointsForMap = servicePoints.filter(sp => failedAccounts.has(sp.nroCuenta));
+        const pointsForMap = dataForUser.servicePoints.filter(sp => failedAccounts.has(sp.nroCuenta));
 
         setMapModalData({
             title: `Mapa de Tableros con Falla - ${zoneName}`,
             servicePoints: pointsForMap,
         });
         setIsMapModalOpen(true);
-    }, [cabinetFailureAnalysis.summaryTableData, servicePoints]);
+    }, [cabinetFailureAnalysis.summaryTableData, dataForUser.servicePoints]);
 
     const handleCloseMapModal = useCallback(() => setIsMapModalOpen(false), []);
 
@@ -750,7 +808,7 @@ const App: React.FC = () => {
     const handleExportHistoricalSummary = useCallback(() => {
         if (!filteredHistoricalData || Object.keys(filteredHistoricalData).length === 0) return;
     
-        // FIX: Replaced problematic Omit<> with an explicit type for monthly summaries.
+        // FIX: Replaced a complex/problematic Omit<> type with an explicit type for monthly summaries to improve type safety.
         type MonthlySummary = {
             eventos: { total: number, count: number };
             porcentaje: { total: number, count: number };
@@ -765,6 +823,7 @@ const App: React.FC = () => {
         const presentZones = new Set<string>();
     
         Object.entries(filteredHistoricalData).forEach(([dateStr, zonesData]) => {
+            if (!zonesData || typeof zonesData !== 'object') return;
             const monthKey = format(parse(dateStr, 'yyyy-MM-dd', new Date()), 'yyyy-MM');
             if (!monthlySummaries[monthKey]) monthlySummaries[monthKey] = {};
     
@@ -804,7 +863,8 @@ const App: React.FC = () => {
             dataType: 'percentage' | 'count'
         ) => {
             // FIX: Add explicit return type to map callback to ensure correct type inference for sort.
-            return Object.entries(monthlySummaries).map(([monthKey, zoneAvgs]): { date: Date; [key: string]: any } => {
+            const mappedData = Object.entries(monthlySummaries).map(([, zoneAvgs]): { date: Date; [key: string]: any } => {
+                const monthKey = Object.keys(monthlySummaries).find(key => monthlySummaries[key] === zoneAvgs)!;
                 const row: Record<string, any> = { 'Mes': format(parse(monthKey, 'yyyy-MM', new Date()), 'MMMM yyyy', { locale: es }) };
                 sortedZones.forEach(zone => {
                     const data = zoneAvgs[zone];
@@ -817,9 +877,11 @@ const App: React.FC = () => {
                         row[`${zone} (Cant. Eventos)`] = data ? data.eventos.total : 0;
                     }
                 });
-                return Object.assign(row, { date: parse(monthKey, 'yyyy-MM', new Date()) });
-// FIX: Added explicit types to sort callback parameters to resolve 'property does not exist on type unknown' error.
-            }).sort((a: { date: Date }, b: { date: Date }) => b.date.getTime() - a.date.getTime()).map(({ date, ...rest }) => rest);
+                return { ...row, date: parse(monthKey, 'yyyy-MM', new Date()) };
+            });
+
+            // FIX: Added explicit types to sort callback parameters to resolve "'date' does not exist on type 'unknown'" error due to type inference limitations.
+            return mappedData.sort((a: { date: Date }, b: { date: Date }) => b.date.getTime() - a.date.getTime()).map(({ date, ...rest }) => rest);
         };
     
         // FIX: Add explicit return type to map callback to ensure correct type inference for sort.
@@ -840,7 +902,7 @@ const App: React.FC = () => {
                 });
             });
             return { rows: rowsForMonth, date: parse(monthKey, 'yyyy-MM', new Date()) };
-// FIX: Added explicit types to sort callback parameters to resolve 'property does not exist on type unknown' error.
+        // FIX: Added explicit types to sort callback parameters to resolve "'date' does not exist on type 'unknown'" error due to type inference limitations.
         }).sort((a: { date: Date }, b: { date: Date }) => b.date.getTime() - a.date.getTime()).flatMap(item => item.rows);
 
 
@@ -857,8 +919,44 @@ const App: React.FC = () => {
     }, [filteredHistoricalData]);
 
 
+    if (authLoading) {
+        return (
+            <div className="flex items-center justify-center h-screen bg-gray-900 text-gray-200">
+                <p>Cargando autenticación...</p>
+            </div>
+        );
+    }
+    
+    if (!user) {
+        return <AuthPage />;
+    }
+
+    if (!userProfile || userProfile.accessStatus !== 'approved') {
+         const message = userProfile?.accessStatus === 'rejected' 
+            ? 'Su acceso ha sido denegado. Por favor, contacte a un administrador.'
+            : 'Su cuenta ha sido creada exitosamente. Un administrador debe aprobar su acceso y asignarle un rol para poder ingresar al sistema.';
+
+        return (
+            <div className="flex flex-col items-center justify-center h-screen bg-gray-900 text-gray-200 p-4">
+                <h2 className="text-2xl font-semibold text-cyan-400 mb-4">Acceso Pendiente o Denegado</h2>
+                <p className="text-center text-gray-400 max-w-lg mb-6">
+                   {message}
+                </p>
+                <button 
+                    onClick={() => signOut(auth)}
+                    className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md transition-colors"
+                >
+                    Cerrar Sesión
+                </button>
+            </div>
+        );
+    }
+    
     if (portalTab) {
         // Portal-specific rendering logic
+        const loading = dataLoading;
+        const error = dataError;
+
         if (loading) {
             return <div className="flex items-center justify-center h-screen bg-gray-900 text-gray-200">Cargando datos...</div>;
         }
@@ -880,6 +978,7 @@ const App: React.FC = () => {
             'eventos': 'Eventos',
             'historial': 'Historial de Eventos',
             'mantenimiento': 'Generador de Hojas de Ruta',
+            'admin': 'Administración',
         };
 
         const tabProps = {
@@ -891,7 +990,7 @@ const App: React.FC = () => {
             selectedZoneForCabinetDetails: currentAppState.selectedZoneForCabinetDetails,
             handleCabinetZoneRowClick: () => {}, handleCardClick: () => {}, handleExportFailureByZone: () => {}, handleExportFailureByMunicipio: () => {}, handleExportFilteredEvents: () => {},
             handleExportCabinetFailureAnalysis: () => {},
-            servicePoints, handleOpenMapModal: () => {},
+            servicePoints: dataForUser.servicePoints, handleOpenMapModal: () => {},
             // Cambios Props
             baseFilteredChangeEvents, displayChangeEvents, changesByMunicipioData,
             luminariaChangesCount, olcChangesCount, garantiaChangesCount, vandalizadoChangesCount, columnaCaidaChangesCount, hurtoChangesCount,
@@ -914,10 +1013,12 @@ const App: React.FC = () => {
             selectedHistoricalMonthZone: currentAppState.selectedHistoricalMonthZone,
             setSelectedHistoricalMonthZone: () => {},
             // Mantenimiento Props
-            allEvents,
-            inventory,
-            zoneBases,
-            zones,
+            allEvents: dataForUser.allEvents,
+            inventory: dataForUser.inventory,
+            zoneBases: dataForUser.zoneBases,
+            zones: zones,
+            // Admin Props
+            allZones: zones.length > 0 ? zones : ALL_ZONES,
         };
 
         const renderTabContent = () => {
@@ -926,7 +1027,8 @@ const App: React.FC = () => {
                 case 'cambios': return <CambiosTab {...tabProps} setSearchTerm={undefined} />;
                 case 'inventario': return <InventarioTab {...tabProps} />;
                 case 'historial': return <HistorialTab {...tabProps} />;
-                case 'mantenimiento': return <MantenimientoTab {...tabProps} />;
+                case 'mantenimiento': return <MantenimientoTab {...tabProps} cabinetFailureAnalysisData={cabinetFailureAnalysis.summaryTableData} servicePoints={servicePoints} />;
+                case 'admin': return <AdminTab {...tabProps} />;
                 default: return <div>Tab no encontrado</div>;
             }
         };
@@ -945,19 +1047,22 @@ const App: React.FC = () => {
     }
     
     // --- MAIN APP RENDER ---
-    const noDataLoaded = !loading && allEvents.length === 0 && changeEvents.length === 0 && inventory.length === 0;
+    const noDataLoaded = !dataLoading && dataForUser.allEvents.length === 0 && dataForUser.changeEvents.length === 0 && dataForUser.inventory.length === 0;
+    const loading = dataLoading;
+    const error = dataError;
 
     return (
         <div className="flex flex-col h-screen bg-gray-900 text-gray-200 font-sans">
             <Header
                 latestDataDate={latestDataDate}
+                userProfile={userProfile}
             />
             <main className="flex-grow container mx-auto px-4 md:px-8 pt-4 overflow-hidden flex flex-col">
                 <div className="flex-shrink-0">
                     {isFiltersVisible && (
                          <div id="filters-panel" className="bg-gray-800 shadow-lg rounded-xl p-4 mb-4">
                             <FilterControls
-                                activeTab={activeTab} dateRange={dateRange} setDateRange={setDateRange} handleSetDatePreset={handleSetDatePreset}
+                                activeTab={activeTab} userProfile={userProfile} dateRange={dateRange} setDateRange={setDateRange} handleSetDatePreset={handleSetDatePreset}
                                 selectedZone={selectedZone} setSelectedZone={setSelectedZone} selectedMunicipio={selectedMunicipio}
                                 setSelectedMunicipio={setSelectedMunicipio} municipios={filteredMunicipios} selectedCategory={selectedCategory}
                                 setSelectedCategory={setSelectedCategory} zones={zones.length > 0 ? zones : ALL_ZONES} failureCategories={failureCategories}
@@ -971,11 +1076,14 @@ const App: React.FC = () => {
 
                     <div className="border-b border-gray-700 flex justify-between items-center">
                         <nav className="-mb-px flex space-x-8" aria-label="Tabs">
-                             <TabButton tabId="inventario" title="Inventario" activeTab={activeTab} setActiveTab={setActiveTab} disabled={inventory.length === 0} onPopOut={handlePopOut} />
-                             <TabButton tabId="cambios" title="Cambios" activeTab={activeTab} setActiveTab={setActiveTab} disabled={changeEvents.length === 0} onPopOut={handlePopOut} />
-                             <TabButton tabId="eventos" title="Eventos" activeTab={activeTab} setActiveTab={setActiveTab} disabled={allEvents.length === 0} onPopOut={handlePopOut} />
-                             <TabButton tabId="historial" title="Historial de Eventos" activeTab={activeTab} setActiveTab={setActiveTab} disabled={Object.keys(historicalData).length === 0} onPopOut={handlePopOut} />
-                             <TabButton tabId="mantenimiento" title="Mantenimiento" activeTab={activeTab} setActiveTab={setActiveTab} disabled={allEvents.length === 0 || inventory.length === 0} onPopOut={handlePopOut} />
+                             <TabButton tabId="inventario" title="Inventario" activeTab={activeTab} setActiveTab={setActiveTab} disabled={dataForUser.inventory.length === 0} onPopOut={handlePopOut} />
+                             <TabButton tabId="cambios" title="Cambios" activeTab={activeTab} setActiveTab={setActiveTab} disabled={dataForUser.changeEvents.length === 0} onPopOut={handlePopOut} />
+                             <TabButton tabId="eventos" title="Eventos" activeTab={activeTab} setActiveTab={setActiveTab} disabled={dataForUser.allEvents.length === 0} onPopOut={handlePopOut} />
+                             <TabButton tabId="historial" title="Historial de Eventos" activeTab={activeTab} setActiveTab={setActiveTab} disabled={Object.keys(dataForUser.historicalData).length === 0} onPopOut={handlePopOut} />
+                             <TabButton tabId="mantenimiento" title="Mantenimiento" activeTab={activeTab} setActiveTab={setActiveTab} disabled={dataForUser.allEvents.length === 0 || dataForUser.inventory.length === 0} onPopOut={handlePopOut} />
+                             {userProfile?.role === 'administrador' && (
+                                <TabButton tabId="admin" title="Administración" activeTab={activeTab} setActiveTab={setActiveTab} onPopOut={handlePopOut} />
+                             )}
                         </nav>
                         <button
                             onClick={() => setIsFiltersVisible(v => !v)}
@@ -1006,18 +1114,18 @@ const App: React.FC = () => {
                     
                     {!loading && !error && (
                         <>
-                           {noDataLoaded && (
+                           {noDataLoaded && activeTab !== 'admin' && (
                                 <div className="text-center p-16 bg-gray-800 rounded-lg">
                                     <h2 className="text-2xl font-semibold text-gray-300">
                                        No hay datos para mostrar
                                     </h2>
                                     <p className="text-gray-500 mt-2">
-                                       No se encontró información en las fuentes de datos configuradas en Firebase.
+                                       No se encontró información en las fuentes de datos configuradas en Firebase para su zona.
                                     </p>
                                 </div>
                             )}
 
-                           {activeTab === 'eventos' && allEvents.length > 0 && (
+                           {activeTab === 'eventos' && dataForUser.allEvents.length > 0 && (
                                 poppedOutTabs.includes('eventos') ? (
                                     <div className="text-center p-16 bg-gray-800 rounded-lg">
                                         <h2 className="text-2xl font-semibold text-gray-300">Pestaña Activa en Otra Ventana</h2>
@@ -1049,12 +1157,12 @@ const App: React.FC = () => {
                                         handleExportFailureByMunicipio={handleExportFailureByMunicipio}
                                         handleExportFilteredEvents={handleExportFilteredEvents}
                                         handleExportCabinetFailureAnalysis={handleExportCabinetFailureAnalysis}
-                                        servicePoints={servicePoints}
+                                        servicePoints={dataForUser.servicePoints}
                                         handleOpenMapModal={handleOpenMapModal}
                                     />
                                 )
                            )}
-                           {activeTab === 'cambios' && changeEvents.length > 0 && (
+                           {activeTab === 'cambios' && dataForUser.changeEvents.length > 0 && (
                                 poppedOutTabs.includes('cambios') ? (
                                     <div className="text-center p-16 bg-gray-800 rounded-lg">
                                         <h2 className="text-2xl font-semibold text-gray-300">Pestaña Activa en Otra Ventana</h2>
@@ -1087,7 +1195,7 @@ const App: React.FC = () => {
                                     />
                                 )
                            )}
-                           {activeTab === 'inventario' && inventory.length > 0 && (
+                           {activeTab === 'inventario' && dataForUser.inventory.length > 0 && (
                                 poppedOutTabs.includes('inventario') ? (
                                     <div className="text-center p-16 bg-gray-800 rounded-lg">
                                         <h2 className="text-2xl font-semibold text-gray-300">Pestaña Activa en Otra Ventana</h2>
@@ -1130,7 +1238,7 @@ const App: React.FC = () => {
                                    />
                                )
                            )}
-                            {activeTab === 'historial' && Object.keys(historicalData).length > 0 && (
+                            {activeTab === 'historial' && Object.keys(dataForUser.historicalData).length > 0 && (
                                 poppedOutTabs.includes('historial') ? (
                                     <div className="text-center p-16 bg-gray-800 rounded-lg">
                                         <h2 className="text-2xl font-semibold text-gray-300">Pestaña Activa en Otra Ventana</h2>
@@ -1153,7 +1261,7 @@ const App: React.FC = () => {
                                     />
                                 )
                            )}
-                           {activeTab === 'mantenimiento' && (allEvents.length > 0 && inventory.length > 0) && (
+                           {activeTab === 'mantenimiento' && (dataForUser.allEvents.length > 0 && dataForUser.inventory.length > 0) && (
                                 poppedOutTabs.includes('mantenimiento') ? (
                                     <div className="text-center p-16 bg-gray-800 rounded-lg">
                                         <h2 className="text-2xl font-semibold text-gray-300">Pestaña Activa en Otra Ventana</h2>
@@ -1164,14 +1272,17 @@ const App: React.FC = () => {
                                     </div>
                                 ) : (
                                     <MantenimientoTab
-                                        allEvents={allEvents}
-                                        inventory={inventory}
-                                        servicePoints={servicePoints}
-                                        zoneBases={zoneBases}
+                                        allEvents={dataForUser.allEvents}
+                                        inventory={dataForUser.inventory}
+                                        servicePoints={dataForUser.servicePoints}
+                                        zoneBases={dataForUser.zoneBases}
                                         zones={zones}
                                         cabinetFailureAnalysisData={cabinetFailureAnalysis.summaryTableData}
                                     />
                                 )
+                           )}
+                            {activeTab === 'admin' && userProfile?.role === 'administrador' && (
+                                <AdminTab allZones={zones.length > 0 ? zones : ALL_ZONES} />
                            )}
                         </>
                     )}

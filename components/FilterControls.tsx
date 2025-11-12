@@ -1,8 +1,9 @@
 import React from 'react';
-import type { ActiveTab } from '../types';
+import type { ActiveTab, UserProfile } from '../types';
 
 interface FilterControlsProps {
     activeTab: ActiveTab;
+    userProfile: UserProfile | null;
     dateRange: { start: Date | null; end: Date | null };
     setDateRange: (range: { start: Date | null; end: Date | null }) => void;
     handleSetDatePreset: (preset: 'today' | 'yesterday' | 'week' | 'month' | 'year') => void;
@@ -43,8 +44,9 @@ const meses = [
     { value: '12', label: 'Diciembre' },
 ];
 
-const FilterControls: React.FC<FilterControlsProps> = ({
+export const FilterControls: React.FC<FilterControlsProps> = ({
     activeTab,
+    userProfile,
     dateRange,
     setDateRange,
     handleSetDatePreset,
@@ -69,149 +71,109 @@ const FilterControls: React.FC<FilterControlsProps> = ({
     selectedCalendar,
     setSelectedCalendar,
 }) => {
+    const dateToInputValue = (date: Date | null) => {
+        if (!date) return '';
+        const tzoffset = date.getTimezoneOffset() * 60000;
+        return (new Date(date.getTime() - tzoffset)).toISOString().split('T')[0];
+    };
+
     const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>, part: 'start' | 'end') => {
         const value = e.target.value ? new Date(e.target.value) : null;
-        setDateRange({ ...dateRange, [part]: value });
+        const newRange = { ...dateRange, [part]: value };
+        
+        if (newRange.start && newRange.end && newRange.start > newRange.end) {
+            if(part === 'start') newRange.end = newRange.start;
+            else newRange.start = newRange.end;
+        }
+        
+        setDateRange(newRange);
         setSelectedMonth('');
         setSelectedYear('');
     };
 
-    const dateToInputValue = (date: Date | null) => {
-        if (!date) return '';
-        // Adjust for timezone offset before formatting
-        const tzoffset = date.getTimezoneOffset() * 60000;
-        const localISOTime = (new Date(date.getTime() - tzoffset)).toISOString().split('T')[0];
-        return localISOTime;
-    };
-
 
     return (
-        <div className="space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-                 <div>
-                    <label htmlFor="zone-select" className="block text-sm font-medium text-gray-400 mb-1">Zona</label>
-                    <select
-                        id="zone-select"
-                        value={selectedZone}
-                        onChange={(e) => setSelectedZone(e.target.value)}
-                        className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500"
-                    >
-                        <option value="all">Todas las Zonas</option>
-                        {zones.map(zone => <option key={zone} value={zone}>{zone}</option>)}
-                    </select>
-                </div>
-                 <div>
-                    <label htmlFor="municipio-select" className="block text-sm font-medium text-gray-400 mb-1">Municipio</label>
-                    <select
-                        id="municipio-select"
-                        value={selectedMunicipio}
-                        onChange={(e) => setSelectedMunicipio(e.target.value)}
-                        className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500"
-                    >
-                        <option value="all">Todos los Municipios</option>
-                        {municipios.map(muni => <option key={muni} value={muni}>{muni}</option>)}
-                    </select>
-                </div>
-                <div>
-                    <label htmlFor="start-date-input" className="block text-sm font-medium text-gray-400 mb-1">Fecha Inicio</label>
-                    <input
-                        id="start-date-input"
-                        type="date"
-                        value={dateToInputValue(dateRange.start)}
-                        onChange={(e) => handleDateChange(e, 'start')}
-                        className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500"
-                    />
-                </div>
-                <div>
-                    <label htmlFor="end-date-input" className="block text-sm font-medium text-gray-400 mb-1">Fecha Fin</label>
-                    <input
-                        id="end-date-input"
-                        type="date"
-                        value={dateToInputValue(dateRange.end)}
-                        onChange={(e) => handleDateChange(e, 'end')}
-                        className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500"
-                    />
-                </div>
-
-                {/* Eventos & Cambios Tab Specific */}
-                {(activeTab === 'eventos' || activeTab === 'cambios') && (
-                    <>
-                        <div className="grid grid-cols-2 gap-2">
-                            <div>
-                                <label htmlFor="month-select" className="block text-sm font-medium text-gray-400 mb-1">Mes</label>
-                                <select
-                                    id="month-select"
-                                    value={selectedMonth}
-                                    onChange={(e) => setSelectedMonth(e.target.value)}
-                                    disabled={availableYears.length === 0}
-                                    className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500 disabled:opacity-50"
-                                >
-                                    <option value="">...</option>
-                                    {meses.map(mes => (
-                                        <option key={mes.value} value={mes.value}>{mes.label.substring(0,3)}</option>
-                                    ))}
-                                </select>
-                            </div>
-                            <div>
-                                <label htmlFor="year-select" className="block text-sm font-medium text-gray-400 mb-1">Año</label>
-                                <select
-                                    id="year-select"
-                                    value={selectedYear}
-                                    onChange={(e) => setSelectedYear(e.target.value)}
-                                    disabled={availableYears.length === 0}
-                                    className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500 disabled:opacity-50"
-                                >
-                                    <option value="">...</option>
-                                    {availableYears.map(year => (
-                                        <option key={year} value={year}>{year}</option>
-                                    ))}
-                                </select>
-                            </div>
-                        </div>
-                    </>
-                )}
-
-                {activeTab === 'eventos' && (
-                     <div>
-                        <label htmlFor="category-select" className="block text-sm font-medium text-gray-400 mb-1">Categoría Falla</label>
-                        <select
-                            id="category-select"
-                            value={selectedCategory}
-                            onChange={(e) => setSelectedCategory(e.target.value)}
+        <div className="flex flex-col gap-4">
+            {/* Fila 1: Filtros Principales */}
+            <div className="flex flex-wrap gap-x-6 gap-y-4 items-end">
+                {/* Rango de Fechas */}
+                <div className="flex-grow min-w-80">
+                    <label className="block text-sm font-medium text-gray-400 mb-1">Rango de Fechas</label>
+                    <div className="flex items-center gap-2">
+                        <input
+                            type="date"
+                            value={dateToInputValue(dateRange.start)}
+                            onChange={(e) => handleDateChange(e, 'start')}
                             className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500"
+                        />
+                         <span className="text-gray-500">-</span>
+                        <input
+                            type="date"
+                            value={dateToInputValue(dateRange.end)}
+                             onChange={(e) => handleDateChange(e, 'end')}
+                            className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500"
+                        />
+                    </div>
+                </div>
+
+                {/* Filtro por Mes/Año */}
+                 <div className="flex-grow min-w-60">
+                     <label className="block text-sm font-medium text-gray-400 mb-1">Por Mes/Año</label>
+                     <div className="flex gap-2">
+                         <select value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500">
+                            <option value="">Mes...</option>
+                            {meses.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                         </select>
+                         <select value={selectedYear} onChange={e => setSelectedYear(e.target.value)} className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500">
+                            <option value="">Año...</option>
+                            {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
+                         </select>
+                     </div>
+                </div>
+
+                {/* Filtros de Ubicación */}
+                <div className="flex-grow min-w-60">
+                    <label className="block text-sm font-medium text-gray-400 mb-1">Ubicación</label>
+                    <div className="flex gap-2">
+                        <select
+                            value={selectedZone}
+                            onChange={(e) => setSelectedZone(e.target.value)}
+                            disabled={userProfile?.role === 'capataz' || userProfile?.role === 'cuadrilla' || userProfile?.role === 'regional'}
+                            className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                            <option value="all">Todas</option>
+                            <option value="all">Todas las Zonas</option>
+                            {zones.map(zone => <option key={zone} value={zone}>{zone}</option>)}
+                        </select>
+                        <select value={selectedMunicipio} onChange={(e) => setSelectedMunicipio(e.target.value)} className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500">
+                            <option value="all">Todos los Municipios</option>
+                            {municipios.map(m => <option key={m} value={m}>{m}</option>)}
+                        </select>
+                    </div>
+                </div>
+
+                {/* Filtros Específicos de Pestaña */}
+                {activeTab === 'eventos' && (
+                    <div className="flex-grow min-w-52">
+                        <label htmlFor="category-select" className="block text-sm font-medium text-gray-400 mb-1">Categoría de Falla</label>
+                        <select id="category-select" value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)} className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500">
+                            <option value="all">Todas las Categorías</option>
                             {failureCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                         </select>
                     </div>
                 )}
-
-                {/* Inventario Tab Specific */}
                 {activeTab === 'inventario' && (
                     <>
-                        <div>
-                            <label htmlFor="power-select" className="block text-sm font-medium text-gray-400 mb-1">Potencia</label>
-                            <select
-                                id="power-select"
-                                value={selectedPower}
-                                onChange={(e) => setSelectedPower(e.target.value)}
-                                disabled={availablePowers.length === 0}
-                                className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500 disabled:opacity-50"
-                            >
-                                <option value="all">Todas</option>
+                        <div className="flex-grow min-w-40">
+                            <label className="block text-sm font-medium text-gray-400 mb-1">Potencia</label>
+                            <select value={selectedPower} onChange={e => setSelectedPower(e.target.value)} className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500">
+                                <option value="all">Todas las Potencias</option>
                                 {availablePowers.map(p => <option key={p} value={p}>{p}W</option>)}
                             </select>
                         </div>
-                        <div>
-                            <label htmlFor="calendar-select" className="block text-sm font-medium text-gray-400 mb-1">Calendario</label>
-                            <select
-                                id="calendar-select"
-                                value={selectedCalendar}
-                                onChange={(e) => setSelectedCalendar(e.target.value)}
-                                disabled={availableCalendars.length === 0}
-                                className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500 disabled:opacity-50"
-                            >
-                                <option value="all">Todos</option>
+                         <div className="flex-grow min-w-52">
+                            <label className="block text-sm font-medium text-gray-400 mb-1">Calendario Dimming</label>
+                            <select value={selectedCalendar} onChange={e => setSelectedCalendar(e.target.value)} className="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-white focus:ring-cyan-500 focus:border-cyan-500">
+                                <option value="all">Todos los Calendarios</option>
                                 {availableCalendars.map(c => <option key={c} value={c}>{c}</option>)}
                             </select>
                         </div>
@@ -219,25 +181,22 @@ const FilterControls: React.FC<FilterControlsProps> = ({
                 )}
             </div>
 
-            <div className="flex flex-wrap gap-2 pt-4 border-t border-gray-700">
-                 <button onClick={() => handleSetDatePreset('today')} className="bg-gray-700 hover:bg-cyan-600 text-sm font-medium py-1 px-3 rounded-md transition-colors">Hoy</button>
-                 <button onClick={() => handleSetDatePreset('yesterday')} className="bg-gray-700 hover:bg-cyan-600 text-sm font-medium py-1 px-3 rounded-md transition-colors">Ayer</button>
-                 <button onClick={() => handleSetDatePreset('week')} className="bg-gray-700 hover:bg-cyan-600 text-sm font-medium py-1 px-3 rounded-md transition-colors">Últimos 7 días</button>
-                 <button onClick={() => handleSetDatePreset('month')} className="bg-gray-700 hover:bg-cyan-600 text-sm font-medium py-1 px-3 rounded-md transition-colors">Este Mes</button>
-                 <button onClick={() => handleSetDatePreset('year')} className="bg-gray-700 hover:bg-cyan-600 text-sm font-medium py-1 px-3 rounded-md transition-colors">Este Año</button>
-                 <button onClick={() => {
-                    setDateRange({start: null, end: null}); 
-                    setSelectedZone('all'); 
-                    setSelectedMunicipio('all'); 
-                    setSelectedCategory('all');
-                    setSelectedMonth('');
-                    setSelectedYear('');
-                    setSelectedPower('all');
-                    setSelectedCalendar('all');
-                 }} className="ml-auto bg-gray-700 hover:bg-red-600 text-sm font-medium py-1 px-3 rounded-md transition-colors">Limpiar Filtros</button>
-            </div>
+             {/* Fila 2: Filtros Rápidos (Condicional) */}
+             {(activeTab === 'eventos' || activeTab === 'cambios') && (
+                 <>
+                    <hr className="border-gray-700 my-2" />
+                    <div>
+                        <label className="block text-sm font-medium text-gray-400 mb-2">Filtros Rápidos de Fecha</label>
+                        <div className="flex flex-wrap gap-2">
+                            <button onClick={() => handleSetDatePreset('today')} className="text-xs bg-gray-700 hover:bg-cyan-600 text-white py-1 px-3 rounded-md transition-colors">Hoy</button>
+                            <button onClick={() => handleSetDatePreset('yesterday')} className="text-xs bg-gray-700 hover:bg-cyan-600 text-white py-1 px-3 rounded-md transition-colors">Ayer</button>
+                            <button onClick={() => handleSetDatePreset('week')} className="text-xs bg-gray-700 hover:bg-cyan-600 text-white py-1 px-3 rounded-md transition-colors">Últimos 7 Días</button>
+                            <button onClick={() => handleSetDatePreset('month')} className="text-xs bg-gray-700 hover:bg-cyan-600 text-white py-1 px-3 rounded-md transition-colors">Mes Actual</button>
+                            <button onClick={() => handleSetDatePreset('year')} className="text-xs bg-gray-700 hover:bg-cyan-600 text-white py-1 px-3 rounded-md transition-colors">Año Actual</button>
+                        </div>
+                    </div>
+                </>
+             )}
         </div>
     );
 };
-
-export default FilterControls;

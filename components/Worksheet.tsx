@@ -1,3 +1,4 @@
+
 import React, { useRef, useEffect } from 'react';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
@@ -212,7 +213,8 @@ const LuminariaWorksheetMap: React.FC<{ worksheet: LuminariaWorksheet }> = ({ wo
             });
             
             if (waypoints.length > 1) {
-                const routingControl = L.Routing.control({
+// FIX: Cast L to any to access Routing property from leaflet-routing-machine plugin.
+                const routingControl = (L as any).Routing.control({
                     waypoints: waypoints,
                     routeWhileDragging: false,
                     show: false,
@@ -223,7 +225,7 @@ const LuminariaWorksheetMap: React.FC<{ worksheet: LuminariaWorksheet }> = ({ wo
                     createMarker: () => null, // Don't create the default A/B markers
                 });
 
-                routingControl.on('routingerror', (e) => {
+                routingControl.on('routingerror', (e: any) => {
                     console.error('Error de ruteo (ignorado en UI):', e.error);
                 });
                 
@@ -312,7 +314,7 @@ const Worksheet: React.FC<WorksheetProps> = ({ worksheet }) => {
         let tableHtml = '';
 
         if (worksheet.type === 'luminaria') {
-            tableHtml = generateLuminariaTableHtml(worksheet);
+            tableHtml = generateLuminariaTableHtml(worksheet as LuminariaWorksheet);
         } else {
              tableHtml = printableRef.current?.querySelector('.worksheet-table-content')?.innerHTML || '';
         }
@@ -321,7 +323,7 @@ const Worksheet: React.FC<WorksheetProps> = ({ worksheet }) => {
         let waypointsForHtml: {lat: number, lng: number, popup: string, situacion?: string}[] = [];
         
         if (worksheet.type === 'luminaria') {
-            waypointsForHtml = worksheet.failures
+            waypointsForHtml = (worksheet as LuminariaWorksheet).failures
                 .filter(f => f.event.lat && f.event.lon)
                 .map((f, index) => {
                     const popupContent = `<b>Punto #${index + 1}</b><br><b>ID Luminaire:</b> ${f.event.id}<br><b>ID OLC:</b> ${f.event.olcHardwareDir || 'N/A'}<br><b>Potencia:</b> ${f.potencia || 'N/A'}<br><b>Situación:</b> ${f.situacion || 'N/A'}`;
@@ -333,11 +335,11 @@ const Worksheet: React.FC<WorksheetProps> = ({ worksheet }) => {
                     };
                 });
         } else {
-             if (worksheet.servicePoint.lat && worksheet.servicePoint.lon) {
+             if ((worksheet as CabinetWorksheet).servicePoint.lat && (worksheet as CabinetWorksheet).servicePoint.lon) {
                 waypointsForHtml.push({
-                    lat: worksheet.servicePoint.lat,
-                    lng: worksheet.servicePoint.lon,
-                    popup: `<b>Tablero Prioritario:</b><br/>${worksheet.servicePoint.nroCuenta}`,
+                    lat: (worksheet as CabinetWorksheet).servicePoint.lat,
+                    lng: (worksheet as CabinetWorksheet).servicePoint.lon,
+                    popup: `<b>Tablero Prioritario:</b><br/>${(worksheet as CabinetWorksheet).servicePoint.nroCuenta}`,
                     situacion: ''
                 });
              }
@@ -372,7 +374,8 @@ const Worksheet: React.FC<WorksheetProps> = ({ worksheet }) => {
                     });
 
                     if (waypoints.length > 1) {
-                         var routingControl = L.Routing.control({
+// FIX: Cast L to any to access Routing property from leaflet-routing-machine plugin.
+                         var routingControl = (L as any).Routing.control({
                             waypoints: waypoints.map(function(wp) { return L.latLng(wp.lat, wp.lng); }),
                             show: false,
                             addWaypoints: false,
@@ -381,7 +384,7 @@ const Worksheet: React.FC<WorksheetProps> = ({ worksheet }) => {
                                 styles: [{ color: '#2563eb', opacity: 0.8, weight: 5 }]
                             }
                         });
-                        routingControl.on('routingerror', function(e) {
+                        routingControl.on('routingerror', function(e: any) {
                             console.error('Error de ruteo (ignorado en HTML):', e.error);
                         });
                         routingControl.addTo(map);
@@ -461,7 +464,7 @@ const Worksheet: React.FC<WorksheetProps> = ({ worksheet }) => {
 
         const title = `${worksheet.title} ${new Date().toLocaleDateString('es-ES')}`;
         const head = [['#', 'ID Luminaria / OLC', 'ID Gabinete', 'Potencia', 'Fecha Reporte', 'Categoría', 'Situación', 'Mensaje de Error', 'Detalles Técnicos', 'Acción', 'Posible Solución', 'Actuación / Observaciones']];
-        const body = worksheet.failures.map(row => [
+        const body = (worksheet as LuminariaWorksheet).failures.map(row => [
             row.index,
             row.idLuminariaOlc,
             row.idGabinete || 'N/A',
@@ -543,13 +546,13 @@ const Worksheet: React.FC<WorksheetProps> = ({ worksheet }) => {
         >
             <div ref={printableRef} className="p-2 space-y-4">
                 <div className="worksheet-table-content">
-                    {worksheet.type === 'luminaria' && <LuminariaWorksheetTable worksheet={worksheet} />}
-                    {worksheet.type !== 'luminaria' && <CabinetWorksheetDetails worksheet={worksheet} />}
+                    {worksheet.type === 'luminaria' && <LuminariaWorksheetTable worksheet={worksheet as LuminariaWorksheet} />}
+                    {worksheet.type !== 'luminaria' && <CabinetWorksheetDetails worksheet={worksheet as CabinetWorksheet} />}
                 </div>
                 {worksheet.type === 'luminaria' && (
                     <>
                         <h3 className="text-xl font-bold text-cyan-400 mt-6 mb-2">Mapa de la Hoja de Ruta</h3>
-                        <LuminariaWorksheetMap worksheet={worksheet} />
+                        <LuminariaWorksheetMap worksheet={worksheet as LuminariaWorksheet} />
                     </>
                 )}
             </div>

@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useCallback } from 'react';
 import { format } from 'date-fns/format';
 import type { LuminaireEvent, InventoryItem, ZoneBase, ServicePoint, WorksheetData, CabinetWorksheet, LuminariaWorksheet, WorksheetRow } from '../types';
@@ -173,7 +174,8 @@ const getHtmlContentForWorksheet = (worksheet: WorksheetData) => {
                 });
 
                 if (waypoints.length > 1) {
-                     var routingControl = L.Routing.control({
+// FIX: Cast L to any to access Routing property from leaflet-routing-machine plugin.
+                     var routingControl = (L as any).Routing.control({
                         waypoints: waypoints.map(function(wp) { return L.latLng(wp.lat, wp.lng); }),
                         show: false,
                         addWaypoints: false,
