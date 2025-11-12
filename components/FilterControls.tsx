@@ -1,3 +1,4 @@
+
 import React from 'react';
 import type { ActiveTab, UserProfile } from '../types';
 
@@ -27,6 +28,7 @@ interface FilterControlsProps {
     availableCalendars: string[];
     selectedCalendar: string;
     setSelectedCalendar: (calendar: string) => void;
+    handleClearFilters: () => void; // New prop for clearing all filters
 }
 
 const meses = [
@@ -70,6 +72,7 @@ export const FilterControls: React.FC<FilterControlsProps> = ({
     availableCalendars,
     selectedCalendar,
     setSelectedCalendar,
+    handleClearFilters, // Destructure the new prop
 }) => {
     const dateToInputValue = (date: Date | null) => {
         if (!date) return '';
@@ -182,11 +185,10 @@ export const FilterControls: React.FC<FilterControlsProps> = ({
             </div>
 
              {/* Fila 2: Filtros Rápidos (Condicional) */}
-             {(activeTab === 'eventos' || activeTab === 'cambios') && (
+             {/* Removed conditional rendering for the whole block to make the "Limpiar Filtros" button always visible. */}
                  <>
                     <hr className="border-gray-700 my-2" />
-                    <div>
-                        <label className="block text-sm font-medium text-gray-400 mb-2">Filtros Rápidos de Fecha</label>
+                    <div className="flex flex-wrap items-center justify-between gap-4">
                         <div className="flex flex-wrap gap-2">
                             <button onClick={() => handleSetDatePreset('today')} className="text-xs bg-gray-700 hover:bg-cyan-600 text-white py-1 px-3 rounded-md transition-colors">Hoy</button>
                             <button onClick={() => handleSetDatePreset('yesterday')} className="text-xs bg-gray-700 hover:bg-cyan-600 text-white py-1 px-3 rounded-md transition-colors">Ayer</button>
@@ -194,9 +196,14 @@ export const FilterControls: React.FC<FilterControlsProps> = ({
                             <button onClick={() => handleSetDatePreset('month')} className="text-xs bg-gray-700 hover:bg-cyan-600 text-white py-1 px-3 rounded-md transition-colors">Mes Actual</button>
                             <button onClick={() => handleSetDatePreset('year')} className="text-xs bg-gray-700 hover:bg-cyan-600 text-white py-1 px-3 rounded-md transition-colors">Año Actual</button>
                         </div>
+                        <button
+                            onClick={handleClearFilters}
+                            className="text-xs bg-red-600 hover:bg-red-700 text-white py-1 px-3 rounded-md transition-colors"
+                        >
+                            Limpiar Filtros
+                        </button>
                     </div>
                 </>
-             )}
         </div>
     );
 };

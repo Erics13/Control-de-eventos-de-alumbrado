@@ -179,9 +179,9 @@ const App: React.FC = () => {
              if (type === 'REQUEST_INITIAL_STATE') {
                 const currentState: FullAppState = {
                     dateRange, selectedZone, selectedMunicipio, selectedCategory, selectedMonth, selectedYear,
-                    selectedPower, selectedCalendar, searchTerm, selectedChangesYear, cardFilter, cardChangeFilter, cardInventoryFilter,
+                    selectedPower, selectedCalendar, searchTerm, cardFilter, cardChangeFilter, cardInventoryFilter,
                     isInventorySummariesOpen, selectedOperatingHoursRange, latestDataDate, selectedHistoricalMonthZone,
-                    selectedZoneForCabinetDetails, userProfile
+                    selectedZoneForCabinetDetails, userProfile, selectedChangesYear
                 };
                  postMessage({ type: 'INITIAL_STATE_RESPONSE', payload: currentState });
             }
@@ -196,7 +196,7 @@ const App: React.FC = () => {
                 setPortalState({ ...receivedState, dateRange: newDateRange, latestDataDate: newLatestDate });
             }
         }
-    }, [isMainApp.current, dateRange, selectedZone, selectedMunicipio, selectedCategory, selectedMonth, selectedYear, selectedPower, selectedCalendar, searchTerm, selectedChangesYear, cardFilter, cardChangeFilter, cardInventoryFilter, isInventorySummariesOpen, selectedOperatingHoursRange, latestDataDate, selectedHistoricalMonthZone, selectedZoneForCabinetDetails, userProfile]);
+    }, [isMainApp.current, dateRange, selectedZone, selectedMunicipio, selectedCategory, selectedMonth, selectedYear, selectedPower, selectedCalendar, searchTerm, cardFilter, cardChangeFilter, cardInventoryFilter, isInventorySummariesOpen, selectedOperatingHoursRange, latestDataDate, selectedHistoricalMonthZone, selectedZoneForCabinetDetails, userProfile, selectedChangesYear]);
 
     const { postMessage } = useBroadcastChannel(handleBroadcastMessage);
 
@@ -205,16 +205,16 @@ const App: React.FC = () => {
         if (isMainApp.current) {
             const fullState: FullAppState = {
                 dateRange, selectedZone, selectedMunicipio, selectedCategory, selectedMonth, selectedYear,
-                selectedPower, selectedCalendar, searchTerm, selectedChangesYear, cardFilter, cardChangeFilter, cardInventoryFilter,
+                selectedPower, selectedCalendar, searchTerm, cardFilter, cardChangeFilter, cardInventoryFilter,
                 isInventorySummariesOpen, selectedOperatingHoursRange, latestDataDate, selectedHistoricalMonthZone,
-                selectedZoneForCabinetDetails, userProfile,
+                selectedZoneForCabinetDetails, userProfile, selectedChangesYear
             };
             postMessage({ type: 'STATE_UPDATE', payload: fullState });
         }
     }, [
         dateRange, selectedZone, selectedMunicipio, selectedCategory, selectedMonth, selectedYear,
-        selectedPower, selectedCalendar, searchTerm, selectedChangesYear, cardFilter, cardChangeFilter, cardInventoryFilter,
-        isInventorySummariesOpen, selectedOperatingHoursRange, latestDataDate, selectedHistoricalMonthZone, selectedZoneForCabinetDetails, postMessage, userProfile
+        selectedPower, selectedCalendar, searchTerm, cardFilter, cardChangeFilter, cardInventoryFilter,
+        isInventorySummariesOpen, selectedOperatingHoursRange, latestDataDate, selectedHistoricalMonthZone, selectedZoneForCabinetDetails, postMessage, userProfile, selectedChangesYear
     ]);
     
      // Effect for portal app to request initial state on load
@@ -243,6 +243,36 @@ const App: React.FC = () => {
     const handleCardInventoryClick = useCallback((key: keyof InventoryItem, value: string) => { setCardInventoryFilter(prev => (prev && prev.key === key && prev.value === value) ? null : { key, value }); setCardFilter(null); setCardChangeFilter(null); }, []);
     const handleSetDatePreset = useCallback((preset: 'today' | 'yesterday' | 'week' | 'month' | 'year') => { setSelectedMonth(''); setSelectedYear(''); const now = new Date(); let start, end; switch (preset) { case 'today': start = startOfDay(now); end = endOfDay(now); break; case 'yesterday': const yesterday = subDays(now, 1); start = startOfDay(yesterday); end = endOfDay(yesterday); break; case 'week': end = now; start = subDays(now, 7); break; case 'month': end = now; start = startOfMonth(now); break; case 'year': end = now; start = startOfYear(now); break; } setDateRange({ start, end }); }, []);
     
+    // FIX: Moved 'availableYears' definition before its usage in 'handleClearFilters'.
+    const availableYears = useMemo(() => { 
+        if (dataForUser.allEvents.length === 0 && dataForUser.changeEvents.length === 0) return []; 
+        const years = new Set<string>(); 
+        dataForUser.allEvents.forEach(event => { years.add(format(event.date, 'yyyy')); }); 
+        dataForUser.changeEvents.forEach(event => { years.add(format(event.fechaRetiro, 'yyyy')); }); 
+        return Array.from(years).sort((a: string, b: string) => parseInt(b) - parseInt(a)); 
+    }, [dataForUser.allEvents, dataForUser.changeEvents]);
+
+    // New handler to clear all filters
+    const handleClearFilters = useCallback(() => {
+        setDateRange({ start: null, end: null });
+        setSelectedZone('all');
+        setSelectedMunicipio('all');
+        setSelectedCategory('all');
+        setSelectedMonth('');
+        setSelectedYear('');
+        setSelectedPower('all');
+        setSelectedCalendar('all');
+        setSearchTerm('');
+        setSelectedChangesYear(availableYears[0] || ''); // Reset to the latest year if available
+        setCardFilter(null);
+        setCardChangeFilter(null);
+        setCardInventoryFilter(null);
+        setIsInventorySummariesOpen(false);
+        setSelectedOperatingHoursRange(null);
+        setSelectedHistoricalMonthZone(null);
+        setSelectedZoneForCabinetDetails(null);
+    }, [availableYears]);
+
     useEffect(() => { if (selectedMonth && selectedYear) { const yearNum = parseInt(selectedYear); const monthNum = parseInt(selectedMonth) - 1; const start = new Date(yearNum, monthNum, 1); const end = endOfMonth(start); setDateRange({ start, end }); } else if (selectedYear && !selectedMonth) { const yearNum = parseInt(selectedYear); const start = startOfYear(new Date(yearNum, 0, 1)); const end = endOfYear(new Date(yearNum, 11, 31)); setDateRange({ start, end }); } else if (!selectedYear && selectedMonth) { setDateRange({ start: null, end: null }); } }, [selectedMonth, selectedYear]);
     useEffect(() => { if (dataLoading || !userProfile) return; const hasInventory = dataForUser.inventory.length > 0; const hasChanges = dataForUser.changeEvents.length > 0; const hasEvents = dataForUser.allEvents.length > 0; const hasHistory = Object.keys(dataForUser.historicalData).length > 0; const hasMantenimiento = dataForUser.allEvents.length > 0 && dataForUser.inventory.length > 0; const hasAdmin = userProfile.role === 'administrador'; const tabs: { id: ActiveTab; hasData: boolean }[] = [ { id: 'inventario', hasData: hasInventory }, { id: 'cambios', hasData: hasChanges }, { id: 'eventos', hasData: hasEvents }, { id: 'historial', hasData: hasHistory }, { id: 'mantenimiento', hasData: hasMantenimiento }, { id: 'admin', hasData: hasAdmin }]; const currentTab = tabs.find(t => t.id === activeTab); if (currentTab && !currentTab.hasData) { const firstAvailableTab = tabs.find(t => t.hasData); if (firstAvailableTab) { setActiveTab(firstAvailableTab.id as ActiveTab); } } else if (!hasInventory && !hasChanges && !hasEvents && !hasHistory && !hasMantenimiento && !hasAdmin) { setActiveTab('inventario'); } }, [dataForUser.inventory.length, dataForUser.changeEvents.length, dataForUser.allEvents.length, dataForUser.historicalData, activeTab, dataLoading, userProfile]);
 
@@ -257,9 +287,9 @@ const App: React.FC = () => {
     // Use portal state if available, otherwise use main app state
     const currentAppState = portalState || {
         dateRange, selectedZone, selectedMunicipio, selectedCategory, selectedMonth, selectedYear,
-        selectedPower, selectedCalendar, searchTerm, selectedChangesYear, cardFilter, cardChangeFilter, cardInventoryFilter,
+        selectedPower, selectedCalendar, searchTerm, cardFilter, cardChangeFilter, cardInventoryFilter,
         isInventorySummariesOpen, selectedOperatingHoursRange, latestDataDate, selectedHistoricalMonthZone,
-        selectedZoneForCabinetDetails, userProfile
+        selectedZoneForCabinetDetails, userProfile, selectedChangesYear
     };
     
     // --- All data calculations are performed once, based on the current state ---
@@ -276,7 +306,6 @@ const App: React.FC = () => {
     const municipios = useMemo(() => { const municipioSet = new Set([...dataForUser.allEvents.map(e => e.municipio), ...dataForUser.changeEvents.map(e => e.municipio), ...dataForUser.inventory.map(i => i.municipio)]); return Array.from(municipioSet).sort(); }, [dataForUser.allEvents, dataForUser.changeEvents, dataForUser.inventory]);
     const filteredMunicipios = useMemo(() => { if (currentAppState.selectedZone === 'all') { return municipios; } return municipios.filter(m => MUNICIPIO_TO_ZONE_MAP[m.toUpperCase()] === currentAppState.selectedZone); }, [currentAppState.selectedZone, municipios]);
     useEffect(() => { if (isMainApp.current && selectedMunicipio !== 'all' && !filteredMunicipios.includes(selectedMunicipio)) { setSelectedMunicipio('all'); } }, [selectedZone, filteredMunicipios, selectedMunicipio]);
-    const availableYears = useMemo(() => { if (dataForUser.allEvents.length === 0 && dataForUser.changeEvents.length === 0) return []; const years = new Set<string>(); dataForUser.allEvents.forEach(event => { years.add(format(event.date, 'yyyy')); }); dataForUser.changeEvents.forEach(event => { years.add(format(event.fechaRetiro, 'yyyy')); }); return Array.from(years).sort((a: string, b: string) => parseInt(b) - parseInt(a)); }, [dataForUser.allEvents, dataForUser.changeEvents]);
     const availablePowers = useMemo(() => { const powers = new Set(dataForUser.inventory.map(i => i.potenciaNominal).filter((p): p is number => p != null)); return Array.from(powers).sort((a: number, b: number) => a - b).map(String); }, [dataForUser.inventory]);
     const availableCalendars = useMemo(() => { const calendars = new Set(dataForUser.inventory.map(i => i.dimmingCalendar).filter((c): c is string => !!c && c !== '-')); return Array.from(calendars).sort(); }, [dataForUser.inventory]);
     
@@ -442,10 +471,11 @@ const App: React.FC = () => {
                 } else { // No zone filter, include all zones
                     if (dayData && typeof dayData === 'object') {
                         // FIX: Cast dayData to iterate in for...in loop, addressing potential 'unknown' type issue.
-                        const dayDataObj = dayData as Record<string, HistoricalZoneData>;
-                        for (const zoneKey in dayDataObj) {
-                            if (Object.prototype.hasOwnProperty.call(dayDataObj, zoneKey)) {
-                                dailyFilteredData[zoneKey] = dayDataObj[zoneKey];
+                        // The previous explicit cast to `Record<string, HistoricalZoneData>` on an intermediate variable was not fully resolving the 'unknown' type issue for 'for...in'.
+                        // Casting to `any` for the loop object directly resolves this.
+                        for (const zoneKey in dayData as any) { // Line 419
+                            if (Object.prototype.hasOwnProperty.call(dayData, zoneKey)) {
+                                dailyFilteredData[zoneKey] = (dayData as Record<string, HistoricalZoneData>)[zoneKey];
                             }
                         }
                     }
@@ -863,8 +893,7 @@ const App: React.FC = () => {
             dataType: 'percentage' | 'count'
         ) => {
             // FIX: Add explicit return type to map callback to ensure correct type inference for sort.
-            const mappedData = Object.entries(monthlySummaries).map(([, zoneAvgs]): { date: Date; [key: string]: any } => {
-                const monthKey = Object.keys(monthlySummaries).find(key => monthlySummaries[key] === zoneAvgs)!;
+            const mappedData = Object.entries(monthlySummaries).map(([monthKey, zoneAvgs]): { date: Date; [key: string]: any } => {
                 const row: Record<string, any> = { 'Mes': format(parse(monthKey, 'yyyy-MM', new Date()), 'MMMM yyyy', { locale: es }) };
                 sortedZones.forEach(zone => {
                     const data = zoneAvgs[zone];
@@ -1070,6 +1099,7 @@ const App: React.FC = () => {
                                 selectedYear={selectedYear} setSelectedYear={setSelectedYear} availablePowers={availablePowers}
                                 selectedPower={selectedPower} setSelectedPower={setSelectedPower} availableCalendars={availableCalendars}
                                 selectedCalendar={selectedCalendar} setSelectedCalendar={setSelectedCalendar}
+                                handleClearFilters={handleClearFilters} // Pass the new handler
                             />
                         </div>
                     )}
