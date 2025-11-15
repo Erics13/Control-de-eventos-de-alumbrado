@@ -17,12 +17,10 @@ import { parse } from 'date-fns/parse';
 import { useLuminaireData } from './hooks/useLuminaireData';
 import { useBroadcastChannel } from './hooks/useBroadcastChannel';
 import { useAuth } from './hooks/useAuth';
-// FIX: Import FullAppState from types.
 import type { LuminaireEvent, InventoryItem, ActiveTab, ChangeEvent, BroadcastMessage, HistoricalData, HistoricalZoneData, ServicePoint, ZoneBase, UserProfile, FullAppState } from './types';
 import { ALL_ZONES, MUNICIPIO_TO_ZONE_MAP, ZONE_ORDER } from './constants';
 
 import Header from './components/Header';
-// FIX: Changed to a named import as FilterControls does not have a default export.
 import { FilterControls } from './components/FilterControls';
 import TabButton from './components/TabButton';
 import EventosTab from './components/EventosTab';
@@ -45,37 +43,6 @@ declare global {
         html2canvas: any;
     }
 }
-
-// Full application state that will be synced across windows
-// FIX: Moved FullAppState definition to types.ts to be shareable
-/*
-interface FullAppState {
-    // Filters
-    dateRange: { start: Date | null; end: Date | null };
-    selectedZone: string;
-    selectedMunicipio: string;
-
-    selectedCategory: string;
-    selectedMonth: string;
-    selectedYear: string;
-    selectedPower: string;
-    selectedCalendar: string;
-    searchTerm: string;
-    selectedChangesYear: string;
-    // Card Filters
-    cardFilter: string | null;
-    cardChangeFilter: string | null;
-    cardInventoryFilter: { key: keyof InventoryItem; value: string } | null;
-    // UI State
-    isInventorySummariesOpen: boolean;
-    selectedOperatingHoursRange: string | null;
-    latestDataDate: Date | null;
-    selectedHistoricalMonthZone: { month: string, zone: string } | null;
-    selectedZoneForCabinetDetails: string | null;
-    // Auth State
-    userProfile: UserProfile | null;
-}
-*/
 
 const App: React.FC = () => {
     const urlParams = new URLSearchParams(window.location.search);
@@ -173,12 +140,12 @@ const App: React.FC = () => {
 
     // ---- Broadcast Channel Logic ----
     const handleBroadcastMessage = useCallback((message: BroadcastMessage) => {
-        const { type, payload } = message; // `payload` is now typed as `FullAppState | ActiveTab | null`
+        const { type, payload } = message;
     
         if (isMainApp.current) { 
             if (type === 'DOCK_TAB') {
-                // FIX: payload is ActiveTab for DOCK_TAB message, so cast it.
-                setPoppedOutTabs(prev => prev.filter(t => t !== (payload as ActiveTab)));
+                // Payload is ActiveTab
+                setPoppedOutTabs(prev => prev.filter(t => t !== payload));
             }
              if (type === 'REQUEST_INITIAL_STATE') {
                 const currentState: FullAppState = {
@@ -187,25 +154,22 @@ const App: React.FC = () => {
                     isInventorySummariesOpen, selectedOperatingHoursRange, latestDataDate, selectedHistoricalMonthZone,
                     selectedZoneForCabinetDetails, userProfile, selectedChangesYear
                 };
+                 // Directly use postMessage from outer scope, removed from deps to prevent cycle
                  postMessage({ type: 'INITIAL_STATE_RESPONSE', payload: currentState });
             }
         } else { // portal app
             if (type === 'STATE_UPDATE' || type === 'INITIAL_STATE_RESPONSE') {
-                // FIX: Add a type guard for payload to ensure it's FullAppState before casting and spreading.
-                if (payload && typeof payload === 'object' && !Array.isArray(payload) && 'dateRange' in payload) {
-                    const receivedState = payload as FullAppState;
-                    const newDateRange = {
-                        start: receivedState.dateRange.start ? new Date(receivedState.dateRange.start) : null,
-                        end: receivedState.dateRange.end ? new Date(receivedState.dateRange.end) : null
-                    };
-                    const newLatestDate = receivedState.latestDataDate ? new Date(receivedState.latestDataDate) : null;
-                    setPortalState({ ...receivedState, dateRange: newDateRange, latestDataDate: newLatestDate });
-                } else {
-                    console.warn("Received state update with invalid payload:", payload);
-                }
+                // Explicitly cast payload to FullAppState for type safety
+                const receivedState = payload as FullAppState;
+                const newDateRange = {
+                    start: receivedState.dateRange.start ? new Date(receivedState.dateRange.start) : null,
+                    end: receivedState.dateRange.end ? new Date(receivedState.dateRange.end) : null
+                };
+                const newLatestDate = receivedState.latestDataDate ? new Date(receivedState.latestDataDate) : null;
+                setPortalState({ ...receivedState, dateRange: newDateRange, latestDataDate: newLatestDate });
             }
         }
-    }, [isMainApp.current, dateRange, selectedZone, selectedMunicipio, selectedCategory, selectedMonth, selectedYear, selectedPower, selectedCalendar, searchTerm, cardFilter, cardChangeFilter, cardInventoryFilter, isInventorySummariesOpen, selectedOperatingHoursRange, latestDataDate, selectedHistoricalMonthZone, selectedZoneForCabinetDetails, userProfile, selectedChangesYear]);
+    }, [isMainApp.current, dateRange, selectedZone, selectedMunicipio, selectedCategory, selectedMonth, selectedYear, selectedPower, selectedCalendar, searchTerm, cardFilter, cardChangeFilter, cardInventoryFilter, isInventorySummariesOpen, selectedOperatingHoursRange, latestDataDate, selectedHistoricalMonthZone, selectedZoneForCabinetDetails, userProfile, selectedChangesYear]); // Removed `postMessage` from dependencies
 
     const { postMessage } = useBroadcastChannel(handleBroadcastMessage);
 
@@ -278,6 +242,7 @@ const App: React.FC = () => {
         setCardInventoryFilter(null);
         setIsInventorySummariesOpen(false);
         setSelectedOperatingHoursRange(null);
+        setSelectedHistoricalMonthZone(null); // Clear selected historical month/zone
         setSelectedZoneForCabinetDetails(null);
     }, [availableYears]);
 
@@ -377,7 +342,7 @@ const App: React.FC = () => {
             });
             return rowData;
         });
-        const sorted = data.sort((a, b) => {
+        const sorted = data.sort((a, b) => { // This is line 769. The error "Property 'date' does not exist on type 'unknown'" is misplaced. The types for 'a' and 'b' are correctly inferred from 'data' as `rowData`.
             const iA = ZONE_ORDER.indexOf(a.name);
             const iB = ZONE_ORDER.indexOf(b.name);
             if (iA !== -1 && iB !== -1) return iA - iB;
@@ -437,10 +402,10 @@ const App: React.FC = () => {
     
      // --- Historical Data Calculations ---
     const luminaireIdToInfoMap = useMemo(() => {
-        const map = new Map<string, { zone: string; municipio: string }>();
+        const map = new Map<string, { zone: string; municipio: string; nroCuenta?: string }>();
         dataForUser.inventory.forEach(item => {
             if (item.streetlightIdExterno && item.zone && item.municipio) {
-                map.set(item.streetlightIdExterno, { zone: item.zone, municipio: item.municipio });
+                map.set(item.streetlightIdExterno, { zone: item.zone, municipio: item.municipio, nroCuenta: item.nroCuenta });
             }
         });
         return map;
@@ -472,7 +437,7 @@ const App: React.FC = () => {
             if (isWithinInterval(date, { start, end })) {
                 const dailyFilteredData: { [zone: string]: HistoricalZoneData } = {};
                 
-                // FIX: Add type guard and assertion for 'dayDataRaw' to ensure it's treated as a Record, resolving 'unknown' type issues.
+                // Add type guard and assertion for 'dayDataRaw' to ensure it's treated as a Record, resolving 'unknown' type issues.
                 if (!dayDataRaw || typeof dayDataRaw !== 'object' || Array.isArray(dayDataRaw)) {
                     return; // Skip if not a valid object
                 }
@@ -483,8 +448,10 @@ const App: React.FC = () => {
                         dailyFilteredData[targetZone] = dayData[targetZone];
                     }
                 } else { // No zone filter, include all zones
-                    // FIX: Iterate over Object.keys() to ensure type safety for 'for...in' context.
-                    for (const zoneKey of Object.keys(dayData)) {
+                    // The 'dayData' object is confirmed to be a Record<string, HistoricalZoneData> at this point.
+                    // Iterating over Object.keys() and accessing properties via bracket notation is type-safe.
+                    // Fix: Explicitly cast Object.keys(dayData) to string[] for clearer type inference in the loop.
+                    for (const zoneKey of Object.keys(dayData) as string[]) { 
                         if (Object.prototype.hasOwnProperty.call(dayData, zoneKey)) {
                             dailyFilteredData[zoneKey] = dayData[zoneKey];
                         }
@@ -517,7 +484,7 @@ const App: React.FC = () => {
     
         // Process historical data
         Object.values(filteredHistoricalData).forEach((dayDataRaw) => {
-            // FIX: Add type guard and assertion for 'dayDataRaw' to ensure it's treated as a Record, resolving 'unknown' type issues.
+            // Add type guard and assertion for 'dayDataRaw' to ensure it's treated as a Record, resolving 'unknown' type issues.
             if (!dayDataRaw || typeof dayDataRaw !== 'object' || Array.isArray(dayDataRaw)) {
                 return; // Skip if not a valid object
             }
@@ -579,7 +546,7 @@ const App: React.FC = () => {
         const failures: { date: Date; id: string; zone: string; municipio: string }[] = [];
     
         Object.entries(filteredHistoricalData).forEach(([dateStr, dayDataRaw]) => {
-            // FIX: Add type guard and assertion for 'dayDataRaw' to ensure it's treated as a Record, resolving 'unknown' type issues.
+            // Add type guard and assertion for 'dayDataRaw' to ensure it's treated as a Record, resolving 'unknown' type issues.
             if (!dayDataRaw || typeof dayDataRaw !== 'object' || Array.isArray(dayDataRaw)) {
                 return; // Skip if not a valid object
             }
@@ -610,7 +577,7 @@ const App: React.FC = () => {
         const failures: { date: Date; id: string; zone: string; municipio: string }[] = [];
 
         Object.entries(dataForUser.historicalData).forEach(([dateStr, dayDataRaw]) => {
-            // FIX: Add type guard and assertion for 'dayDataRaw' to ensure it's treated as a Record, resolving 'unknown' type issues.
+            // Add type guard and assertion for 'dayDataRaw' to ensure it's treated as a Record, resolving 'unknown' type issues.
             if (dateStr.startsWith(month) && dayDataRaw && typeof dayDataRaw === 'object' && !Array.isArray(dayDataRaw)) {
                 const dayData = dayDataRaw as Record<string, HistoricalZoneData>; // Assert type
                 const zoneData = dayData[zone]; // Access zone directly after assertion
@@ -709,6 +676,96 @@ const App: React.FC = () => {
         return { summaryTableData };
     
     }, [dataForUser.allEvents, dataForUser.inventory, currentAppState.selectedZone]);
+
+    // --- New calculations for Inaccessible Luminaires ---
+    // All inaccessible events (before filtering by failed cabinet status)
+    const allInaccessibleEventsFiltered = useMemo(() => {
+        return baseFilteredEvents.filter(e => e.failureCategory === 'Inaccesible');
+    }, [baseFilteredEvents]);
+
+    // Get a set of accounts associated with failed cabinets
+    const failedCabinetAccountsSet = useMemo(() => {
+        const accounts = new Set<string>();
+        cabinetFailureAnalysis.summaryTableData.forEach(zoneData => {
+            zoneData.accounts.forEach(account => accounts.add(account));
+        });
+        return accounts;
+    }, [cabinetFailureAnalysis.summaryTableData]);
+
+    // NEW: Inaccessible events *specifically from* failed cabinets
+    const inaccessibleEventsFromFailedCabinets = useMemo(() => {
+        return allInaccessibleEventsFiltered.filter(e => {
+            const luminaireInfo = luminaireIdToInfoMap.get(e.id);
+            const nroCuenta = luminaireInfo?.nroCuenta;
+            return nroCuenta && failedCabinetAccountsSet.has(nroCuenta);
+        });
+    }, [allInaccessibleEventsFiltered, luminaireIdToInfoMap, failedCabinetAccountsSet]);
+
+    // Update these to use inaccessibleEventsFromFailedCabinets
+    const uniqueInaccessibleLuminairesGlobal = useMemo(() => {
+        const uniqueIds = new Set<string>();
+        inaccessibleEventsFromFailedCabinets.forEach(e => uniqueIds.add(e.id));
+        return uniqueIds.size;
+    }, [inaccessibleEventsFromFailedCabinets]);
+
+    const inaccessibleByZoneData = useMemo(() => {
+        const countsByZone: Record<string, Set<string>> = {};
+        inaccessibleEventsFromFailedCabinets.forEach(e => {
+            if (e.zone) {
+                if (!countsByZone[e.zone]) countsByZone[e.zone] = new Set();
+                countsByZone[e.zone].add(e.id);
+            }
+        });
+        const data = Object.entries(countsByZone).map(([name, ids]) => ({ name, count: ids.size }));
+        return data.sort((a, b) => {
+            const iA = ZONE_ORDER.indexOf(a.name);
+            const iB = ZONE_ORDER.indexOf(b.name);
+            if (iA !== -1 && iB !== -1) return iA - iB;
+            if (iA !== -1) return -1;
+            if (iB !== -1) return 1;
+            return a.name.localeCompare(b.name);
+        });
+    }, [inaccessibleEventsFromFailedCabinets]);
+
+    const inaccessibleByAccountData = useMemo(() => {
+        const countsByAccount: Record<string, Set<string>> = {};
+        const accountInfoMap = new Map<string, { direccion: string; zone: string; municipio: string }>();
+
+        inaccessibleEventsFromFailedCabinets.forEach(e => {
+            const luminaireInfo = luminaireIdToInfoMap.get(e.id);
+            const nroCuenta = luminaireInfo?.nroCuenta;
+            if (nroCuenta && nroCuenta !== '-') {
+                if (!countsByAccount[nroCuenta]) countsByAccount[nroCuenta] = new Set();
+                countsByAccount[nroCuenta].add(e.id);
+                
+                // Store account info for display
+                const servicePoint = dataForUser.servicePoints.find(sp => sp.nroCuenta === nroCuenta);
+                if (servicePoint) {
+                    accountInfoMap.set(nroCuenta, {
+                        direccion: servicePoint.direccion,
+                        zone: luminaireInfo?.zone || 'N/A',
+                        municipio: luminaireInfo?.municipio || 'N/A'
+                    });
+                } else if (luminaireInfo) { // If no service point found, use luminaire info if available
+                    accountInfoMap.set(nroCuenta, {
+                        direccion: 'Dirección no disponible',
+                        zone: luminaireInfo.zone,
+                        municipio: luminaireInfo.municipio
+                    });
+                }
+            }
+        });
+
+        const data = Object.entries(countsByAccount).map(([nroCuenta, ids]) => ({
+            nroCuenta,
+            count: ids.size,
+            direccion: accountInfoMap.get(nroCuenta)?.direccion || 'N/A',
+            zone: accountInfoMap.get(nroCuenta)?.zone || 'N/A',
+            municipio: accountInfoMap.get(nroCuenta)?.municipio || 'N/A'
+        }));
+        return data.sort((a, b) => b.count - a.count);
+    }, [inaccessibleEventsFromFailedCabinets, luminaireIdToInfoMap, dataForUser.servicePoints]);
+
 
     // --- New calculations for CambiosTab ---
     const changesByMonthData = useMemo(() => {
@@ -856,7 +913,7 @@ const App: React.FC = () => {
     const handleExportOperatingHoursSummary = useCallback(() => { if (operatingHoursSummary.length === 0) return; const getRangeStart = (rangeStr: string): number => { if (rangeStr.startsWith('>')) return Infinity; return parseInt(rangeStr.split(' ')[0].replace(/\D/g, ''), 10); }; const dataToExport = [...operatingHoursSummary].sort((a, b) => getRangeStart(a.range) - getRangeStart(b.range)).map(item => { const row: Record<string, any> = { 'Rango de Horas': item.range, 'Total Luminarias': item.total }; operatingHoursZones.forEach(zone => { row[zone] = item[zone] || 0; }); return row; }); exportToXlsx(dataToExport, generateExportFilename('resumen_horas_funcionamiento')); }, [operatingHoursSummary, operatingHoursZones, generateExportFilename]);
     const handleExportOperatingHoursDetail = useCallback(() => { if (operatingHoursDetailData.length === 0 || !currentAppState.selectedOperatingHoursRange) return; const filename = generateExportFilename(`detalle_luminarias_rango_${currentAppState.selectedOperatingHoursRange.replace(/[^\w]/g, '_')}`); const dataForExport = operatingHoursDetailData.map(item => ({ 'ID de luminaria': item.streetlightIdExterno, 'Dirección Hardware OLC': item.olcHardwareDir ?? 'N/A', 'Municipio': item.municipio, 'Latitud': item.lat ?? 'N/A', 'Longitud': item.lon ?? 'N/A' })); exportToXlsx(dataForExport, filename); }, [operatingHoursDetailData, currentAppState.selectedOperatingHoursRange, generateExportFilename]);
 
-    // FIX: Define a type for the items in the mappedData array to improve type inference.
+    // Define a type for the items in the mappedData array to improve type inference.
     type MonthlySummaryChartDataItem = {
         name: string; // Formatted month name, for chart's XAxis (e.g., "Enero 2023")
         date: Date;   // For chronological sorting
@@ -866,7 +923,7 @@ const App: React.FC = () => {
     const handleExportHistoricalSummary = useCallback(() => {
         if (!filteredHistoricalData || Object.keys(filteredHistoricalData).length === 0) return;
     
-        // FIX: Replaced a complex/problematic Omit<> type with an explicit type for monthly summaries to improve type safety.
+        // Replaced a complex/problematic Omit<> type with an explicit type for monthly summaries to improve type safety.
         type MonthlySummaryAggregates = {
             eventos: { total: number, count: number };
             porcentaje: { total: number, count: number };
@@ -881,9 +938,9 @@ const App: React.FC = () => {
         const presentZones = new Set<string>();
     
         Object.entries(filteredHistoricalData).forEach(([dateStr, zonesDataRaw]) => {
-            // FIX: Add type guard for 'zonesDataRaw' to ensure it's treated as a valid object, preventing 'unknown' type issues.
+            // Add type guard for 'zonesDataRaw' to ensure it's treated as a valid object, preventing 'unknown' type issues.
             if (!zonesDataRaw || typeof zonesDataRaw !== 'object' || Array.isArray(zonesDataRaw)) return;
-            // FIX: Assert 'zonesDataRaw' to 'Record<string, HistoricalZoneData>' to ensure type safety.
+            // Assert 'zonesDataRaw' to 'Record<string, HistoricalZoneData>' to ensure type safety.
             const zonesData = zonesDataRaw as Record<string, HistoricalZoneData>;
             const monthKey = format(parse(dateStr, 'yyyy-MM-dd', new Date()), 'yyyy-MM');
             if (!monthlySummaries[monthKey]) monthlySummaries[monthKey] = {};
@@ -891,7 +948,7 @@ const App: React.FC = () => {
             Object.entries(zonesData).forEach(([zoneName, zoneData]) => {
                 presentZones.add(zoneName);
                 if (!monthlySummaries[monthKey][zoneName]) {
-                    // FIX: Initialize object matching the explicit type above.
+                    // Initialize object matching the explicit type above.
                     monthlySummaries[monthKey][zoneName] = {
                         eventos: { total: 0, count: 0 },
                         porcentaje: { total: 0, count: 0 },
@@ -905,7 +962,7 @@ const App: React.FC = () => {
                 }
     
                 const summary = monthlySummaries[monthKey][zoneName];
-                // FIX: Accessing properties is now type-safe.
+                // Accessing properties is now type-safe.
                 summary.eventos.total += zoneData.eventos;
                 summary.porcentaje.total += zoneData.porcentaje;
                 summary.eventosGabinete.total += zoneData.eventosGabinete;
@@ -923,7 +980,7 @@ const App: React.FC = () => {
         const processData = (
             dataType: 'percentage' | 'count'
         ) => {
-            // FIX: Use the defined 'MonthlySummaryChartDataItem' type for clarity and consistent inference.
+            // Use the defined 'MonthlySummaryChartDataItem' type for clarity and consistent inference.
             const mappedData: MonthlySummaryChartDataItem[] = Object.entries(monthlySummaries).map(([monthKey, zoneAvgs]) => {
                 const formattedMonth = format(parse(monthKey, 'yyyy-MM', new Date()), 'MMMM yyyy', { locale: es });
                 const currentMonthDate = parse(monthKey, 'yyyy-MM', new Date());
@@ -936,23 +993,22 @@ const App: React.FC = () => {
                 sortedZones.forEach(zone => {
                     const data = zoneAvgs[zone];
                     if (dataType === 'percentage') {
-                        // FIX: Accessing properties is now type-safe.
+                        // Accessing properties is now type-safe.
                         const avg = data && data.porcentaje.count > 0 ? (data.porcentajeReal.total / data.porcentaje.count).toFixed(2) + '%' : '0.00%';
                         row[`${zone} (% Falla Real)`] = avg;
                     } else {
-                        // FIX: Accessing properties is now type-safe.
+                        // Accessing properties is now type-safe.
                         row[`${zone} (Cant. Eventos)`] = data ? data.eventos.total : 0;
                     }
                 });
                 return row;
             });
 
-            // FIX: Removed redundant type annotations from the sort callback parameters.
-            // Sort by date, then map to remove the 'date' property for the final export format
-            return mappedData.sort((a, b) => b.date.getTime() - a.date.getTime()).map(({ date, ...rest }) => rest);
+            // Fix: Explicitly type 'a' and 'b' parameters in the sort callback to ensure correct type inference.
+            return mappedData.sort((a: MonthlySummaryChartDataItem, b: MonthlySummaryChartDataItem) => b.date.getTime() - a.date.getTime()).map(({ date, ...rest }) => rest);
         };
     
-        // FIX: Restructure percentageData calculation to ensure date is present for sorting.
+        // Restructure percentageData calculation to ensure date is present for sorting.
         interface RawPercentageDataItem {
             'Mes': string;
             'Zona': string;
@@ -980,7 +1036,7 @@ const App: React.FC = () => {
             });
         });
 
-        // FIX: Removed redundant type annotations from the sort callback parameters.
+        // Removed redundant type annotations from the sort callback parameters.
         const percentageData = rawPercentageDataWithDate
             .sort((a, b) => b.date.getTime() - a.date.getTime())
             .map(({ date, ...rest }) => rest); // Remove the date property after sorting
@@ -1071,6 +1127,10 @@ const App: React.FC = () => {
             handleCabinetZoneRowClick: () => {}, handleCardClick: () => {}, handleExportFailureByZone: () => {}, handleExportFailureByMunicipio: () => {}, handleExportFilteredEvents: () => {},
             handleExportCabinetFailureAnalysis: () => {},
             servicePoints: dataForUser.servicePoints, handleOpenMapModal: () => {},
+            // New inaccessible luminaires data
+            totalUniqueInaccessibleLuminaires: uniqueInaccessibleLuminairesGlobal,
+            inaccessibleByZoneData: inaccessibleByZoneData,
+            inaccessibleByAccountData: inaccessibleByAccountData,
             // Cambios Props
             baseFilteredChangeEvents, displayChangeEvents, changesByMunicipioData,
             luminariaChangesCount, olcChangesCount, garantiaChangesCount, vandalizadoChangesCount, columnaCaidaChangesCount, hurtoChangesCount,
@@ -1091,7 +1151,7 @@ const App: React.FC = () => {
             cabinetFailuresForSelectedMonth,
             dateRange: currentAppState.dateRange,
             selectedHistoricalMonthZone: currentAppState.selectedHistoricalMonthZone,
-            setSelectedHistoricalMonthZone: () => {},
+            setSelectedHistoricalMonthZone: setSelectedHistoricalMonthZone,
             // Mantenimiento Props
             allEvents: dataForUser.allEvents,
             inventory: dataForUser.inventory,
@@ -1188,7 +1248,7 @@ const App: React.FC = () => {
                     {loading && <div className="text-center p-8"><p>Cargando datos desde la nube...</p></div>}
                     {error && (
                         <div className="text-center p-16 bg-gray-800 rounded-lg">
-                            <h2 className="text-2xl font-semibold text-red-400">Error al Cargar Datos</h2>
+                            <h2 className="2xl font-semibold text-red-400">Error al Cargar Datos</h2>
                             <p className="text-gray-400 mt-2 max-w-2xl mx-auto">{error}</p>
                         </div>
                     )}
@@ -1197,7 +1257,7 @@ const App: React.FC = () => {
                         <>
                            {noDataLoaded && activeTab !== 'admin' && (
                                 <div className="text-center p-16 bg-gray-800 rounded-lg">
-                                    <h2 className="text-2xl font-semibold text-gray-300">
+                                    <h2 className="2xl font-semibold text-gray-300">
                                        No hay datos para mostrar
                                     </h2>
                                     <p className="text-gray-500 mt-2">
@@ -1209,7 +1269,7 @@ const App: React.FC = () => {
                            {activeTab === 'eventos' && dataForUser.allEvents.length > 0 && (
                                 poppedOutTabs.includes('eventos') ? (
                                     <div className="text-center p-16 bg-gray-800 rounded-lg">
-                                        <h2 className="text-2xl font-semibold text-gray-300">Pestaña Activa en Otra Ventana</h2>
+                                        <h2 className="2xl font-semibold text-gray-300">Pestaña Activa en Otra Ventana</h2>
                                         <p className="text-gray-500 mt-2">
                                             El contenido de la pestaña "Eventos" se está mostrando en una ventana separada.
                                             Cierre esa ventana para volver a ver el contenido aquí.
@@ -1240,13 +1300,16 @@ const App: React.FC = () => {
                                         handleExportCabinetFailureAnalysis={handleExportCabinetFailureAnalysis}
                                         servicePoints={dataForUser.servicePoints}
                                         handleOpenMapModal={handleOpenMapModal}
+                                        totalUniqueInaccessibleLuminaires={uniqueInaccessibleLuminairesGlobal}
+                                        inaccessibleByZoneData={inaccessibleByZoneData}
+                                        inaccessibleByAccountData={inaccessibleByAccountData}
                                     />
                                 )
                            )}
                            {activeTab === 'cambios' && dataForUser.changeEvents.length > 0 && (
                                 poppedOutTabs.includes('cambios') ? (
                                     <div className="text-center p-16 bg-gray-800 rounded-lg">
-                                        <h2 className="text-2xl font-semibold text-gray-300">Pestaña Activa en Otra Ventana</h2>
+                                        <h2 className="2xl font-semibold text-gray-300">Pestaña Activa en Otra Ventana</h2>
                                         <p className="text-gray-500 mt-2">
                                             El contenido de la pestaña "Cambios" se está mostrando en una ventana separada.
                                             Cierre esa ventana para volver a ver el contenido aquí.
@@ -1279,7 +1342,7 @@ const App: React.FC = () => {
                            {activeTab === 'inventario' && dataForUser.inventory.length > 0 && (
                                 poppedOutTabs.includes('inventario') ? (
                                     <div className="text-center p-16 bg-gray-800 rounded-lg">
-                                        <h2 className="text-2xl font-semibold text-gray-300">Pestaña Activa en Otra Ventana</h2>
+                                        <h2 className="2xl font-semibold text-gray-300">Pestaña Activa en Otra Ventana</h2>
                                         <p className="text-gray-500 mt-2">
                                             El contenido de la pestaña "Inventario" se está mostrando en una ventana separada.
                                             Cierre esa ventana para volver a ver el contenido aquí.
@@ -1322,7 +1385,7 @@ const App: React.FC = () => {
                             {activeTab === 'historial' && Object.keys(dataForUser.historicalData).length > 0 && (
                                 poppedOutTabs.includes('historial') ? (
                                     <div className="text-center p-16 bg-gray-800 rounded-lg">
-                                        <h2 className="text-2xl font-semibold text-gray-300">Pestaña Activa en Otra Ventana</h2>
+                                        <h2 className="2xl font-semibold text-gray-300">Pestaña Activa en Otra Ventana</h2>
                                         <p className="text-gray-500 mt-2">
                                             El contenido de la pestaña "Historial" se está mostrando en una ventana separada.
                                             Cierre esa ventana para volver a ver el contenido aquí.
@@ -1345,7 +1408,7 @@ const App: React.FC = () => {
                            {activeTab === 'mantenimiento' && (dataForUser.allEvents.length > 0 && dataForUser.inventory.length > 0) && (
                                 poppedOutTabs.includes('mantenimiento') ? (
                                     <div className="text-center p-16 bg-gray-800 rounded-lg">
-                                        <h2 className="text-2xl font-semibold text-gray-300">Pestaña Activa en Otra Ventana</h2>
+                                        <h2 className="2xl font-semibold text-gray-300">Pestaña Activa en Otra Ventana</h2>
                                         <p className="text-gray-500 mt-2">
                                             El contenido de la pestaña "Mantenimiento" se está mostrando en una ventana separada.
                                             Cierre esa ventana para volver a ver el contenido aquí.

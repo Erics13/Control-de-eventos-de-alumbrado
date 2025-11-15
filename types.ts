@@ -81,8 +81,6 @@ export interface ZoneBase {
 
 export type ActiveTab = 'eventos' | 'cambios' | 'inventario' | 'historial' | 'mantenimiento' | 'admin';
 
-export type BroadcastMessageType = 'STATE_UPDATE' | 'DOCK_TAB' | 'REQUEST_INITIAL_STATE' | 'INITIAL_STATE_RESPONSE';
-
 // Full application state that will be synced across windows
 export interface FullAppState {
     // Filters
@@ -111,11 +109,12 @@ export interface FullAppState {
     userProfile: UserProfile | null;
 }
 
-export interface BroadcastMessage {
-    type: BroadcastMessageType;
-    // FIX: Refactor BroadcastMessage payload type to improve type safety and prevent spread operator errors.
-    payload: FullAppState | ActiveTab | null;
-}
+// Refactor BroadcastMessage payload type to a discriminated union for improved type safety.
+export type BroadcastMessage =
+    | { type: 'STATE_UPDATE'; payload: FullAppState }
+    | { type: 'DOCK_TAB'; payload: ActiveTab }
+    | { type: 'REQUEST_INITIAL_STATE'; payload: null }
+    | { type: 'INITIAL_STATE_RESPONSE'; payload: FullAppState };
 
 export interface DataSourceURLs {
     events: string;

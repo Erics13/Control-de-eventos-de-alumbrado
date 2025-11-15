@@ -32,7 +32,6 @@ const FailedCabinetAccountsTable: React.FC<Props> = ({ servicePoints }) => {
                         <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Pot. Cont. (kW)</th>
                         <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Tensión</th>
                         <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Fases</th>
-                        <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Cant. Luminarias</th>
                         <th scope="col" className="px-4 py-3 text-center text-xs font-medium text-gray-300 uppercase tracking-wider">Mapa</th>
                     </tr>
                 </thead>
@@ -47,7 +46,6 @@ const FailedCabinetAccountsTable: React.FC<Props> = ({ servicePoints }) => {
                                 <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-300">{sp.potenciaContratada.toLocaleString('es-ES')}</td>
                                 <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-300">{sp.tension}</td>
                                 <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-300">{sp.fases}</td>
-                                <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-300">{sp.cantidadLuminarias.toLocaleString('es-ES')}</td>
                                 <td className="px-4 py-4 whitespace-nowrap text-sm text-center">
                                     {hasLocation ? (
                                         <button

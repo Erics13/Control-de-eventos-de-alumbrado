@@ -28,7 +28,7 @@ const ChangesByZoneChart: React.FC<{ data: ChangeEvent[] }> = ({ data }) => {
         }));
         
 // FIX: Explicitly type `a` and `b` in the sort function to resolve type errors.
-        return unsortedData.sort((a: { name: string }, b: { name: string }) => {
+        return unsortedData.sort((a: { name: string; LUMINARIA: number; OLC: number }, b: { name: string; LUMINARIA: number; OLC: number }) => {
             const indexA = ZONE_ORDER.indexOf(a.name);
             const indexB = ZONE_ORDER.indexOf(b.name);
             

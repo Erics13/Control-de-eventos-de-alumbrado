@@ -11,6 +11,8 @@ import EventTable from './EventTable';
 import OldestEventsByZone from './OldestEventsByZone';
 import FailedCabinetsByZoneTable from './FailedCabinetsByZoneTable';
 import FailedCabinetAccountsTable from './FailedCabinetAccountsTable';
+import InaccessibleByZoneTable from './InaccessibleByZoneTable';
+import InaccessibleByAccountTable from './InaccessibleByAccountTable';
 import type { LuminaireEvent, ServicePoint } from '../types';
 
 interface EventosTabProps {
@@ -48,6 +50,11 @@ interface EventosTabProps {
     handleCabinetZoneRowClick: (zoneName: string) => void;
     handleExportCabinetFailureAnalysis: () => void;
     handleOpenMapModal: (zoneName: string) => void;
+
+    // New props for inaccessible luminaires
+    totalUniqueInaccessibleLuminaires: number;
+    inaccessibleByZoneData: { name: string; count: number }[];
+    inaccessibleByAccountData: { nroCuenta: string; count: number; direccion: string; zone: string; municipio: string }[];
 }
 
 
@@ -75,6 +82,9 @@ const EventosTab: React.FC<EventosTabProps> = ({
     handleExportFilteredEvents,
     handleExportCabinetFailureAnalysis,
     handleOpenMapModal,
+    totalUniqueInaccessibleLuminaires,
+    inaccessibleByZoneData,
+    inaccessibleByAccountData,
 }) => {
     const selectedZoneData = cabinetFailureAnalysisData.find(d => d.name === selectedZoneForCabinetDetails);
     
@@ -107,8 +117,8 @@ const EventosTab: React.FC<EventosTabProps> = ({
                             data={cabinetFailureAnalysisData}
                             onRowClick={handleCabinetZoneRowClick}
                             selectedZone={selectedZoneForCabinetDetails}
-                            onShowMap={handleOpenMapModal}
                         />
+                         <p className="text-xs text-gray-500 mt-2">Un tablero se considera con falla si el 50% o más de sus luminarias asociadas están inaccesibles.</p>
                     </div>
                     <div>
                         {selectedZoneData ? (
@@ -118,6 +128,33 @@ const EventosTab: React.FC<EventosTabProps> = ({
                                 Haga clic en una fila a la izquierda para ver el listado de servicios con falla.
                             </div>
                         )}
+                    </div>
+                </div>
+            </CollapsibleSection>
+
+            <CollapsibleSection title="Análisis de Luminarias Inaccesibles" defaultOpen={true}>
+                <div className="space-y-6">
+                    <div className="bg-gray-800 shadow-lg rounded-xl p-4">
+                        <h3 className="text-xl font-bold text-cyan-400 mb-3">Indicador General</h3>
+                        <DashboardCard 
+                            title="Total Luminarias Únicas Inaccesibles" 
+                            value={totalUniqueInaccessibleLuminaires.toLocaleString()} 
+                            isActive={false} // This card doesn't filter further
+                        />
+                        <p className="text-sm text-gray-400 mt-2 max-w-lg">
+                            Este valor representa el número total de luminarias únicas que reportaron una falla de tipo "Inaccesible" dentro del período de fechas y filtros de ubicación seleccionados.
+                        </p>
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div className="bg-gray-800 shadow-lg rounded-xl p-4">
+                            <h3 className="text-lg font-semibold text-cyan-400 mb-3">Luminarias Inaccesibles por Zona</h3>
+                            <InaccessibleByZoneTable data={inaccessibleByZoneData} />
+                        </div>
+                        <div className="bg-gray-800 shadow-lg rounded-xl p-4">
+                            <h3 className="text-lg font-semibold text-cyan-400 mb-3">Luminarias Inaccesibles por Cuenta de Servicio</h3>
+                            <InaccessibleByAccountTable data={inaccessibleByAccountData} />
+                        </div>
                     </div>
                 </div>
             </CollapsibleSection>

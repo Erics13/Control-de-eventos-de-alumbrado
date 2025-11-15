@@ -348,9 +348,9 @@ const MantenimientoTab: React.FC<MantenimientoTabProps> = ({ allEvents, inventor
                             title: `Hoja de Ruta ${worksheetCounter++} (Prioritaria) - ${titlePrefix} - ${account}`,
                             type: worksheetType,
                             servicePoint,
-                            luminaires: associatedLisin([associatedLuminaires[0]?.municipio,
-                            inaccessiblePercentage: percentage,
-                            inaccessibleCount: inaccessibleCount
+                            luminaires: associatedLuminaires, // FIX: Corrected typo associatedLisin to associatedLuminaires
+                            inaccessiblePercentage: percentage, // FIX: Defined inaccessiblePercentage
+                            inaccessibleCount: inaccessibleCount // FIX: Defined inaccessibleCount
                         });
                     }
                 }
