@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useCallback } from 'react';
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
 import type { LuminaireEvent, ChangeEvent, InventoryItem, DataSourceURLs, HistoricalData, HistoricalZoneData, ServicePoint, ZoneBase } from '../types';
@@ -112,9 +111,25 @@ const parseCustomDate = (dateStr: string): Date | null => {
     return isNaN(date.getTime()) ? null : date;
 };
 
-const parseSpanishNumber = (numStr: string | undefined): number | undefined => {
+const parseNumberFromCSV = (numStr: string | undefined): number | undefined => {
     if (!numStr) return undefined;
-    const cleanedStr = numStr.trim().replace(/\./g, '').replace(/,/g, '.');
+    // Replace comma decimal separator with dot, but leave dot decimal separator as is.
+    // This handles both "12,34" -> "12.34" and "12.34" -> "12.34".
+    // It also handles thousands separators by removing them if they are dots and decimal is comma.
+    // If input is "1.234,56", it becomes "1234.56".
+    // If input is "1,234.56", it remains "1,234.56" before parseFloat. This will be an issue.
+    // A more robust solution would be:
+    const cleanedStr = numStr.trim();
+    if (cleanedStr.includes(',') && !cleanedStr.includes('.')) {
+      // Assume comma is decimal separator if no dot is present
+      return parseFloat(cleanedStr.replace(',', '.'));
+    } else if (cleanedStr.includes('.') && cleanedStr.indexOf('.') < cleanedStr.indexOf(',')) {
+      // Assume dot is thousands separator if it appears before comma
+      // This is complex and depends on the specific locale. For simplicity, assume standard float.
+      // If we see "1.234,56", replace dots with nothing, then comma with dot.
+      return parseFloat(cleanedStr.replace(/\./g, '').replace(',', '.'));
+    }
+    // Default to parseFloat with dot as decimal
     const parsed = parseFloat(cleanedStr);
     return isNaN(parsed) ? undefined : parsed;
 };
@@ -166,14 +181,15 @@ export const useLuminaireData = () => {
             if (municipioUpper === 'DESAFECTADOS' || municipioUpper === 'OBRA NUEVA' || municipioUpper === 'N/A') return;
             
             const zone = MUNICIPIO_TO_ZONE_MAP[municipioUpper] || 'Desconocida';
-            const lat = parseFloat(columns[5]?.trim().replace(',', '.'));
-            const lon = parseFloat(columns[6]?.trim().replace(',', '.'));
-            const systemMeasuredPower = parseSpanishNumber(columns[14]?.trim());
+            // Use parseNumberFromCSV for coordinates as well, after ensuring they use '.' for decimal
+            const lat = parseNumberFromCSV(columns[5]);
+            const lon = parseNumberFromCSV(columns[6]);
+            const systemMeasuredPower = parseNumberFromCSV(columns[14]);
 
             parsedEvents.push({
                 uniqueEventId, id: columns[4]?.trim(), olcId: columns[3]?.trim(), power: columns[2]?.trim(),
                 date: eventDate, municipio, zone, status: eventStatus, description, failureCategory: finalFailureCategory,
-                lat: !isNaN(lat) ? lat : undefined, lon: !isNaN(lon) ? lon : undefined,
+                lat: !isNaN(lat as number) ? (lat as number) : undefined, lon: !isNaN(lon as number) ? (lon as number) : undefined,
                 systemMeasuredPower,
             });
         });
@@ -201,15 +217,15 @@ export const useLuminaireData = () => {
             if (municipioUpper === 'DESAFECTADOS' || municipioUpper === 'OBRA NUEVA' || municipioUpper === 'N/A') return;
 
             const zone = MUNICIPIO_TO_ZONE_MAP[municipioUpper] || 'Desconocida';
-            const lat = parseFloat(columns[6]?.trim().replace(/"/g, '').replace(',', '.'));
-            const lon = parseFloat(columns[7]?.trim().replace(/"/g, '').replace(',', '.'));
+            const lat = parseNumberFromCSV(columns[6]?.trim().replace(/"/g, ''));
+            const lon = parseNumberFromCSV(columns[7]?.trim().replace(/"/g, ''));
 
             parsedChangeEvents.push({
                 uniqueId: `${poleIdExterno}-${fechaRetiro.toISOString()}-${columns[9]?.trim()}`, fechaRetiro,
                 condicion: columns[1]?.trim(), poleIdExterno,
-                horasFuncionamiento: parseSpanishNumber(columns[3]?.trim()) ?? 0,
-                recuentoConmutacion: parseSpanishNumber(columns[4]?.trim()) ?? 0,
-                municipio, zone, lat: !isNaN(lat) ? lat : undefined, lon: !isNaN(lon) ? lon : undefined,
+                horasFuncionamiento: parseNumberFromCSV(columns[3]) ?? 0,
+                recuentoConmutacion: parseNumberFromCSV(columns[4]) ?? 0,
+                municipio, zone, lat: !isNaN(lat as number) ? (lat as number) : undefined, lon: !isNaN(lon as number) ? (lon as number) : undefined,
                 streetlightIdExterno: columns[8]?.trim(), componente: columns[9]?.trim(),
                 designacionTipo: columns[10]?.trim(), cabinetIdExterno: columns[11]?.trim(),
             });
@@ -237,15 +253,15 @@ export const useLuminaireData = () => {
 
             const zone = MUNICIPIO_TO_ZONE_MAP[municipioUpper] || 'Desconocida';
             
-            const lat = parseFloat(columns[2]?.trim().replace(/"/g, '').replace(',', '.'));
-            const lon = parseFloat(columns[3]?.trim().replace(/"/g, '').replace(',', '.'));
-            const cabinetLat = parseFloat(columns[20]?.trim().replace(/"/g, '').replace(',', '.'));
-            const cabinetLon = parseFloat(columns[21]?.trim().replace(/"/g, '').replace(',', '.'));
+            const lat = parseNumberFromCSV(columns[2]?.trim().replace(/"/g, ''));
+            const lon = parseNumberFromCSV(columns[3]?.trim().replace(/"/g, ''));
+            const cabinetLat = parseNumberFromCSV(columns[20]?.trim().replace(/"/g, ''));
+            const cabinetLon = parseNumberFromCSV(columns[21]?.trim().replace(/"/g, ''));
             const olcIdExterno = parseInt(columns[15]?.trim(), 10);
             
             parsedItems.push({
-                streetlightIdExterno, municipio, zone, lat: !isNaN(lat) ? lat : undefined,
-                lon: !isNaN(lon) ? lon : undefined, nroCuenta: columns[4]?.trim(),
+                streetlightIdExterno, municipio, zone, lat: !isNaN(lat as number) ? (lat as number) : undefined,
+                lon: !isNaN(lon as number) ? (lon as number) : undefined, nroCuenta: columns[4]?.trim(),
                 situacion: columns[5]?.trim(), localidad: columns[6]?.trim(),
                 fechaInstalacion: parseCustomDate(columns[7]?.trim()) ?? undefined,
                 marked: columns[8]?.trim(), estado: columns[9]?.trim(),
@@ -254,12 +270,12 @@ export const useLuminaireData = () => {
                 ultimoInforme: parseCustomDate(columns[13]?.trim()) ?? undefined,
                 olcIdExterno: !isNaN(olcIdExterno) ? olcIdExterno : undefined,
                 luminaireIdExterno: columns[16]?.trim(),
-                horasFuncionamiento: parseSpanishNumber(columns[17]),
-                recuentoConmutacion: parseSpanishNumber(columns[18]),
+                horasFuncionamiento: parseNumberFromCSV(columns[17]),
+                recuentoConmutacion: parseNumberFromCSV(columns[18]),
                 cabinetIdExterno: columns[19]?.trim(),
-                cabinetLat: !isNaN(cabinetLat) ? cabinetLat : undefined,
-                cabinetLon: !isNaN(cabinetLon) ? cabinetLon : undefined,
-                potenciaNominal: parseSpanishNumber(columns[22]),
+                cabinetLat: !isNaN(cabinetLat as number) ? (cabinetLat as number) : undefined,
+                cabinetLon: !isNaN(cabinetLon as number) ? (cabinetLon as number) : undefined,
+                potenciaNominal: parseNumberFromCSV(columns[22]),
                 designacionTipo: columns[23]?.trim(),
             });
         });
@@ -276,24 +292,39 @@ export const useLuminaireData = () => {
         rows.forEach((row) => {
             if (row.trim() === '') return;
             const columns = parseCsvRow(row, delimiter);
-            if (columns.length < 9) return;
-            const nroCuenta = columns[0]?.trim();
-            if (!nroCuenta) return;
+            // Expected 11 columns based on the current provided data from logs:
+            // Tarifa (0), PotContrat (1), Direccion (2), ALCID (3), Num_Cuenta (4), ZONA (5), Porcent_ef (6), FASES (7), TENSION (8), POINT_X (9), POINT_Y (10)
+            if (columns.length < 11) { // Adjusted minimum column check to 11
+                 console.warn(`Skipping row due to insufficient columns (${columns.length} < 11):`, columns);
+                 return;
+            }
 
-            const lat = parseFloat(columns[7]?.trim().replace(',', '.'));
-            const lon = parseFloat(columns[8]?.trim().replace(',', '.'));
-            if (isNaN(lat) || isNaN(lon)) return;
+            const nroCuenta = columns[4]?.trim(); // Mapped to Num_Cuenta
+            if (!nroCuenta) {
+                console.warn(`Skipping row due to missing nroCuenta:`, columns);
+                return;
+            }
+
+            // Corrected indices based on the 11-column schema
+            const lon = parseNumberFromCSV(columns[9]); // Mapped to POINT_X (index 9)
+            const lat = parseNumberFromCSV(columns[10]); // Mapped to POINT_Y (index 10)
+            
+            if (isNaN(lat as number) || isNaN(lon as number)) {
+                // Log the full columns array for debugging when coordinates are invalid
+                console.warn(`Invalid coordinates for service point ${nroCuenta}: Lat='${columns[10]}', Lon='${columns[9]}'. Skipping. Raw columns:`, columns);
+                return;
+            }
 
             parsedItems.push({
                 nroCuenta,
-                tarifa: columns[1]?.trim(),
-                potenciaContratada: parseSpanishNumber(columns[2]) ?? 0,
-                tension: columns[3]?.trim(),
-                fases: columns[4]?.trim(),
-                cantidadLuminarias: parseSpanishNumber(columns[5]) ?? 0,
-                direccion: columns[6]?.trim(),
-                lat,
-                lon,
+                tarifa: columns[0]?.trim(), // Mapped to Tarifa
+                potenciaContratada: parseNumberFromCSV(columns[1]) ?? 0, // Mapped to PotContrat
+                tension: columns[8]?.trim(), // Mapped to TENSION
+                fases: columns[7]?.trim(), // Mapped to FASES
+                cantidadLuminarias: 0, // Not present in CSV, default to 0
+                direccion: columns[2]?.trim(), // Mapped to Direccion
+                lat: lat as number,
+                lon: lon as number,
             });
         });
         return parsedItems;
@@ -314,11 +345,11 @@ export const useLuminaireData = () => {
             const zoneName = columns[0]?.trim().toUpperCase();
             if (!zoneName) return;
 
-            const lat = parseFloat(columns[1]?.trim().replace(',', '.'));
-            const lon = parseFloat(columns[2]?.trim().replace(',', '.'));
+            const lat = parseNumberFromCSV(columns[1]);
+            const lon = parseNumberFromCSV(columns[2]);
             
-            if (!isNaN(lat) && !isNaN(lon)) {
-                 parsedItems.push({ zoneName, lat, lon });
+            if (!isNaN(lat as number) && !isNaN(lon as number)) {
+                 parsedItems.push({ zoneName, lat: lat as number, lon: lon as number });
             }
         });
         return parsedItems;
@@ -456,6 +487,8 @@ export const useLuminaireData = () => {
                 throw new Error("La configuración de URLs en Firebase es inválida o no se encontró.");
             }
             urls = data as DataSourceURLs;
+            // Log fetched URLs for debugging purposes
+            console.log("URLs de fuentes de datos cargadas desde Firebase:", urls);
         } catch (e: any) {
             console.error("Failed to fetch URLs from Firebase", e);
             setError(`No se pudo obtener la configuración de Firebase: ${e.message}. Intentando cargar desde la caché...`);

@@ -1,4 +1,3 @@
-
 import React from 'react';
 import CollapsibleSection from './CollapsibleSection';
 import MonthlyEventSummaryChart from './MonthlyEventSummaryChart';
@@ -88,7 +87,7 @@ const HistorialTab: React.FC<HistorialTabProps> = ({
             >
                 <div className="space-y-8">
                     <div>
-                        <h3 className="text-lg font-semibold text-cyan-400 mb-3">Promedio Mensual de Fallas Reales por Zona (%)</h3>
+                        <h3 className="text-lg font-semibold text-cyan-400 mb-3">Promedio Mensual de Fallas Reales por Zona (%s)</h3>
                         <MonthlyEventSummaryChart historicalData={historicalData} />
                     </div>
                     <div>

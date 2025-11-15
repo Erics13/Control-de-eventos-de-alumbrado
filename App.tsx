@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { signOut } from 'firebase/auth';
 import { auth } from './firebase';
@@ -18,7 +17,8 @@ import { parse } from 'date-fns/parse';
 import { useLuminaireData } from './hooks/useLuminaireData';
 import { useBroadcastChannel } from './hooks/useBroadcastChannel';
 import { useAuth } from './hooks/useAuth';
-import type { LuminaireEvent, InventoryItem, ActiveTab, ChangeEvent, BroadcastMessage, HistoricalData, HistoricalZoneData, ServicePoint, ZoneBase, UserProfile } from './types';
+// FIX: Import FullAppState from types.
+import type { LuminaireEvent, InventoryItem, ActiveTab, ChangeEvent, BroadcastMessage, HistoricalData, HistoricalZoneData, ServicePoint, ZoneBase, UserProfile, FullAppState } from './types';
 import { ALL_ZONES, MUNICIPIO_TO_ZONE_MAP, ZONE_ORDER } from './constants';
 
 import Header from './components/Header';
@@ -47,6 +47,8 @@ declare global {
 }
 
 // Full application state that will be synced across windows
+// FIX: Moved FullAppState definition to types.ts to be shareable
+/*
 interface FullAppState {
     // Filters
     dateRange: { start: Date | null; end: Date | null };
@@ -73,6 +75,7 @@ interface FullAppState {
     // Auth State
     userProfile: UserProfile | null;
 }
+*/
 
 const App: React.FC = () => {
     const urlParams = new URLSearchParams(window.location.search);
@@ -170,11 +173,12 @@ const App: React.FC = () => {
 
     // ---- Broadcast Channel Logic ----
     const handleBroadcastMessage = useCallback((message: BroadcastMessage) => {
-        const { type, payload } = message as { type: string, payload: any };
-
+        const { type, payload } = message; // `payload` is now typed as `FullAppState | ActiveTab | null`
+    
         if (isMainApp.current) { 
             if (type === 'DOCK_TAB') {
-                setPoppedOutTabs(prev => prev.filter(t => t !== payload));
+                // FIX: payload is ActiveTab for DOCK_TAB message, so cast it.
+                setPoppedOutTabs(prev => prev.filter(t => t !== (payload as ActiveTab)));
             }
              if (type === 'REQUEST_INITIAL_STATE') {
                 const currentState: FullAppState = {
@@ -185,15 +189,20 @@ const App: React.FC = () => {
                 };
                  postMessage({ type: 'INITIAL_STATE_RESPONSE', payload: currentState });
             }
-        } else { 
+        } else { // portal app
             if (type === 'STATE_UPDATE' || type === 'INITIAL_STATE_RESPONSE') {
-                const receivedState = payload as FullAppState;
-                const newDateRange = {
-                    start: receivedState.dateRange.start ? new Date(receivedState.dateRange.start) : null,
-                    end: receivedState.dateRange.end ? new Date(receivedState.dateRange.end) : null
-                };
-                const newLatestDate = receivedState.latestDataDate ? new Date(receivedState.latestDataDate) : null;
-                setPortalState({ ...receivedState, dateRange: newDateRange, latestDataDate: newLatestDate });
+                // FIX: Add a type guard for payload to ensure it's FullAppState before casting and spreading.
+                if (payload && typeof payload === 'object' && !Array.isArray(payload) && 'dateRange' in payload) {
+                    const receivedState = payload as FullAppState;
+                    const newDateRange = {
+                        start: receivedState.dateRange.start ? new Date(receivedState.dateRange.start) : null,
+                        end: receivedState.dateRange.end ? new Date(receivedState.dateRange.end) : null
+                    };
+                    const newLatestDate = receivedState.latestDataDate ? new Date(receivedState.latestDataDate) : null;
+                    setPortalState({ ...receivedState, dateRange: newDateRange, latestDataDate: newLatestDate });
+                } else {
+                    console.warn("Received state update with invalid payload:", payload);
+                }
             }
         }
     }, [isMainApp.current, dateRange, selectedZone, selectedMunicipio, selectedCategory, selectedMonth, selectedYear, selectedPower, selectedCalendar, searchTerm, cardFilter, cardChangeFilter, cardInventoryFilter, isInventorySummariesOpen, selectedOperatingHoursRange, latestDataDate, selectedHistoricalMonthZone, selectedZoneForCabinetDetails, userProfile, selectedChangesYear]);
@@ -269,7 +278,6 @@ const App: React.FC = () => {
         setCardInventoryFilter(null);
         setIsInventorySummariesOpen(false);
         setSelectedOperatingHoursRange(null);
-        setSelectedHistoricalMonthZone(null);
         setSelectedZoneForCabinetDetails(null);
     }, [availableYears]);
 
@@ -294,7 +302,7 @@ const App: React.FC = () => {
     
     // --- All data calculations are performed once, based on the current state ---
     const baseFilteredEvents = useMemo(() => { return dataForUser.allEvents.filter(event => { const eventDate = typeof event.date === 'string' ? parseISO(event.date) : event.date; let isDateInRange = true; if (currentAppState.dateRange.start && currentAppState.dateRange.end) { isDateInRange = isWithinInterval(eventDate, { start: currentAppState.dateRange.start, end: currentAppState.dateRange.end }); } else if (currentAppState.selectedMonth && !currentAppState.selectedYear) { isDateInRange = (eventDate.getMonth() + 1) === parseInt(currentAppState.selectedMonth, 10); } const isZoneMatch = currentAppState.selectedZone === 'all' || event.zone === currentAppState.selectedZone; const isMunicipioMatch = currentAppState.selectedMunicipio === 'all' || event.municipio === currentAppState.selectedMunicipio; const isCategoryMatch = currentAppState.selectedCategory === 'all' || event.failureCategory === currentAppState.selectedCategory; return isDateInRange && isZoneMatch && isMunicipioMatch && isCategoryMatch; }); }, [dataForUser.allEvents, currentAppState.dateRange, currentAppState.selectedZone, currentAppState.selectedMunicipio, currentAppState.selectedCategory, currentAppState.selectedMonth, currentAppState.selectedYear]);
-    const baseFilteredChangeEvents = useMemo(() => { return dataForUser.changeEvents.filter(event => { const eventDate = event.fechaRetiro; let isDateInRange = true; if (currentAppState.dateRange.start && currentAppState.dateRange.end) { isDateInRange = isWithinInterval(eventDate, { start: currentAppState.dateRange.start, end: currentAppState.dateRange.end }); } else if (currentAppState.selectedMonth && !currentAppState.selectedYear) { isDateInRange = (eventDate.getMonth() + 1) === parseInt(currentAppState.selectedMonth, 10); } const isZoneMatch = currentAppState.selectedZone === 'all' || event.zone === currentAppState.selectedZone; const isMunicipioMatch = currentAppState.selectedMunicipio === 'all' || event.municipio === currentAppState.selectedMunicipio; const searchLower = currentAppState.searchTerm.toLowerCase().trim(); if (searchLower === '') { return isDateInRange && isZoneMatch && isMunicipioMatch; } const normalizedSearchTerm = searchLower.replace(/:/g, '').replace(/\s/g, ''); const isSearchMatch = (event.poleIdExterno || '').toLowerCase().replace(/:/g, '').replace(/\s/g, '').includes(normalizedSearchTerm) || (event.streetlightIdExterno || '').toLowerCase().replace(/:/g, '').replace(/\s/g, '').includes(normalizedSearchTerm) || (event.componente || '').toLowerCase().includes(searchLower) || (event.designacionTipo || '').toLowerCase().includes(searchLower) || (event.cabinetIdExterno || '').toLowerCase().includes(searchLower); return isDateInRange && isZoneMatch && isMunicipioMatch && isSearchMatch; }); }, [dataForUser.changeEvents, currentAppState.dateRange, currentAppState.selectedZone, currentAppState.selectedMunicipio, currentAppState.searchTerm, currentAppState.selectedMonth, currentAppState.selectedYear]);
+    const baseFilteredChangeEvents = useMemo(() => { return dataForUser.changeEvents.filter(event => { const eventDate = event.fechaRetiro; let isDateInRange = true; if (currentAppState.dateRange.start && currentAppState.dateRange.end) { isDateInRange = isWithinInterval(eventDate, { start: currentAppState.dateRange.start, end: currentAppState.dateRange.end }); } else if (currentAppState.selectedMonth && !currentAppState.selectedYear) { isDateInRange = (eventDate.getMonth() + 1) === parseInt(currentAppState.selectedMonth, 10); } const isZoneMatch = currentAppState.selectedZone === 'all' || event.zone === currentAppState.selectedZone; const isMunicipioMatch = currentAppState.selectedMunicipio === 'all' || event.municipio === currentAppState.selectedMunicipio; const searchLower = currentAppState.searchTerm.toLowerCase().trim(); if (searchLower === '') { return isDateInRange && isZoneMatch && isMunicipioMatch; } const normalizedSearchTerm = searchLower.replace(/:/g, '').replace(/\s/g, ''); const isSearchMatch = (event.poleIdExterno || '').toLowerCase().replace(/:/g, '').replace(/\s/g, '').includes(normalizedSearchTerm) || (event.streetlightIdExterno || '').toLowerCase().replace(/:/g, '').replace(/\s/g, '').includes(normalizedSearchTerm) || (event.componente || '').toLowerCase().includes(searchLower) || (event.designacionTipo || '').toLowerCase().includes(searchLower) || (event.cabinetIdExterno || '').toLowerCase().includes(normalizedSearchTerm); return isDateInRange && isZoneMatch && isMunicipioMatch && isSearchMatch; }); }, [dataForUser.changeEvents, currentAppState.dateRange, currentAppState.selectedZone, currentAppState.selectedMunicipio, currentAppState.searchTerm, currentAppState.selectedMonth, currentAppState.selectedYear]);
     const displayInventory = useMemo(() => { return dataForUser.inventory.filter(item => { const relevantDate = item.fechaInauguracion && item.fechaInstalacion ? (item.fechaInauguracion > item.fechaInstalacion ? item.fechaInauguracion : item.fechaInstalacion) : item.fechaInauguracion || item.fechaInstalacion; let isDateInRange = true; if (relevantDate && currentAppState.dateRange.start && currentAppState.dateRange.end) { isDateInRange = isWithinInterval(relevantDate, { start: currentAppState.dateRange.start, end: currentAppState.dateRange.end }); } const isZoneMatch = currentAppState.selectedZone === 'all' || item.zone === currentAppState.selectedZone; const isMunicipioMatch = currentAppState.selectedMunicipio === 'all' || item.municipio === currentAppState.selectedMunicipio; const isPowerMatch = currentAppState.selectedPower === 'all' || String(item.potenciaNominal) === currentAppState.selectedPower; const isCalendarMatch = currentAppState.selectedCalendar === 'all' || item.dimmingCalendar === currentAppState.selectedCalendar; return isDateInRange && isZoneMatch && isMunicipioMatch && isPowerMatch && isCalendarMatch; }); }, [dataForUser.inventory, currentAppState.dateRange, currentAppState.selectedZone, currentAppState.selectedMunicipio, currentAppState.selectedPower, currentAppState.selectedCalendar]);
     const finalDisplayInventory = useMemo(() => { if (!currentAppState.cardInventoryFilter) { return displayInventory; } return displayInventory.filter(item => { const itemValue = item[currentAppState.cardInventoryFilter.key]; if (typeof itemValue !== 'string') { return false; } const filterValue = currentAppState.cardInventoryFilter.value.toUpperCase().trim(); const processedItemValue = itemValue.toUpperCase().trim(); if (currentAppState.cardInventoryFilter.key === 'situacion' && filterValue === 'VANDALIZADO') { return processedItemValue.startsWith('VANDALIZADO'); } return processedItemValue === filterValue; }); }, [displayInventory, currentAppState.cardInventoryFilter]);
     const displayEvents = useMemo(() => { if (!currentAppState.cardFilter) { return baseFilteredEvents; } switch (currentAppState.cardFilter) { case 'lowCurrent': return baseFilteredEvents.filter(e => e.description.trim() === ERROR_DESC_LOW_CURRENT); case 'highCurrent': return baseFilteredEvents.filter(e => e.description.trim() === ERROR_DESC_HIGH_CURRENT); case 'voltage': return baseFilteredEvents.filter(e => e.description.trim() === ERROR_DESC_VOLTAGE); case 'columnaCaida': return baseFilteredEvents.filter(e => e.failureCategory === 'Columna Caída'); case 'hurto': return baseFilteredEvents.filter(e => e.failureCategory === 'Hurto'); case 'vandalizado': return baseFilteredEvents.filter(e => e.failureCategory === 'Vandalizado'); case 'inaccesible': return baseFilteredEvents.filter(e => e.failureCategory === 'Inaccesible'); default: return baseFilteredEvents; } }, [baseFilteredEvents, currentAppState.cardFilter]);
@@ -340,7 +348,7 @@ const App: React.FC = () => {
     const hurtoChangesCount = useMemo(() => baseFilteredChangeEvents.filter(e => e.condicion.toLowerCase() === 'hurto').length, [baseFilteredChangeEvents]);
     const oldestEventsByZone = useMemo(() => { if (dataForUser.allEvents.length === 0) return []; const map = new Map<string, LuminaireEvent>(); for (let i = dataForUser.allEvents.length - 1; i >= 0; i--) { const event = dataForUser.allEvents[i]; if (!map.has(event.zone)) { map.set(event.zone, event); } } return Array.from(map.values()).sort((a, b) => a.zone.localeCompare(b.zone)); }, [dataForUser.allEvents]);
     const inventoryCountByZone = useMemo(() => dataForUser.inventory.reduce((acc, item) => { if (item.zone) { acc[item.zone] = (acc[item.zone] || 0) + 1; } return acc; }, {} as Record<string, number>), [dataForUser.inventory]);
-    const filteredFailureCategories = useMemo(() => { const order = ['Inaccesible', 'Roto', 'Error de configuración', 'Falla de hardware', 'Falla de voltaje', 'Hurto', 'Vandalizado', 'Columna Caída']; const allCats = Array.from(new Set(baseFilteredEvents.map(e => e.failureCategory).filter((c): c is string => !!c))); return allCats.sort((a: string, b: string) => { const iA = order.indexOf(a); const iB = order.indexOf(b); if (iA !== -1 && iB !== -1) return iA - iB; if (iA !== -1) return -1; if (iB !== -1) return 1; return a.localeCompare(b); }); }, [baseFilteredEvents]);
+    const filteredFailureCategories = useMemo(() => { const order = ['Inaccesible', 'Roto', 'Error de configuración', 'Falla de voltaje', 'Hurto', 'Vandalizado', 'Columna Caída']; const allCats = Array.from(new Set(baseFilteredEvents.map(e => e.failureCategory).filter((c): c is string => !!c))); return allCats.sort((a: string, b: string) => { const iA = order.indexOf(a); const iB = order.indexOf(b); if (iA !== -1 && iB !== -1) return iA - iB; if (iA !== -1) return -1; if (iB !== -1) return 1; return a.localeCompare(b); }); }, [baseFilteredEvents]);
     const failureDataByZone = useMemo(() => {
         if (Object.keys(inventoryCountByZone).length === 0) return { data: [], categories: [] };
         const counts = baseFilteredEvents.reduce((acc, event) => {
@@ -459,31 +467,32 @@ const App: React.FC = () => {
         const end = range.end ? endOfDay(range.end) : null;
         if (!start || !end) return dataToFilter;
 
-        Object.entries(dataToFilter).forEach(([dateStr, dayData]) => {
+        Object.entries(dataToFilter).forEach(([dateStr, dayDataRaw]) => {
             const date = parse(dateStr, 'yyyy-MM-dd', new Date());
             if (isWithinInterval(date, { start, end })) {
                 const dailyFilteredData: { [zone: string]: HistoricalZoneData } = {};
                 
+                // FIX: Add type guard and assertion for 'dayDataRaw' to ensure it's treated as a Record, resolving 'unknown' type issues.
+                if (!dayDataRaw || typeof dayDataRaw !== 'object' || Array.isArray(dayDataRaw)) {
+                    return; // Skip if not a valid object
+                }
+                const dayData = dayDataRaw as Record<string, HistoricalZoneData>; // <-- Added this line
+                
                 if (targetZone) { // Filter by a specific zone
-                    if (dayData && typeof dayData === 'object' && (dayData as any)[targetZone]) {
-                        dailyFilteredData[targetZone] = (dayData as any)[targetZone];
+                    if (dayData[targetZone]) { 
+                        dailyFilteredData[targetZone] = dayData[targetZone];
                     }
                 } else { // No zone filter, include all zones
-                    if (dayData && typeof dayData === 'object') {
-                        // FIX: Cast dayData to iterate in for...in loop, addressing potential 'unknown' type issue.
-                        // The previous explicit cast to `Record<string, HistoricalZoneData>` on an intermediate variable was not fully resolving the 'unknown' type issue for 'for...in'.
-                        // Casting to `any` for the loop object directly resolves this.
-                        for (const zoneKey in dayData as any) { // Line 419
-                            if (Object.prototype.hasOwnProperty.call(dayData, zoneKey)) {
-                                dailyFilteredData[zoneKey] = (dayData as Record<string, HistoricalZoneData>)[zoneKey];
-                            }
+                    // FIX: Iterate over Object.keys() to ensure type safety for 'for...in' context.
+                    for (const zoneKey of Object.keys(dayData)) {
+                        if (Object.prototype.hasOwnProperty.call(dayData, zoneKey)) {
+                            dailyFilteredData[zoneKey] = dayData[zoneKey];
                         }
                     }
                 }
 
                 if (Object.keys(dailyFilteredData).length > 0) {
-                     // The cast is necessary because Object.entries/assign can lose specific index signature types.
-                     filtered[dateStr] = dailyFilteredData as { [zone: string]: HistoricalZoneData };
+                     filtered[dateStr] = dailyFilteredData;
                 }
             }
         });
@@ -507,23 +516,26 @@ const App: React.FC = () => {
         }
     
         // Process historical data
-        Object.values(filteredHistoricalData).forEach(dayData => {
-            if (dayData && typeof dayData === 'object') {
-                Object.entries(dayData).forEach(([zoneName, zoneData]) => {
-                    if (zoneData.failedLuminaireIds) {
-                        zoneData.failedLuminaireIds.forEach(id => {
-                            if (municipioFilter !== 'all') {
-                                const luminaireInfo = luminaireIdToInfoMap.get(id);
-                                if (luminaireInfo && luminaireInfo.municipio === municipioFilter) {
-                                    addToZone(zoneName, id);
-                                }
-                            } else {
+        Object.values(filteredHistoricalData).forEach((dayDataRaw) => {
+            // FIX: Add type guard and assertion for 'dayDataRaw' to ensure it's treated as a Record, resolving 'unknown' type issues.
+            if (!dayDataRaw || typeof dayDataRaw !== 'object' || Array.isArray(dayDataRaw)) {
+                return; // Skip if not a valid object
+            }
+            const dayData = dayDataRaw as Record<string, HistoricalZoneData>;
+            Object.entries(dayData).forEach(([zoneName, zoneData]) => {
+                if (zoneData.failedLuminaireIds) {
+                    zoneData.failedLuminaireIds.forEach(id => {
+                        if (municipioFilter !== 'all') {
+                            const luminaireInfo = luminaireIdToInfoMap.get(id);
+                            if (luminaireInfo && luminaireInfo.municipio === municipioFilter) {
                                 addToZone(zoneName, id);
                             }
-                        });
-                    }
-                });
-            }
+                        } else {
+                            addToZone(zoneName, id);
+                        }
+                    });
+                }
+            });
         });
     
         // Process current day's events
@@ -566,23 +578,26 @@ const App: React.FC = () => {
     const cabinetFailuresInDateRange = useMemo(() => {
         const failures: { date: Date; id: string; zone: string; municipio: string }[] = [];
     
-        Object.entries(filteredHistoricalData).forEach(([dateStr, dayData]) => {
-            if (dayData && typeof dayData === 'object') {
-                const date = parse(dateStr, 'yyyy-MM-dd', new Date());
-                Object.entries(dayData).forEach(([zoneName, zoneData]) => {
-                    if (zoneData.cabinetFailureLuminaireIds) {
-                        zoneData.cabinetFailureLuminaireIds.forEach(id => {
-                            const luminaireInfo = luminaireIdToInfoMap.get(id);
-                            failures.push({
-                                date,
-                                id,
-                                zone: zoneName,
-                                municipio: luminaireInfo?.municipio || 'Desconocido (No en Inventario)',
-                            });
-                        });
-                    }
-                });
+        Object.entries(filteredHistoricalData).forEach(([dateStr, dayDataRaw]) => {
+            // FIX: Add type guard and assertion for 'dayDataRaw' to ensure it's treated as a Record, resolving 'unknown' type issues.
+            if (!dayDataRaw || typeof dayDataRaw !== 'object' || Array.isArray(dayDataRaw)) {
+                return; // Skip if not a valid object
             }
+            const dayData = dayDataRaw as Record<string, HistoricalZoneData>;
+            const date = parse(dateStr, 'yyyy-MM-dd', new Date());
+            Object.entries(dayData).forEach(([zoneName, zoneData]) => {
+                if (zoneData.cabinetFailureLuminaireIds) {
+                    zoneData.cabinetFailureLuminaireIds.forEach(id => {
+                        const luminaireInfo = luminaireIdToInfoMap.get(id);
+                        failures.push({
+                            date,
+                            id,
+                            zone: zoneName,
+                            municipio: luminaireInfo?.municipio || 'Desconocido (No en Inventario)',
+                        });
+                    });
+                }
+            });
         });
     
         return failures;
@@ -594,9 +609,11 @@ const App: React.FC = () => {
         const { month, zone } = currentAppState.selectedHistoricalMonthZone;
         const failures: { date: Date; id: string; zone: string; municipio: string }[] = [];
 
-        Object.entries(dataForUser.historicalData).forEach(([dateStr, dayData]) => {
-            if (dateStr.startsWith(month) && dayData && typeof dayData === 'object') { // Match "YYYY-MM"
-                const zoneData = (dayData as Record<string, HistoricalZoneData>)[zone];
+        Object.entries(dataForUser.historicalData).forEach(([dateStr, dayDataRaw]) => {
+            // FIX: Add type guard and assertion for 'dayDataRaw' to ensure it's treated as a Record, resolving 'unknown' type issues.
+            if (dateStr.startsWith(month) && dayDataRaw && typeof dayDataRaw === 'object' && !Array.isArray(dayDataRaw)) {
+                const dayData = dayDataRaw as Record<string, HistoricalZoneData>; // Assert type
+                const zoneData = dayData[zone]; // Access zone directly after assertion
                 if (zoneData && zoneData.cabinetFailureLuminaireIds) {
                      const date = parse(dateStr, 'yyyy-MM-dd', new Date());
                      zoneData.cabinetFailureLuminaireIds.forEach(id => {
@@ -661,7 +678,7 @@ const App: React.FC = () => {
             const inaccessibleCount = inaccessibleUniqueLuminairesByAccount[nroCuenta]?.size || 0;
             if (totalLuminaires > 0) {
                 const percentage = (inaccessibleCount / totalLuminaires) * 100;
-                if (percentage > 90) {
+                if (percentage >= 50) { // Changed from > 90 to >= 50
                     failedCabinets.push({ nroCuenta, zone: data.zone });
                 }
             }
@@ -769,6 +786,10 @@ const App: React.FC = () => {
         const failedAccounts = new Set(zoneFailureData.accounts);
         const pointsForMap = dataForUser.servicePoints.filter(sp => failedAccounts.has(sp.nroCuenta));
 
+        if (pointsForMap.length === 0) {
+            console.warn(`No service points found with coordinates for zone ${zoneName} or nroCuenta mismatch.`);
+        }
+
         setMapModalData({
             title: `Mapa de Tableros con Falla - ${zoneName}`,
             servicePoints: pointsForMap,
@@ -835,11 +856,18 @@ const App: React.FC = () => {
     const handleExportOperatingHoursSummary = useCallback(() => { if (operatingHoursSummary.length === 0) return; const getRangeStart = (rangeStr: string): number => { if (rangeStr.startsWith('>')) return Infinity; return parseInt(rangeStr.split(' ')[0].replace(/\D/g, ''), 10); }; const dataToExport = [...operatingHoursSummary].sort((a, b) => getRangeStart(a.range) - getRangeStart(b.range)).map(item => { const row: Record<string, any> = { 'Rango de Horas': item.range, 'Total Luminarias': item.total }; operatingHoursZones.forEach(zone => { row[zone] = item[zone] || 0; }); return row; }); exportToXlsx(dataToExport, generateExportFilename('resumen_horas_funcionamiento')); }, [operatingHoursSummary, operatingHoursZones, generateExportFilename]);
     const handleExportOperatingHoursDetail = useCallback(() => { if (operatingHoursDetailData.length === 0 || !currentAppState.selectedOperatingHoursRange) return; const filename = generateExportFilename(`detalle_luminarias_rango_${currentAppState.selectedOperatingHoursRange.replace(/[^\w]/g, '_')}`); const dataForExport = operatingHoursDetailData.map(item => ({ 'ID de luminaria': item.streetlightIdExterno, 'Dirección Hardware OLC': item.olcHardwareDir ?? 'N/A', 'Municipio': item.municipio, 'Latitud': item.lat ?? 'N/A', 'Longitud': item.lon ?? 'N/A' })); exportToXlsx(dataForExport, filename); }, [operatingHoursDetailData, currentAppState.selectedOperatingHoursRange, generateExportFilename]);
 
+    // FIX: Define a type for the items in the mappedData array to improve type inference.
+    type MonthlySummaryChartDataItem = {
+        name: string; // Formatted month name, for chart's XAxis (e.g., "Enero 2023")
+        date: Date;   // For chronological sorting
+        [key: string]: string | number | Date; // For dynamic properties, including intermediate values of `date`
+    };
+
     const handleExportHistoricalSummary = useCallback(() => {
         if (!filteredHistoricalData || Object.keys(filteredHistoricalData).length === 0) return;
     
         // FIX: Replaced a complex/problematic Omit<> type with an explicit type for monthly summaries to improve type safety.
-        type MonthlySummary = {
+        type MonthlySummaryAggregates = {
             eventos: { total: number, count: number };
             porcentaje: { total: number, count: number };
             eventosGabinete: { total: number, count: number };
@@ -849,11 +877,14 @@ const App: React.FC = () => {
             eventosReales: { total: number, count: number };
             porcentajeReal: { total: number, count: number };
         };
-        const monthlySummaries: Record<string, Record<string, MonthlySummary>> = {};
+        const monthlySummaries: Record<string, Record<string, MonthlySummaryAggregates>> = {};
         const presentZones = new Set<string>();
     
-        Object.entries(filteredHistoricalData).forEach(([dateStr, zonesData]) => {
-            if (!zonesData || typeof zonesData !== 'object') return;
+        Object.entries(filteredHistoricalData).forEach(([dateStr, zonesDataRaw]) => {
+            // FIX: Add type guard for 'zonesDataRaw' to ensure it's treated as a valid object, preventing 'unknown' type issues.
+            if (!zonesDataRaw || typeof zonesDataRaw !== 'object' || Array.isArray(zonesDataRaw)) return;
+            // FIX: Assert 'zonesDataRaw' to 'Record<string, HistoricalZoneData>' to ensure type safety.
+            const zonesData = zonesDataRaw as Record<string, HistoricalZoneData>;
             const monthKey = format(parse(dateStr, 'yyyy-MM-dd', new Date()), 'yyyy-MM');
             if (!monthlySummaries[monthKey]) monthlySummaries[monthKey] = {};
     
@@ -892,9 +923,16 @@ const App: React.FC = () => {
         const processData = (
             dataType: 'percentage' | 'count'
         ) => {
-            // FIX: Add explicit return type to map callback to ensure correct type inference for sort.
-            const mappedData = Object.entries(monthlySummaries).map(([monthKey, zoneAvgs]): { date: Date; [key: string]: any } => {
-                const row: Record<string, any> = { 'Mes': format(parse(monthKey, 'yyyy-MM', new Date()), 'MMMM yyyy', { locale: es }) };
+            // FIX: Use the defined 'MonthlySummaryChartDataItem' type for clarity and consistent inference.
+            const mappedData: MonthlySummaryChartDataItem[] = Object.entries(monthlySummaries).map(([monthKey, zoneAvgs]) => {
+                const formattedMonth = format(parse(monthKey, 'yyyy-MM', new Date()), 'MMMM yyyy', { locale: es });
+                const currentMonthDate = parse(monthKey, 'yyyy-MM', new Date());
+
+                const row: MonthlySummaryChartDataItem = {
+                    name: formattedMonth, // This is the 'name' property for the chart and the 'Mes' column
+                    date: currentMonthDate, // This is the 'date' property for sorting
+                };
+                
                 sortedZones.forEach(zone => {
                     const data = zoneAvgs[zone];
                     if (dataType === 'percentage') {
@@ -906,33 +944,46 @@ const App: React.FC = () => {
                         row[`${zone} (Cant. Eventos)`] = data ? data.eventos.total : 0;
                     }
                 });
-                return { ...row, date: parse(monthKey, 'yyyy-MM', new Date()) };
+                return row;
             });
 
-            // FIX: Added explicit types to sort callback parameters to resolve "'date' does not exist on type 'unknown'" error due to type inference limitations.
-            return mappedData.sort((a: { date: Date }, b: { date: Date }) => b.date.getTime() - a.date.getTime()).map(({ date, ...rest }) => rest);
+            // FIX: Removed redundant type annotations from the sort callback parameters.
+            // Sort by date, then map to remove the 'date' property for the final export format
+            return mappedData.sort((a, b) => b.date.getTime() - a.date.getTime()).map(({ date, ...rest }) => rest);
         };
     
-        // FIX: Add explicit return type to map callback to ensure correct type inference for sort.
-        const percentageData = Object.entries(monthlySummaries).map(([monthKey, zoneSummaries]): { rows: any[], date: Date } => {
-            const rowsForMonth: any[] = [];
-            sortedZones.forEach(zone => {
+        // FIX: Restructure percentageData calculation to ensure date is present for sorting.
+        interface RawPercentageDataItem {
+            'Mes': string;
+            'Zona': string;
+            '% Falla Total': string;
+            '% Falla Gabinete': string;
+            '% Falla Vandalismo': string;
+            '% Falla Real': string;
+            date: Date; // Ensure date is included for sorting
+        }
+
+        const rawPercentageDataWithDate: RawPercentageDataItem[] = Object.entries(monthlySummaries).flatMap(([monthKey, zoneSummaries]) => {
+            const monthDate = parse(monthKey, 'yyyy-MM', new Date());
+            return sortedZones.map(zone => {
                 const summary = zoneSummaries[zone];
-                // FIX: Accessing properties is now type-safe.
                 const count = summary ? summary.porcentaje.count : 0;
-                rowsForMonth.push({
-                    'Mes': format(parse(monthKey, 'yyyy-MM', new Date()), 'MMMM yyyy', { locale: es }),
+                return {
+                    'Mes': format(monthDate, 'MMMM yyyy', { locale: es }),
                     'Zona': zone,
-                    // FIX: Accessing properties is now type-safe.
                     '% Falla Total': summary && count > 0 ? `${(summary.porcentaje.total / count).toFixed(2)}%` : '0.00%',
                     '% Falla Gabinete': summary && count > 0 ? `${(summary.porcentajeGabinete.total / count).toFixed(2)}%` : '0.00%',
                     '% Falla Vandalismo': summary && count > 0 ? `${(summary.porcentajeVandalismo.total / count).toFixed(2)}%` : '0.00%',
                     '% Falla Real': summary && count > 0 ? `${(summary.porcentajeReal.total / count).toFixed(2)}%` : '0.00%',
-                });
+                    date: monthDate, // Ensure date is included for sorting
+                };
             });
-            return { rows: rowsForMonth, date: parse(monthKey, 'yyyy-MM', new Date()) };
-        // FIX: Added explicit types to sort callback parameters to resolve "'date' does not exist on type 'unknown'" error due to type inference limitations.
-        }).sort((a: { date: Date }, b: { date: Date }) => b.date.getTime() - a.date.getTime()).flatMap(item => item.rows);
+        });
+
+        // FIX: Removed redundant type annotations from the sort callback parameters.
+        const percentageData = rawPercentageDataWithDate
+            .sort((a, b) => b.date.getTime() - a.date.getTime())
+            .map(({ date, ...rest }) => rest); // Remove the date property after sorting
 
 
         const countsData = processData('count');

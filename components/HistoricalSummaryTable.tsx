@@ -1,4 +1,3 @@
-
 import React, { useMemo } from 'react';
 import type { HistoricalData, HistoricalZoneData } from '../types';
 // FIX: The 'parse' and 'format' functions should be imported from their specific subpaths.
@@ -19,6 +18,16 @@ interface MonthlyZoneAverages {
     porcentajeGabinete: number;
     porcentajeVandalismo: number;
     porcentajeReal: number;
+}
+interface MonthlyZoneSummaryAggregates {
+    porcentaje: { total: number; count: number };
+    porcentajeGabinete: { total: number; count: number };
+    porcentajeVandalismo: { total: number; count: number };
+    porcentajeReal: { total: number; count: number };
+    eventos: { total: number; count: number };
+    eventosGabinete: { total: number; count: number };
+    eventosVandalismo: { total: number; count: number };
+    eventosReales: { total: number; count: number };
 }
 
 interface MonthlySummary {
@@ -42,21 +51,18 @@ const HistoricalSummaryTable: React.FC<HistoricalSummaryTableProps> = ({ histori
         }
 
         // FIX: Replaced problematic Omit<> with an explicit type for monthly summaries.
-        const monthlySummaries: Record<string, Record<string, {
-            porcentaje: { total: number; count: number };
-            porcentajeGabinete: { total: number; count: number };
-            porcentajeVandalismo: { total: number; count: number };
-            porcentajeReal: { total: number; count: number };
-            eventos: { total: number; count: number };
-            eventosGabinete: { total: number; count: number };
-            eventosVandalismo: { total: number; count: number };
-            eventosReales: { total: number; count: number };
-        }>> = {};
+        const monthlySummaries: Record<string, Record<string, MonthlyZoneSummaryAggregates>> = {};
         const presentZones = new Set<string>();
 
-        Object.entries(historicalData).forEach(([dateStr, zonesData]) => {
+        Object.entries(historicalData).forEach(([dateStr, zonesDataRaw]) => { // Renamed for clarity
             const monthKey = format(parse(dateStr, 'yyyy-MM-dd', new Date()), 'yyyy-MM');
             if (!monthlySummaries[monthKey]) monthlySummaries[monthKey] = {};
+
+            // FIX: Add type guard and assertion for 'zonesDataRaw' to ensure it's treated as a Record, resolving 'unknown' type issues.
+            if (!zonesDataRaw || typeof zonesDataRaw !== 'object' || Array.isArray(zonesDataRaw)) {
+                return; // Skip if not a valid object
+            }
+            const zonesData = zonesDataRaw as Record<string, HistoricalZoneData>;
 
             Object.entries(zonesData).forEach(([zoneName, zoneData]) => {
                 presentZones.add(zoneName);

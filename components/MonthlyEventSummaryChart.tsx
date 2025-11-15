@@ -1,4 +1,3 @@
-
 import React, { useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import type { HistoricalData, HistoricalZoneData } from '../types';
@@ -34,6 +33,18 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   return null;
 };
 
+// FIX: Replaced problematic Omit<> with an explicit type for monthly averages.
+interface MonthlyZoneSummaryAggregates {
+    porcentaje: { total: number; count: number };
+    porcentajeGabinete: { total: number; count: number };
+    porcentajeVandalismo: { total: number; count: number };
+    porcentajeReal: { total: number; count: number };
+    eventos: { total: number; count: number };
+    eventosGabinete: { total: number; count: number };
+    eventosVandalismo: { total: number; count: number };
+    eventosReales: { total: number; count: number };
+}
+
 const MonthlyEventSummaryChart: React.FC<MonthlyEventSummaryChartProps> = ({ historicalData }) => {
     
     const { chartData, zones } = useMemo(() => {
@@ -41,22 +52,18 @@ const MonthlyEventSummaryChart: React.FC<MonthlyEventSummaryChartProps> = ({ his
             return { chartData: [], zones: [] };
         }
 
-        // FIX: Replaced problematic Omit<> with an explicit type for monthly averages.
-        const monthlyAverages: Record<string, Record<string, {
-            porcentaje: { total: number; count: number };
-            porcentajeGabinete: { total: number; count: number };
-            porcentajeVandalismo: { total: number; count: number };
-            porcentajeReal: { total: number; count: number };
-            eventos: { total: number; count: number };
-            eventosGabinete: { total: number; count: number };
-            eventosVandalismo: { total: number; count: number };
-            eventosReales: { total: number; count: number };
-        }>> = {};
+        const monthlyAverages: Record<string, Record<string, MonthlyZoneSummaryAggregates>> = {}; // Use the new interface
         const presentZones = new Set<string>();
 
-        Object.entries(historicalData).forEach(([dateStr, zonesData]) => {
+        Object.entries(historicalData).forEach(([dateStr, zonesDataRaw]) => { // Renamed to zonesDataRaw for clarity
             const monthKey = format(parse(dateStr, 'yyyy-MM-dd', new Date()), 'yyyy-MM');
             if (!monthlyAverages[monthKey]) monthlyAverages[monthKey] = {};
+
+            // FIX: Add type guard and assertion for 'zonesDataRaw' to ensure it's treated as a Record, resolving 'unknown' type issues.
+            if (!zonesDataRaw || typeof zonesDataRaw !== 'object' || Array.isArray(zonesDataRaw)) {
+                return; // Skip if not a valid object
+            }
+            const zonesData = zonesDataRaw as Record<string, HistoricalZoneData>;
 
             Object.entries(zonesData).forEach(([zoneName, zoneData]) => {
                 presentZones.add(zoneName);

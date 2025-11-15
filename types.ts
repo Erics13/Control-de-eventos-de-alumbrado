@@ -83,9 +83,38 @@ export type ActiveTab = 'eventos' | 'cambios' | 'inventario' | 'historial' | 'ma
 
 export type BroadcastMessageType = 'STATE_UPDATE' | 'DOCK_TAB' | 'REQUEST_INITIAL_STATE' | 'INITIAL_STATE_RESPONSE';
 
+// Full application state that will be synced across windows
+export interface FullAppState {
+    // Filters
+    dateRange: { start: Date | null; end: Date | null };
+    selectedZone: string;
+    selectedMunicipio: string;
+
+    selectedCategory: string;
+    selectedMonth: string;
+    selectedYear: string;
+    selectedPower: string;
+    selectedCalendar: string;
+    searchTerm: string;
+    selectedChangesYear: string;
+    // Card Filters
+    cardFilter: string | null;
+    cardChangeFilter: string | null;
+    cardInventoryFilter: { key: keyof InventoryItem; value: string } | null;
+    // UI State
+    isInventorySummariesOpen: boolean;
+    selectedOperatingHoursRange: string | null;
+    latestDataDate: Date | null;
+    selectedHistoricalMonthZone: { month: string, zone: string } | null;
+    selectedZoneForCabinetDetails: string | null;
+    // Auth State
+    userProfile: UserProfile | null;
+}
+
 export interface BroadcastMessage {
     type: BroadcastMessageType;
-    payload: any;
+    // FIX: Refactor BroadcastMessage payload type to improve type safety and prevent spread operator errors.
+    payload: FullAppState | ActiveTab | null;
 }
 
 export interface DataSourceURLs {

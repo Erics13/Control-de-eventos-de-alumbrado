@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useCallback } from 'react';
 import { format } from 'date-fns/format';
 import type { LuminaireEvent, InventoryItem, ZoneBase, ServicePoint, WorksheetData, CabinetWorksheet, LuminariaWorksheet, WorksheetRow } from '../types';
@@ -349,8 +348,7 @@ const MantenimientoTab: React.FC<MantenimientoTabProps> = ({ allEvents, inventor
                             title: `Hoja de Ruta ${worksheetCounter++} (Prioritaria) - ${titlePrefix} - ${account}`,
                             type: worksheetType,
                             servicePoint,
-                            luminaires: associatedLuminaires,
-                            municipio: associatedLuminaires[0]?.municipio,
+                            luminaires: associatedLisin([associatedLuminaires[0]?.municipio,
                             inaccessiblePercentage: percentage,
                             inaccessibleCount: inaccessibleCount
                         });

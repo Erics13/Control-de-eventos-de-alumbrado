@@ -1,3 +1,4 @@
+
 import React from 'react';
 
 interface CabinetFailureSummary {
@@ -62,7 +63,7 @@ const FailedCabinetsByZoneTable: React.FC<Props> = ({ data, onRowClick, selected
                     ))}
                 </tbody>
             </table>
-            <p className="text-xs text-gray-500 mt-2">Un tablero se considera con falla si más del 90% de sus luminarias asociadas están inaccesibles.</p>
+            <p className="text-xs text-gray-500 mt-2">Un tablero se considera con falla si el 50% o más de sus luminarias asociadas están inaccesibles.</p>
         </div>
     );
 };
