@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useCallback } from 'react';
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
 import type { LuminaireEvent, ChangeEvent, InventoryItem, DataSourceURLs, HistoricalData, HistoricalZoneData, ServicePoint, ZoneBase } from '../types';
@@ -174,7 +175,9 @@ export const useLuminaireData = () => {
             const category = columns[10]?.trim();
             const translatedCategory = FAILURE_CATEGORY_TRANSLATIONS[category];
             const eventStatus = (category && category.length > 0) || isSpecialFailure ? 'FAILURE' : 'OPERATIONAL';
-            const finalFailureCategory = specialFailureCategory || (translatedCategory ? translatedCategory : undefined);
+            
+            // Prioritize technical event category over situation category
+            const finalFailureCategory = (translatedCategory ? translatedCategory : undefined) || specialFailureCategory;
             
             const municipio = columns[0]?.trim() || 'N/A';
             const municipioUpper = municipio.toUpperCase();

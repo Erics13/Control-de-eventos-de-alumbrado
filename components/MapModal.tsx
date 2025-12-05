@@ -1,5 +1,5 @@
-import React, { useEffect } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
+
+import React, { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import type { ServicePoint } from '../types';
 
@@ -19,18 +19,65 @@ interface MapModalProps {
     servicePoints: ServicePoint[];
 }
 
-const MapBoundsUpdater: React.FC<{ points: ServicePoint[] }> = ({ points }) => {
-    const map = useMap();
-    useEffect(() => {
-        if (points && points.length > 0) {
-            const bounds = L.latLngBounds(points.map(p => [p.lat, p.lon]));
-            map.fitBounds(bounds, { padding: [50, 50] });
-        }
-    }, [points, map]);
-    return null;
-};
-
 const MapModal: React.FC<MapModalProps> = ({ isOpen, onClose, title, servicePoints }) => {
+    const mapContainerRef = useRef<HTMLDivElement>(null);
+    const mapRef = useRef<L.Map | null>(null);
+    const markersRef = useRef<L.Marker[]>([]);
+
+    useEffect(() => {
+        if (!isOpen) return;
+        
+        // Wait for render
+        const timer = setTimeout(() => {
+             if (mapContainerRef.current && !mapRef.current) {
+                const map = L.map(mapContainerRef.current).setView([-34.7, -56.0], 10);
+                mapRef.current = map;
+                
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '&copy; OpenStreetMap contributors'
+                }).addTo(map);
+            }
+            
+            if (mapRef.current) {
+                const map = mapRef.current;
+                
+                // Clear markers
+                markersRef.current.forEach(m => m.remove());
+                markersRef.current = [];
+
+                if (servicePoints.length > 0) {
+                    const bounds = L.latLngBounds([]);
+                    servicePoints.forEach(sp => {
+                        const marker = L.marker([sp.lat, sp.lon]).addTo(map);
+                        marker.bindPopup(`
+                            <div class="text-sm">
+                                <p class="font-bold">${sp.direccion}</p>
+                                <p><strong>Nro. Cuenta:</strong> ${sp.nroCuenta}</p>
+                                <p><strong>Tarifa:</strong> ${sp.tarifa}</p>
+                                <p><strong>Potencia:</strong> ${sp.potenciaContratada} kW</p>
+                            </div>
+                        `);
+                        bounds.extend([sp.lat, sp.lon]);
+                        markersRef.current.push(marker);
+                    });
+                    map.fitBounds(bounds, { padding: [50, 50] });
+                }
+            }
+        }, 100);
+
+        return () => clearTimeout(timer);
+    }, [isOpen, servicePoints]);
+
+    // Clean up map on unmount
+    useEffect(() => {
+        return () => {
+            if (mapRef.current) {
+                mapRef.current.remove();
+                mapRef.current = null;
+            }
+        };
+    }, []);
+
     if (!isOpen) return null;
 
     return (
@@ -53,27 +100,9 @@ const MapModal: React.FC<MapModalProps> = ({ isOpen, onClose, title, servicePoin
                         </svg>
                     </button>
                 </div>
-                <div className="flex-grow rounded-b-xl overflow-hidden">
+                <div className="flex-grow rounded-b-xl overflow-hidden relative">
                     {servicePoints.length > 0 ? (
-                        <MapContainer center={[-34.7, -56.0]} zoom={10} scrollWheelZoom={true} style={{ height: '100%', width: '100%' }}>
-                            <TileLayer
-                                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                            />
-                            {servicePoints.map(sp => (
-                                <Marker key={sp.nroCuenta} position={[sp.lat, sp.lon]}>
-                                    <Popup>
-                                        <div className="text-sm">
-                                            <p className="font-bold">{sp.direccion}</p>
-                                            <p><strong>Nro. Cuenta:</strong> {sp.nroCuenta}</p>
-                                            <p><strong>Tarifa:</strong> {sp.tarifa}</p>
-                                            <p><strong>Potencia:</strong> {sp.potenciaContratada} kW</p>
-                                        </div>
-                                    </Popup>
-                                </Marker>
-                            ))}
-                            <MapBoundsUpdater points={servicePoints} />
-                        </MapContainer>
+                        <div ref={mapContainerRef} style={{ height: '100%', width: '100%' }} />
                     ) : (
                         <div className="flex items-center justify-center h-full text-gray-500">
                             No hay puntos de servicio con coordenadas para mostrar en el mapa.

@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useCallback } from 'react';
 import { format } from 'date-fns/format';
 import type { LuminaireEvent, InventoryItem, ZoneBase, ServicePoint, WorksheetData, CabinetWorksheet, LuminariaWorksheet, WorksheetRow } from '../types';
@@ -66,45 +67,35 @@ const generateLuminariaTableHtml = (worksheet: LuminariaWorksheet): string => {
 
     return `
         <h4>Total de luminarias en esta hoja de ruta: ${worksheet.failures.length}</h4>
-        <table>
-            ${headerHtml}
-            <tbody>${rowsHtml}</tbody>
-        </table>
+        <div style="overflow-x: auto;">
+            <table>
+                ${headerHtml}
+                <tbody>${rowsHtml}</tbody>
+            </table>
+        </div>
     `;
 };
 
 const generateCabinetTableHtml = (worksheet: CabinetWorksheet): string => {
     const sp = worksheet.servicePoint;
-    const luminaires = worksheet.luminaires;
+    const locationLink = sp.lat && sp.lon ? `https://www.google.com/maps?q=${sp.lat},${sp.lon}` : '';
+    const clickAttr = locationLink ? `onclick="window.open('${locationLink}', '_blank')"` : '';
+    const cursorStyle = locationLink ? 'cursor: pointer;' : '';
+    const titleText = locationLink ? 'Haga clic para ver la ubicación en Google Maps' : '';
+
     const servicePointHtml = `
-        <div style="margin-bottom: 20px;">
-            <h4 style="font-size: 16px; color: #333; margin-top: 25px; margin-bottom: 15px;">Detalles del Servicio a Revisar</h4>
-            <div style="background-color: #f3f4f6; padding: 10px; border-radius: 5px;">
-                <p><strong>Dirección:</strong> ${sp.direccion}</p>
-                <p><strong>Nro. Cuenta:</strong> ${sp.nroCuenta}</p>
-                <p><strong>Cant. Luminarias:</strong> ${sp.cantidadLuminarias}</p>
-                 ${worksheet.inaccessibleCount !== undefined ? `<p><strong>Luminarias Inaccesibles:</strong> ${worksheet.inaccessibleCount} (${worksheet.inaccessiblePercentage?.toFixed(1)}%)</p>`: ''}
+        <div style="margin-bottom: 20px; ${cursorStyle}" ${clickAttr} title="${titleText}">
+            <h4 style="font-size: 16px; color: #333; margin-top: 25px; margin-bottom: 15px;">Detalles del Servicio a Revisar (Click para Mapa)</h4>
+            <div style="background-color: #f3f4f6; padding: 15px; border-radius: 8px; border: 1px solid #d1d5db; font-size: 14px;">
+                <p style="margin: 5px 0;"><strong>Dirección:</strong> ${sp.direccion}</p>
+                <p style="margin: 5px 0;"><strong>Nro. Cuenta:</strong> ${sp.nroCuenta}</p>
+                <p style="margin: 5px 0;"><strong>Cant. Luminarias:</strong> ${sp.cantidadLuminarias}</p>
+                 ${worksheet.inaccessibleCount !== undefined ? `<p style="margin: 5px 0;"><strong>Luminarias Inaccesibles:</strong> ${worksheet.inaccessibleCount} (${worksheet.inaccessiblePercentage?.toFixed(1)}%)</p>`: ''}
             </div>
         </div>
     `;
 
-    const luminairesHeader = `<h4>Luminarias Asociadas (${luminaires.length})</h4>`;
-    const tableHeaders = `<thead><tr style="background-color: #e0e7ff; color: #1e3a8a; font-weight: 600;">
-        <th>ID Luminaria</th>
-        <th>Municipio</th>
-        <th>Situación</th>
-        <th>Potencia (W)</th>
-    </tr></thead>`;
-    const tableBody = `<tbody>${luminaires.map(lum => `
-        <tr>
-            <td>${lum.streetlightIdExterno}</td>
-            <td>${lum.municipio}</td>
-            <td>${lum.situacion || 'N/A'}</td>
-            <td>${lum.potenciaNominal || 'N/A'}</td>
-        </tr>
-    `).join('')}</tbody>`;
-
-    return servicePointHtml + luminairesHeader + `<table>${tableHeaders}${tableBody}</table>`;
+    return servicePointHtml;
 };
 
 
@@ -173,8 +164,8 @@ const getHtmlContentForWorksheet = (worksheet: WorksheetData) => {
                 });
 
                 if (waypoints.length > 1) {
-// FIX: Cast L to any to access Routing property from leaflet-routing-machine plugin.
-                     var routingControl = (L as any).Routing.control({
+                     // Updated: Removed (L as any) type assertion which breaks valid JS execution in browser
+                     var routingControl = L.Routing.control({
                         waypoints: waypoints.map(function(wp) { return L.latLng(wp.lat, wp.lng); }),
                         show: false,
                         addWaypoints: false,
@@ -211,9 +202,10 @@ const getHtmlContentForWorksheet = (worksheet: WorksheetData) => {
                 h4 { font-size: 16px; color: #333; margin-top: 25px; margin-bottom: 15px; }
                 #map { height: 600px; width: 100%; margin-bottom: 25px; border-radius: 8px; border: 1px solid #ddd; }
                 .worksheet-table-content { margin-top: 20px; }
-                table { border-collapse: collapse; width: 100%; font-size: 10px; table-layout: fixed; }
-                th, td { border: 1px solid #ccc; padding: 6px 8px; text-align: left; vertical-align: top; word-wrap: break-word; }
-                th { background-color: #e0e7ff; color: #1e3a8a; font-weight: 600; }
+                /* Updated Table Styles */
+                table { border-collapse: collapse; width: 100%; font-size: 12px; }
+                th, td { border: 1px solid #ccc; padding: 10px; text-align: left; vertical-align: top; }
+                th { background-color: #e0e7ff; color: #1e3a8a; font-weight: 600; white-space: nowrap; }
                 tr:nth-child(even) { background-color: #f9fafb; }
                 td:first-child { text-align: center; font-weight: bold; }
                 .whitespace-pre-wrap { white-space: pre-wrap; }
@@ -240,7 +232,7 @@ const getActionAndSolution = (event: LuminaireEvent): { action: string; solution
     const defaultResponse = { action: 'Revisión general.', solution: 'Según diagnóstico en sitio.' };
     if (!event.failureCategory) return defaultResponse;
 
-    const eventDescriptionLower = event.description.toLowerCase();
+    const eventDescriptionLower = event.description ? event.description.toLowerCase() : '';
 
     const matchingRule = ACTION_SOLUTION_MAP.find(rule => 
         rule.category === event.failureCategory && eventDescriptionLower.includes(rule.messageSubstring.toLowerCase())
@@ -272,12 +264,7 @@ const MantenimientoTab: React.FC<MantenimientoTabProps> = ({ allEvents, inventor
             setMessage("Error: Por favor, seleccione una zona.");
             return;
         }
-        const base = zoneBases.find(b => b.zoneName.toUpperCase() === selectedZone.toUpperCase());
-        if (!base) {
-            setMessage(`Error: No se encontró la base de operaciones para la ${selectedZone}.`);
-            return;
-        }
-
+        
         setIsLoading(true);
         setWorksheets([]);
         setMessage('Procesando fallas y generando hojas de ruta...');
@@ -340,6 +327,12 @@ const MantenimientoTab: React.FC<MantenimientoTabProps> = ({ allEvents, inventor
                     const servicePoint = servicePointMap.get(account);
                     if (servicePoint) {
                         const associatedLuminaires = luminairesByAccount[account];
+                        // Update the service point count with the actual count found in inventory for this zone
+                        const updatedServicePoint = { 
+                            ...servicePoint, 
+                            cantidadLuminarias: associatedLuminaires.length 
+                        };
+
                         // Mark all luminaires from this account as processed
                         associatedLuminaires.forEach(lum => processedLuminaires.add(lum.streetlightIdExterno));
                         
@@ -347,10 +340,10 @@ const MantenimientoTab: React.FC<MantenimientoTabProps> = ({ allEvents, inventor
                             id: `cabinet-${account}-${worksheetCounter}`,
                             title: `Hoja de Ruta ${worksheetCounter++} (Prioritaria) - ${titlePrefix} - ${account}`,
                             type: worksheetType,
-                            servicePoint,
-                            luminaires: associatedLuminaires, // FIX: Corrected typo associatedLisin to associatedLuminaires
-                            inaccessiblePercentage: percentage, // FIX: Defined inaccessiblePercentage
-                            inaccessibleCount: inaccessibleCount // FIX: Defined inaccessibleCount
+                            servicePoint: updatedServicePoint,
+                            luminaires: associatedLuminaires,
+                            inaccessiblePercentage: percentage,
+                            inaccessibleCount: inaccessibleCount
                         });
                     }
                 }
@@ -471,6 +464,19 @@ const MantenimientoTab: React.FC<MantenimientoTabProps> = ({ allEvents, inventor
         }
     };
 
+    const handleDownloadSingleHtml = (ws: WorksheetData) => {
+        const content = getHtmlContentForWorksheet(ws);
+        const blob = new Blob([content], { type: 'text/html' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${ws.title.replace(/[ /\\?%*:|"<>]/g, '_')}.html`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    };
+
 
     return (
         <div className="space-y-4">
@@ -515,7 +521,11 @@ const MantenimientoTab: React.FC<MantenimientoTabProps> = ({ allEvents, inventor
 
             <div className="space-y-4">
                  {worksheets.map(ws => (
-                    <Worksheet key={ws.id} worksheet={ws} />
+                    <Worksheet 
+                        key={ws.id} 
+                        worksheet={ws} 
+                        onDownloadHtml={() => handleDownloadSingleHtml(ws)}
+                    />
                  ))}
             </div>
         </div>
