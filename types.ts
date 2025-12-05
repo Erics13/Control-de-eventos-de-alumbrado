@@ -71,6 +71,8 @@ export interface ServicePoint {
   direccion: string;
   lat: number;
   lon: number;
+  alcid?: string; // Municipality code/name
+  porcentEf?: number; // Efficiency percentage
 }
 
 export interface ZoneBase {

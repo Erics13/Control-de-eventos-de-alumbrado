@@ -3,7 +3,7 @@ import React, { useState, useMemo, useCallback } from 'react';
 import { format } from 'date-fns/format';
 import type { LuminaireEvent, InventoryItem, ZoneBase, ServicePoint, WorksheetData, CabinetWorksheet, LuminariaWorksheet, WorksheetRow } from '../types';
 import Worksheet from './Worksheet';
-import { ACTION_SOLUTION_MAP } from '../constants';
+import { ACTION_SOLUTION_MAP, ALCID_TO_MUNICIPIO_MAP } from '../constants';
 
 interface MantenimientoTabProps {
     allEvents: LuminaireEvent[];
@@ -83,14 +83,41 @@ const generateCabinetTableHtml = (worksheet: CabinetWorksheet): string => {
     const cursorStyle = locationLink ? 'cursor: pointer;' : '';
     const titleText = locationLink ? 'Haga clic para ver la ubicación en Google Maps' : '';
 
+    const municipioName = sp.alcid && ALCID_TO_MUNICIPIO_MAP[sp.alcid] 
+        ? `${ALCID_TO_MUNICIPIO_MAP[sp.alcid]}` 
+        : (sp.alcid || 'N/A');
+
     const servicePointHtml = `
         <div style="margin-bottom: 20px; ${cursorStyle}" ${clickAttr} title="${titleText}">
             <h4 style="font-size: 16px; color: #333; margin-top: 25px; margin-bottom: 15px;">Detalles del Servicio a Revisar (Click para Mapa)</h4>
-            <div style="background-color: #f3f4f6; padding: 15px; border-radius: 8px; border: 1px solid #d1d5db; font-size: 14px;">
-                <p style="margin: 5px 0;"><strong>Dirección:</strong> ${sp.direccion}</p>
-                <p style="margin: 5px 0;"><strong>Nro. Cuenta:</strong> ${sp.nroCuenta}</p>
-                <p style="margin: 5px 0;"><strong>Cant. Luminarias:</strong> ${sp.cantidadLuminarias}</p>
-                 ${worksheet.inaccessibleCount !== undefined ? `<p style="margin: 5px 0;"><strong>Luminarias Inaccesibles:</strong> ${worksheet.inaccessibleCount} (${worksheet.inaccessiblePercentage?.toFixed(1)}%)</p>`: ''}
+            <div style="background-color: #f3f4f6; padding: 20px; border-radius: 8px; border: 1px solid #d1d5db; font-family: sans-serif;">
+                
+                <!-- Account Number -->
+                <div style="margin-bottom: 15px; border-bottom: 2px solid #e5e7eb; padding-bottom: 10px;">
+                    <div style="font-size: 12px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px;">Nro. Cuenta</div>
+                    <div style="font-size: 32px; font-weight: 800; color: #d97706; font-family: monospace;">${sp.nroCuenta}</div>
+                </div>
+
+                <!-- Address -->
+                <div style="margin-bottom: 20px;">
+                    <div style="font-size: 12px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px;">Dirección</div>
+                    <div style="font-size: 18px; font-weight: 600; color: #1f2937;">${sp.direccion}</div>
+                </div>
+
+                <!-- Grid -->
+                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px;">
+                    <div><div style="font-size: 11px; color: #6b7280;">Municipio</div><div style="font-weight: 600; color: #374151;">${municipioName}</div></div>
+                    <div><div style="font-size: 11px; color: #6b7280;">Tarifa</div><div style="color: #374151;">${sp.tarifa}</div></div>
+                    
+                    <div><div style="font-size: 11px; color: #6b7280;">Pot. Contratada</div><div style="color: #374151;">${sp.potenciaContratada} kW</div></div>
+                    <div><div style="font-size: 11px; color: #6b7280;">Tensión</div><div style="color: #374151;">${sp.tension}</div></div>
+                    
+                    <div><div style="font-size: 11px; color: #6b7280;">Fases</div><div style="color: #374151;">${sp.fases}</div></div>
+                    <div><div style="font-size: 11px; color: #6b7280;">% Eficiencia</div><div style="color: #374151;">${sp.porcentEf !== undefined ? sp.porcentEf + '%' : 'N/A'}</div></div>
+                    
+                    <div><div style="font-size: 11px; color: #6b7280;">Cant. Luminarias</div><div style="color: #374151;">${sp.cantidadLuminarias}</div></div>
+                    ${worksheet.inaccessibleCount !== undefined ? `<div><div style="font-size: 11px; color: #6b7280;">Lum. Inaccesibles</div><div style="color: #374151;">${worksheet.inaccessibleCount} (${worksheet.inaccessiblePercentage?.toFixed(1)}%)</div></div>`: ''}
+                </div>
             </div>
         </div>
     `;
@@ -100,7 +127,8 @@ const generateCabinetTableHtml = (worksheet: CabinetWorksheet): string => {
 
 
 const getHtmlContentForWorksheet = (worksheet: WorksheetData) => {
-    const title = `${worksheet.title} ${new Date().toLocaleDateString('es-ES')}`;
+    // The title is already in the correct format "HR [Nro] [ZONE] [MUNI] [DATE]" from generation time
+    const title = worksheet.title;
     let tableHtml = '';
 
     if (worksheet.type === 'luminaria') {
@@ -164,7 +192,6 @@ const getHtmlContentForWorksheet = (worksheet: WorksheetData) => {
                 });
 
                 if (waypoints.length > 1) {
-                     // Updated: Removed (L as any) type assertion which breaks valid JS execution in browser
                      var routingControl = L.Routing.control({
                         waypoints: waypoints.map(function(wp) { return L.latLng(wp.lat, wp.lng); }),
                         show: false,
@@ -273,6 +300,7 @@ const MantenimientoTab: React.FC<MantenimientoTabProps> = ({ allEvents, inventor
             const generatedWorksheets: WorksheetData[] = [];
             const processedLuminaires = new Set<string>(); // Stores streetlightIdExterno
             let worksheetCounter = 1;
+            const dateStr = format(new Date(), 'dd-MM-yyyy');
 
             // 1. New Critical Failure Detection based on percentages
             const zoneInventory = inventory.filter(item => item.zone === selectedZone);
@@ -313,20 +341,20 @@ const MantenimientoTab: React.FC<MantenimientoTabProps> = ({ allEvents, inventor
 
                 const percentage = (inaccessibleCount / totalLuminairesInAccount) * 100;
                 let worksheetType: CabinetWorksheet['type'] | null = null;
-                let titlePrefix = '';
-
+                // Note: Title prefix is not used in new format, logic kept for type determination
+                
                 if (percentage > 90) {
                     worksheetType = 'cabinet_falla_total';
-                    titlePrefix = 'Falla de Tablero';
                 } else if (percentage >= 50) {
                     worksheetType = 'cabinet_falla_parcial';
-                    titlePrefix = 'Falla Parcial de Tablero / Ramal';
                 }
 
                 if (worksheetType) {
                     const servicePoint = servicePointMap.get(account);
                     if (servicePoint) {
                         const associatedLuminaires = luminairesByAccount[account];
+                        const municipioName = associatedLuminaires.length > 0 && associatedLuminaires[0].municipio ? associatedLuminaires[0].municipio.toUpperCase() : 'DESCONOCIDO';
+
                         // Update the service point count with the actual count found in inventory for this zone
                         const updatedServicePoint = { 
                             ...servicePoint, 
@@ -338,7 +366,7 @@ const MantenimientoTab: React.FC<MantenimientoTabProps> = ({ allEvents, inventor
                         
                         generatedWorksheets.push({
                             id: `cabinet-${account}-${worksheetCounter}`,
-                            title: `Hoja de Ruta ${worksheetCounter++} (Prioritaria) - ${titlePrefix} - ${account}`,
+                            title: `HR ${worksheetCounter++} ${selectedZone} ${municipioName} ${dateStr} (Tablero ${account})`,
                             type: worksheetType,
                             servicePoint: updatedServicePoint,
                             luminaires: associatedLuminaires,
@@ -407,9 +435,10 @@ const MantenimientoTab: React.FC<MantenimientoTabProps> = ({ allEvents, inventor
                         };
                     });
                     
+                    const muniTitle = municipio.toUpperCase();
                     generatedWorksheets.push({
                         id: `luminaria-${municipio}-${worksheetCounter}`,
-                        title: `Hoja de Ruta ${worksheetCounter++} - ${selectedZone} - ${municipio}`,
+                        title: `HR ${worksheetCounter++} ${selectedZone} ${muniTitle} ${dateStr}`,
                         type: 'luminaria',
                         municipio,
                         failures: worksheetRows,

@@ -4,6 +4,7 @@ import L from 'leaflet';
 import 'leaflet-routing-machine';
 import type { WorksheetData, ServicePoint, LuminariaWorksheet, CabinetWorksheet, WorksheetRow } from '../types';
 import CollapsibleSection from './CollapsibleSection';
+import { ALCID_TO_MUNICIPIO_MAP } from '../constants';
 
 declare global {
     interface Window {
@@ -45,17 +46,40 @@ const ServicePointDetails: React.FC<{ servicePoint: ServicePoint }> = ({ service
 
     const isClickable = servicePoint.lat && servicePoint.lon;
 
+    const municipioName = servicePoint.alcid && ALCID_TO_MUNICIPIO_MAP[servicePoint.alcid] 
+        ? `${ALCID_TO_MUNICIPIO_MAP[servicePoint.alcid]}` 
+        : (servicePoint.alcid || 'N/A');
+
     return (
         <div className="space-y-2 text-sm mb-4">
             <h4 className="text-lg font-semibold text-gray-300 mb-2">Detalles del Servicio a Revisar (Click para Mapa)</h4>
             <div 
-                className={`grid grid-cols-2 gap-x-4 gap-y-1 p-3 bg-gray-700/50 rounded-lg border border-gray-600 transition-colors ${isClickable ? 'cursor-pointer hover:bg-gray-600/50 hover:border-cyan-500' : ''}`}
+                className={`p-4 bg-gray-700/50 rounded-lg border border-gray-600 transition-colors ${isClickable ? 'cursor-pointer hover:bg-gray-600/50 hover:border-cyan-500' : ''}`}
                 onClick={handleMapClick}
                 title={isClickable ? "Ver ubicación en Google Maps" : ""}
             >
-                <strong className="text-gray-400">Dirección:</strong> <span className="text-gray-200 col-span-2">{servicePoint.direccion}</span>
-                <strong className="text-gray-400">Nro. Cuenta:</strong> <span className="text-gray-200 font-mono">{servicePoint.nroCuenta}</span>
-                <strong className="text-gray-400">Cant. Luminarias:</strong> <span className="text-gray-200">{servicePoint.cantidadLuminarias}</span>
+                {/* Account Number - Big and Colored */}
+                <div className="mb-4 border-b border-gray-600 pb-2">
+                    <span className="block text-gray-400 text-xs uppercase tracking-wider">Nro. Cuenta</span>
+                    <span className="text-3xl font-extrabold text-yellow-400 tracking-wide font-mono">{servicePoint.nroCuenta}</span>
+                </div>
+
+                {/* Address */}
+                <div className="mb-4">
+                    <span className="block text-gray-400 text-xs uppercase tracking-wider">Dirección</span>
+                    <span className="text-lg text-white font-medium">{servicePoint.direccion}</span>
+                </div>
+
+                {/* Grid for other details */}
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div><span className="text-gray-400 block text-xs">Municipio</span> <span className="text-gray-200 font-semibold">{municipioName}</span></div>
+                    <div><span className="text-gray-400 block text-xs">Tarifa</span> <span className="text-gray-200">{servicePoint.tarifa}</span></div>
+                    <div><span className="text-gray-400 block text-xs">Pot. Contratada</span> <span className="text-gray-200">{servicePoint.potenciaContratada} kW</span></div>
+                    <div><span className="text-gray-400 block text-xs">Tensión</span> <span className="text-gray-200">{servicePoint.tension}</span></div>
+                    <div><span className="text-gray-400 block text-xs">Fases</span> <span className="text-gray-200">{servicePoint.fases}</span></div>
+                    <div><span className="text-gray-400 block text-xs">% Eficiencia</span> <span className="text-gray-200">{servicePoint.porcentEf !== undefined ? `${servicePoint.porcentEf}%` : 'N/A'}</span></div>
+                    <div><span className="text-gray-400 block text-xs">Cant. Luminarias</span> <span className="text-gray-200">{servicePoint.cantidadLuminarias}</span></div>
+                </div>
             </div>
         </div>
     );
@@ -267,7 +291,9 @@ const Worksheet: React.FC<WorksheetProps> = ({ worksheet, onDownloadHtml }) => {
             format: 'a4'
         });
 
-        const title = `${worksheet.title} ${new Date().toLocaleDateString('es-ES')}`;
+        // The title in the worksheet object is already formatted as "HR [Nro] [ZONA] [MUNICIPIO] [DATE]"
+        // We use it directly for the PDF header and filename
+        const title = worksheet.title;
         
         const pageContent = (data: any) => {
             // HEADER
@@ -386,7 +412,8 @@ const Worksheet: React.FC<WorksheetProps> = ({ worksheet, onDownloadHtml }) => {
             });
         }
         
-        doc.save(`${title.replace(/ /g, '_')}.pdf`);
+        // Save using the title as filename (replacing slashes just in case)
+        doc.save(`${title.replace(/[ /\\?%*:|"<>]/g, '_')}.pdf`);
     };
 
 

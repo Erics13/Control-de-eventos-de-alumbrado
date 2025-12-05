@@ -1,3 +1,4 @@
+
 export const MUNICIPIO_TO_ZONE_MAP: Record<string, string> = {
     'AGUAS CORRIENTES': 'ZONA A',
     'SANTA LUCÍA': 'ZONA A',
@@ -165,4 +166,39 @@ export const getZoneColor = (zone: string): string => {
         zoneColorIndex++;
     }
     return zoneColorMap.get(zone)!;
+};
+
+export const ALCID_TO_MUNICIPIO_MAP: Record<string, string> = {
+    '1': 'PASO CARRASCO',
+    '2': 'NICOLICH',
+    '3': 'SALINAS',
+    '4': 'BARROS BLANCOS',
+    '5': 'PARQUE DEL PLATA',
+    '6': 'SUAREZ',
+    '7': 'LA PAZ',
+    '8': 'LOS CERRILLOS',
+    '9': 'AGUAS CORRIENTES',
+    '10': 'CANELONES',
+    '11': 'MIGUES',
+    '12': 'TALA',
+    '13': '18 DE MAYO',
+    '14': 'LAS PIEDRAS',
+    '15': 'PROGRESO',
+    '16': 'MONTES',
+    '17': 'SANTA LUCIA',
+    '18': 'TOLEDO',
+    '19': 'SAUCE',
+    '20': 'SAN RAMON',
+    '21': 'ATLANTIDA',
+    '22': 'SANTA ROSA',
+    '23': 'SAN BAUTISTA',
+    '24': 'SAN JACINTO',
+    '25': 'EMPALME OLMOS',
+    '26': 'SAN ANTONIO',
+    '27': 'PANDO',
+    '28': 'SOCA',
+    '29': 'LA FLORESTA',
+    '30': 'CIUDAD DE LA COSTA',
+    '31': 'JUANICO',
+    '32': 'DEL ANDALUZ'
 };

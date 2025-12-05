@@ -328,6 +328,8 @@ export const useLuminaireData = () => {
                 direccion: columns[2]?.trim(), // Mapped to Direccion
                 lat: lat as number,
                 lon: lon as number,
+                alcid: columns[3]?.trim(), // Mapped to ALCID (Municipality Code/Name)
+                porcentEf: parseNumberFromCSV(columns[6]), // Mapped to Porcent_ef
             });
         });
         return parsedItems;
