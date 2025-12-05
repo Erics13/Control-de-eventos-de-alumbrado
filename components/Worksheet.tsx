@@ -60,25 +60,25 @@ const ServicePointDetails: React.FC<{ servicePoint: ServicePoint }> = ({ service
             >
                 {/* Account Number - Big and Colored */}
                 <div className="mb-4 border-b border-gray-600 pb-2">
-                    <span className="block text-gray-400 text-xs uppercase tracking-wider">Nro. Cuenta</span>
+                    <span className="block text-gray-400 text-sm uppercase tracking-wider">Nro. Cuenta</span>
                     <span className="text-3xl font-extrabold text-yellow-400 tracking-wide font-mono">{servicePoint.nroCuenta}</span>
                 </div>
 
                 {/* Address */}
                 <div className="mb-4">
-                    <span className="block text-gray-400 text-xs uppercase tracking-wider">Dirección</span>
+                    <span className="block text-gray-400 text-sm uppercase tracking-wider">Dirección</span>
                     <span className="text-lg text-white font-medium">{servicePoint.direccion}</span>
                 </div>
 
                 {/* Grid for other details */}
                 <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div><span className="text-gray-400 block text-xs">Municipio</span> <span className="text-gray-200 font-semibold">{municipioName}</span></div>
-                    <div><span className="text-gray-400 block text-xs">Tarifa</span> <span className="text-gray-200">{servicePoint.tarifa}</span></div>
-                    <div><span className="text-gray-400 block text-xs">Pot. Contratada</span> <span className="text-gray-200">{servicePoint.potenciaContratada} kW</span></div>
-                    <div><span className="text-gray-400 block text-xs">Tensión</span> <span className="text-gray-200">{servicePoint.tension}</span></div>
-                    <div><span className="text-gray-400 block text-xs">Fases</span> <span className="text-gray-200">{servicePoint.fases}</span></div>
-                    <div><span className="text-gray-400 block text-xs">% Eficiencia</span> <span className="text-gray-200">{servicePoint.porcentEf !== undefined ? `${servicePoint.porcentEf}%` : 'N/A'}</span></div>
-                    <div><span className="text-gray-400 block text-xs">Cant. Luminarias</span> <span className="text-gray-200">{servicePoint.cantidadLuminarias}</span></div>
+                    <div><span className="text-gray-400 block text-sm font-medium">Municipio</span> <span className="text-gray-200 text-base font-semibold">{municipioName}</span></div>
+                    <div><span className="text-gray-400 block text-sm font-medium">Tarifa</span> <span className="text-gray-200 text-base">{servicePoint.tarifa}</span></div>
+                    <div><span className="text-gray-400 block text-sm font-medium">Pot. Contratada</span> <span className="text-gray-200 text-base">{servicePoint.potenciaContratada} kW</span></div>
+                    <div><span className="text-gray-400 block text-sm font-medium">Tensión</span> <span className="text-gray-200 text-base">{servicePoint.tension}</span></div>
+                    <div><span className="text-gray-400 block text-sm font-medium">Fases</span> <span className="text-gray-200 text-base">{servicePoint.fases}</span></div>
+                    <div><span className="text-gray-400 block text-sm font-medium">% Eficiencia</span> <span className="text-gray-200 text-base">{servicePoint.porcentEf !== undefined ? `${servicePoint.porcentEf}%` : 'N/A'}</span></div>
+                    <div><span className="text-gray-400 block text-sm font-medium">Cant. Luminarias</span> <span className="text-gray-200 text-base">{servicePoint.cantidadLuminarias}</span></div>
                 </div>
             </div>
         </div>
@@ -172,7 +172,7 @@ const CabinetWorksheetMap: React.FC<{ servicePoint: ServicePoint }> = ({ service
 
             L.marker([servicePoint.lat, servicePoint.lon])
                 .addTo(map)
-                .bindPopup(`<b>Tablero Prioritario:</b><br/>${servicePoint.nroCuenta}`)
+                .bindPopup(`<b>Nro. Cuenta:</b> ${servicePoint.nroCuenta}`)
                 .openPopup();
         }
     }, [servicePoint]);
