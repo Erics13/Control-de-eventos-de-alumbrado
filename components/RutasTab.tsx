@@ -94,29 +94,29 @@ const generateCabinetTableHtml = (worksheet: CabinetWorksheet): string => {
                 
                 <!-- Account Number -->
                 <div style="margin-bottom: 15px; border-bottom: 2px solid #e5e7eb; padding-bottom: 10px;">
-                    <div style="font-size: 12px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px;">Nro. Cuenta</div>
+                    <div style="font-size: 14px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px;">Nro. Cuenta</div>
                     <div style="font-size: 32px; font-weight: 800; color: #d97706; font-family: monospace;">${sp.nroCuenta}</div>
                 </div>
 
                 <!-- Address -->
                 <div style="margin-bottom: 20px;">
-                    <div style="font-size: 12px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px;">Dirección</div>
+                    <div style="font-size: 14px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px;">Dirección</div>
                     <div style="font-size: 18px; font-weight: 600; color: #1f2937;">${sp.direccion}</div>
                 </div>
 
                 <!-- Grid -->
                 <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px;">
-                    <div><div style="font-size: 11px; color: #6b7280;">Municipio</div><div style="font-weight: 600; color: #374151;">${municipioName}</div></div>
-                    <div><div style="font-size: 11px; color: #6b7280;">Tarifa</div><div style="color: #374151;">${sp.tarifa}</div></div>
+                    <div><div style="font-size: 14px; color: #6b7280;">Municipio</div><div style="font-weight: 600; color: #374151;">${municipioName}</div></div>
+                    <div><div style="font-size: 14px; color: #6b7280;">Tarifa</div><div style="color: #374151;">${sp.tarifa}</div></div>
                     
-                    <div><div style="font-size: 11px; color: #6b7280;">Pot. Contratada</div><div style="color: #374151;">${sp.potenciaContratada} kW</div></div>
-                    <div><div style="font-size: 11px; color: #6b7280;">Tensión</div><div style="color: #374151;">${sp.tension}</div></div>
+                    <div><div style="font-size: 14px; color: #6b7280;">Pot. Contratada</div><div style="color: #374151;">${sp.potenciaContratada} kW</div></div>
+                    <div><div style="font-size: 14px; color: #6b7280;">Tensión</div><div style="color: #374151;">${sp.tension}</div></div>
                     
-                    <div><div style="font-size: 11px; color: #6b7280;">Fases</div><div style="color: #374151;">${sp.fases}</div></div>
-                    <div><div style="font-size: 11px; color: #6b7280;">% Eficiencia</div><div style="color: #374151;">${sp.porcentEf !== undefined ? sp.porcentEf + '%' : 'N/A'}</div></div>
+                    <div><div style="font-size: 14px; color: #6b7280;">Fases</div><div style="color: #374151;">${sp.fases}</div></div>
+                    <div><div style="font-size: 14px; color: #6b7280;">% Eficiencia</div><div style="color: #374151;">${sp.porcentEf !== undefined ? sp.porcentEf + '%' : 'N/A'}</div></div>
                     
-                    <div><div style="font-size: 11px; color: #6b7280;">Cant. Luminarias</div><div style="color: #374151;">${sp.cantidadLuminarias}</div></div>
-                    ${worksheet.inaccessibleCount !== undefined ? `<div><div style="font-size: 11px; color: #6b7280;">Lum. Inaccesibles</div><div style="color: #374151;">${worksheet.inaccessibleCount} (${worksheet.inaccessiblePercentage?.toFixed(1)}%)</div></div>`: ''}
+                    <div><div style="font-size: 14px; color: #6b7280;">Cant. Luminarias</div><div style="color: #374151;">${sp.cantidadLuminarias}</div></div>
+                    ${worksheet.inaccessibleCount !== undefined ? `<div><div style="font-size: 14px; color: #6b7280;">Lum. Inaccesibles</div><div style="color: #374151;">${worksheet.inaccessibleCount} (${worksheet.inaccessiblePercentage?.toFixed(1)}%)</div></div>`: ''}
                 </div>
             </div>
         </div>
@@ -158,7 +158,7 @@ const getHtmlContentForWorksheet = (worksheet: WorksheetData) => {
             waypointsForHtml.push({
                 lat: cabinetWorksheet.servicePoint.lat,
                 lng: cabinetWorksheet.servicePoint.lon,
-                popup: `<b>Tablero Prioritario:</b><br/>${cabinetWorksheet.servicePoint.nroCuenta}`,
+                popup: `<b>Num_Cuenta:</b> ${cabinetWorksheet.servicePoint.nroCuenta}`,
                 situacion: ''
             });
          }

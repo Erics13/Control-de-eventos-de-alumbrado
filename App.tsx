@@ -1006,7 +1006,7 @@ const App: React.FC = () => {
             });
 
             // Fix: Explicitly type 'a' and 'b' parameters in the sort callback to ensure correct type inference.
-            return mappedData.sort((a: MonthlySummaryChartDataItem, b: MonthlySummaryChartDataItem) => b.date.getTime() - a.date.getTime()).map(({ date, ...rest }) => rest);
+            return mappedData.sort((a: MonthlySummaryChartDataItem, b: MonthlySummaryChartDataItem) => b.date.getTime() - a.date.getTime()).map(({ date, ...rest }: MonthlySummaryChartDataItem) => rest);
         };
     
         // Restructure percentageData calculation to ensure date is present for sorting.
@@ -1040,7 +1040,7 @@ const App: React.FC = () => {
         // Removed redundant type annotations from the sort callback parameters.
         const percentageData = rawPercentageDataWithDate
             .sort((a: RawPercentageDataItem, b: RawPercentageDataItem) => b.date.getTime() - a.date.getTime())
-            .map(({ date, ...rest }) => rest); // Remove the date property after sorting
+            .map(({ date, ...rest }: RawPercentageDataItem) => rest); // Remove the date property after sorting
 
 
         const countsData = processData('count');
