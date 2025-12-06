@@ -1,3 +1,4 @@
+
 import React from 'react';
 import CollapsibleSection from './CollapsibleSection';
 import MonthlyEventSummaryChart from './MonthlyEventSummaryChart';
@@ -5,8 +6,7 @@ import HistoricalSummaryTable from './HistoricalSummaryTable';
 import DashboardCard from './DashboardCard';
 import UniqueFailuresByZoneTable from './UniqueFailuresByZoneTable';
 import CabinetFailuresTable from './CabinetFailuresTable';
-import type { HistoricalData } from '../types';
-import type { CabinetFailureDetail } from './CabinetFailuresTable';
+import type { HistoricalData, CabinetFailureDetail } from '../types';
 // FIX: The 'parse' and 'format' functions should be imported from their specific subpaths.
 import { format } from 'date-fns/format';
 import { parse } from 'date-fns/parse';

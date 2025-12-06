@@ -13,7 +13,7 @@ interface ChangesByMunicipioTableProps {
 
 type SortKey = keyof ChangeSummary;
 
-const ChangesByMunicipioTable: React.FC<ChangesByMunicipioTableProps> = ({ data }) => {
+export const ChangesByMunicipioTable: React.FC<ChangesByMunicipioTableProps> = ({ data }) => { // Changed to named export
     const [sortConfig, setSortConfig] = useState<{ key: SortKey; direction: 'ascending' | 'descending' } | null>({ key: 'total', direction: 'descending' });
     const [currentPage, setCurrentPage] = useState(1);
     const itemsPerPage = 10;
@@ -49,7 +49,7 @@ const ChangesByMunicipioTable: React.FC<ChangesByMunicipioTableProps> = ({ data 
             direction = 'descending';
         }
         setSortConfig({ key, direction });
-        setCurrentPage(1);
+        setCurrentPage(1); // Fix: Reset to first page on sort
     };
 
     const getSortIndicator = (key: SortKey) => {
@@ -107,4 +107,4 @@ const ChangesByMunicipioTable: React.FC<ChangesByMunicipioTableProps> = ({ data 
     );
 };
 
-export default ChangesByMunicipioTable;
+export default ChangesByMunicipioTable; // Also keeping default export for broader compatibility

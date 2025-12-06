@@ -1,4 +1,3 @@
-
 import React, { useMemo } from 'react';
 import DashboardCard from './DashboardCard';
 import FailureByCategoryChart from './FailureByCategoryChart';
@@ -111,7 +110,7 @@ const EventosTab: React.FC<EventosTabProps> = ({
                 </div>
             </div>
 
-             <CollapsibleSection title="Análisis de Tableros con Falla por Zona" defaultOpen onExport={handleExportCabinetFailureAnalysis}>
+             <CollapsibleSection title="Análisis de Servicios con Falla por Zona" defaultOpen onExport={handleExportCabinetFailureAnalysis}>
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
                     <div className="lg:col-span-1">
                         <FailedCabinetsByZoneTable 
@@ -119,7 +118,7 @@ const EventosTab: React.FC<EventosTabProps> = ({
                             onRowClick={handleCabinetZoneRowClick}
                             selectedZone={selectedZoneForCabinetDetails}
                         />
-                         <p className="text-xs text-gray-500 mt-2">Un tablero se considera con falla si el 50% o más de sus luminarias asociadas están inaccesibles.</p>
+                         <p className="text-xs text-gray-500 mt-2">Un servicio se considera con falla si el 50% o más de sus luminarias asociadas están inaccesibles.</p>
                     </div>
                     <div className="lg:col-span-2">
                         {selectedZoneData ? (

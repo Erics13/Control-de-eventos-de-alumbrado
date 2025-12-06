@@ -15,6 +15,7 @@ export interface LuminaireEvent {
   lon?: number;
   olcHardwareDir?: string;
   systemMeasuredPower?: number;
+  situacion?: string;
 }
 
 export interface ChangeEvent {
@@ -31,7 +32,7 @@ export interface ChangeEvent {
   streetlightIdExterno: string;
   componente: string;
   designacionTipo: string;
-  cabinetIdExterno: string;
+  cabinetIdExterno?: string;
 }
 
 export interface InventoryItem {
@@ -67,7 +68,7 @@ export interface ServicePoint {
   potenciaContratada: number;
   tension: string;
   fases: string;
-  cantidadLuminarias: number;
+  cantidadLuminarias: number; // This will be calculated from inventory
   direccion: string;
   lat: number;
   lon: number;
@@ -188,6 +189,7 @@ export interface CabinetWorksheet extends BaseWorksheet {
   luminaires: InventoryItem[];
   inaccessiblePercentage?: number;
   inaccessibleCount?: number;
+  totalLuminariasInAccount?: number; // Added to reflect actual count from inventory
 }
 
 export type WorksheetData = LuminariaWorksheet | CabinetWorksheet;
@@ -200,4 +202,61 @@ export interface UserProfile {
     accessStatus: 'pending' | 'approved' | 'rejected';
     role?: 'administrador' | 'capataz' | 'regional' | 'cuadrilla' | null;
     zone?: string | string[] | null;
+}
+
+export interface CabinetFailureDetail {
+    date: Date;
+    id: string;
+    zone: string;
+    municipio: string;
+}
+
+export interface PowerSummaryData {
+    power: string;
+    total: number;
+    [key: string]: number | string; // Allows for dynamic zone/municipio columns
+}
+
+// New interface for the complete power summary table data
+export interface PowerSummaryTableData {
+    powerData: PowerSummaryData[];
+    locationColumns: string[];
+    columnTotals: Record<string, number>;
+    grandTotal: number;
+}
+
+export interface OperatingHoursSummary {
+    range: string;
+    total: number;
+    [zone: string]: string | number;
+}
+
+export interface CabinetSummary {
+    cabinetId: string;
+    luminaireCount: number;
+}
+
+export interface ServiceSummary {
+    nroCuenta: string;
+    luminaireCount: number;
+    totalPower: number;
+}
+
+export interface MonthlyChangesSummary {
+    name: string; // Month name
+    LUMINARIA: number;
+    OLC: number;
+    total: number;
+}
+
+export interface HistoricalChangesByConditionSummary {
+    year: string;
+    garantiaLuminaria: number;
+    garantiaOlc: number;
+    columnaCaidaLuminaria: number;
+    columnaCaidaOlc: number;
+    hurtoLuminaria: number;
+    hurtoOlc: number;
+    vandalizadoLuminaria: number;
+    vandalizadoOlc: number;
 }

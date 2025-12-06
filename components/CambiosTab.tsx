@@ -2,7 +2,7 @@ import React from 'react';
 import DashboardCard from './DashboardCard';
 import ChangesByZoneChart from './ChangesByZoneChart';
 import CollapsibleSection from './CollapsibleSection';
-import ChangesByMunicipioTable from './ChangesByMunicipioTable';
+import { ChangesByMunicipioTable } from './ChangesByMunicipioTable'; // Corrected import
 import ChangeEventTable from './ChangeEventTable';
 import ChangesByMonthChart from './ChangesByMonthChart';
 import ChangesByMonthTable from './ChangesByMonthTable';

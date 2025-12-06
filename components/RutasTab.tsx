@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useCallback } from 'react';
 import { format } from 'date-fns/format';
 import type { LuminaireEvent, InventoryItem, ZoneBase, ServicePoint, WorksheetData, CabinetWorksheet, LuminariaWorksheet, WorksheetRow } from '../types';
@@ -38,6 +37,7 @@ const generateLuminariaTableHtml = (worksheet: LuminariaWorksheet): string => {
         }
 
         const isClickable = !!locationLink;
+        // Fix for `rowStyle` ternary operator syntax (remove extra quotes)
         const rowOnClick = isClickable ? `onclick="window.open('${locationLink}', '_blank')"` : '';
         const rowStyle = isClickable ? 'cursor: pointer;' : '';
         
@@ -126,7 +126,7 @@ const generateCabinetTableHtml = (worksheet: CabinetWorksheet): string => {
 };
 
 
-const getHtmlContentForWorksheet = (worksheet: WorksheetData) => {
+const getHtmlContentForWorksheet = (worksheet: WorksheetData): string => {
     // The title is already in the correct format "HR [Nro] [ZONE] [MUNI] [DATE]" from generation time
     const title = worksheet.title;
     let tableHtml = '';
@@ -270,7 +270,7 @@ const getActionAndSolution = (event: LuminaireEvent): { action: string; solution
         : defaultResponse;
 };
 
-const MantenimientoTab: React.FC<MantenimientoTabProps> = ({ allEvents, inventory, zoneBases, zones, servicePoints }) => {
+const RutasTab: React.FC<MantenimientoTabProps> = ({ allEvents, inventory, zoneBases, zones, cabinetFailureAnalysisData, servicePoints }) => {
     const [selectedZone, setSelectedZone] = useState<string>('');
     const [worksheets, setWorksheets] = useState<WorksheetData[]>([]);
     const [isLoading, setIsLoading] = useState(false);
@@ -303,79 +303,65 @@ const MantenimientoTab: React.FC<MantenimientoTabProps> = ({ allEvents, inventor
             const dateStr = format(new Date(), 'dd-MM-yyyy');
 
             // 1. New Critical Failure Detection based on percentages
-            const zoneInventory = inventory.filter(item => item.zone === selectedZone);
+            // Use cabinetFailureAnalysisData which already identifies failing service accounts
+            const failingServiceAccountsInZone = cabinetFailureAnalysisData.filter(data => data.name === selectedZone);
 
-            const luminairesByAccount = zoneInventory.reduce((acc, item) => {
-                if (item.nroCuenta && item.nroCuenta !== '-') {
-                    if (!acc[item.nroCuenta]) {
-                        acc[item.nroCuenta] = [];
-                    }
-                    acc[item.nroCuenta].push(item);
-                }
-                return acc;
-            }, {} as Record<string, InventoryItem[]>);
-
-            const inaccessibleEvents = allEvents.filter(e =>
-                e.zone === selectedZone &&
-                e.status === 'FAILURE' &&
-                e.failureCategory === 'Inaccesible'
-            );
-
-            const inaccessibleUniqueLuminairesByAccount = inaccessibleEvents.reduce((acc, event) => {
-                const inventoryItem = inventoryMap.get(event.id);
-                const account = inventoryItem?.nroCuenta;
-                if (account && account !== '-') {
-                    if (!acc[account]) {
-                        acc[account] = new Set<string>();
-                    }
-                    acc[account].add(event.id);
-                }
-                return acc;
-            }, {} as Record<string, Set<string>>);
-            
-            Object.keys(luminairesByAccount).forEach(account => {
-                const totalLuminairesInAccount = luminairesByAccount[account].length;
-                const inaccessibleCount = inaccessibleUniqueLuminairesByAccount[account]?.size || 0;
-
-                if (totalLuminairesInAccount === 0) return;
-
-                const percentage = (inaccessibleCount / totalLuminairesInAccount) * 100;
-                let worksheetType: CabinetWorksheet['type'] | null = null;
-                // Note: Title prefix is not used in new format, logic kept for type determination
-                
-                if (percentage > 90) {
-                    worksheetType = 'cabinet_falla_total';
-                } else if (percentage >= 50) {
-                    worksheetType = 'cabinet_falla_parcial';
-                }
-
-                if (worksheetType) {
+            failingServiceAccountsInZone.forEach(zoneData => {
+                zoneData.accounts.forEach(account => {
                     const servicePoint = servicePointMap.get(account);
                     if (servicePoint) {
-                        const associatedLuminaires = luminairesByAccount[account];
-                        const municipioName = associatedLuminaires.length > 0 && associatedLuminaires[0].municipio ? associatedLuminaires[0].municipio.toUpperCase() : 'DESCONOCIDO';
+                        const associatedLuminaires = inventory.filter(item => item.nroCuenta === account && item.zone === selectedZone);
+                        const totalLuminariasInAccount = associatedLuminaires.length;
 
-                        // Update the service point count with the actual count found in inventory for this zone
-                        const updatedServicePoint = { 
-                            ...servicePoint, 
-                            cantidadLuminarias: associatedLuminaires.length 
-                        };
-
-                        // Mark all luminaires from this account as processed
-                        associatedLuminaires.forEach(lum => processedLuminaires.add(lum.streetlightIdExterno));
+                        // Recalculate inaccessible count for this specific service point from allEvents
+                        const inaccessibleLuminairesForAccount = allEvents.filter(e => 
+                            e.status === 'FAILURE' && 
+                            e.failureCategory === 'Inaccesible' && 
+                            inventoryMap.get(e.id)?.nroCuenta === account &&
+                            inventoryMap.get(e.id)?.zone === selectedZone
+                        ).map(e => e.id);
                         
-                        generatedWorksheets.push({
-                            id: `cabinet-${account}-${worksheetCounter}`,
-                            title: `HR ${worksheetCounter++} ${selectedZone} ${municipioName} ${dateStr} (Tablero ${account})`,
-                            type: worksheetType,
-                            servicePoint: updatedServicePoint,
-                            luminaires: associatedLuminaires,
-                            inaccessiblePercentage: percentage,
-                            inaccessibleCount: inaccessibleCount
-                        });
+                        const inaccessibleCount = new Set(inaccessibleLuminairesForAccount).size;
+
+                        if (totalLuminariasInAccount === 0) return;
+                        const percentage = (inaccessibleCount / totalLuminariasInAccount) * 100;
+
+                        let worksheetType: CabinetWorksheet['type'] | null = null;
+                        if (percentage > 90) {
+                            worksheetType = 'cabinet_falla_total';
+                        } else if (percentage >= 50) {
+                            worksheetType = 'cabinet_falla_parcial';
+                        }
+
+                        if (worksheetType) {
+                            const municipioName = servicePoint.alcid && ALCID_TO_MUNICIPIO_MAP[servicePoint.alcid] 
+                                ? ALCID_TO_MUNICIPIO_MAP[servicePoint.alcid].toUpperCase()
+                                : (servicePoint.alcid || 'DESCONOCIDO');
+
+                            // Update the service point with actual calculated luminaire count
+                            const updatedServicePoint = { 
+                                ...servicePoint, 
+                                cantidadLuminarias: totalLuminariasInAccount 
+                            };
+                            
+                            // Mark all luminaires from this account as processed
+                            associatedLuminaires.forEach(lum => processedLuminaires.add(lum.streetlightIdExterno));
+                            
+                            generatedWorksheets.push({
+                                id: `service-${account}-${worksheetCounter}`,
+                                title: `HR ${worksheetCounter++} ${selectedZone} ${municipioName} ${dateStr} (Servicio ${account})`,
+                                type: worksheetType,
+                                servicePoint: updatedServicePoint,
+                                luminaires: associatedLuminaires,
+                                inaccessiblePercentage: percentage,
+                                inaccessibleCount: inaccessibleCount,
+                                totalLuminariasInAccount: totalLuminariasInAccount // Ensure this is set
+                            });
+                        }
                     }
-                }
+                });
             });
+
 
             // 2. Regular Route Creation for remaining failures
             const individualFailures = allEvents.filter(e =>
@@ -453,7 +439,7 @@ const MantenimientoTab: React.FC<MantenimientoTabProps> = ({ allEvents, inventor
 
         }, 100);
 
-    }, [selectedZone, allEvents, inventory, zoneBases, inventoryMap, servicePointMap]);
+    }, [selectedZone, allEvents, inventory, inventoryMap, servicePointMap, cabinetFailureAnalysisData]);
 
     const handleGenerateAllHtml = async () => {
         if (worksheets.length === 0) return;
@@ -561,4 +547,4 @@ const MantenimientoTab: React.FC<MantenimientoTabProps> = ({ allEvents, inventor
     );
 };
 
-export default MantenimientoTab;
+export default RutasTab;

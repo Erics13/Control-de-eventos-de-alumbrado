@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useCallback } from 'react';
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
 import type { LuminaireEvent, ChangeEvent, InventoryItem, DataSourceURLs, HistoricalData, HistoricalZoneData, ServicePoint, ZoneBase } from '../types';
@@ -75,62 +74,61 @@ const getDb = () => {
 };
 
 // --- Helper Functions ---
+const detectDelimiter = (header: string): string => {
+    const commaCount = (header.match(/,/g) || []).length;
+    const semicolonCount = (header.match(/;/g) || []).length;
+    return semicolonCount > commaCount ? ';' : ',';
+};
+
 const parseCsvRow = (row: string, delimiter: string): string[] => {
     const columns: string[] = [];
     if (!row) return columns;
     const escapedDelimiter = delimiter.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-    const regex = new RegExp(`("([^"]*)"|[^${escapedDelimiter}]*)(${escapedDelimiter}|$)`, 'g');
+    // Regex to handle quoted fields containing delimiters
+    const regex = new RegExp(`(?:"((?:[^"]|"")*)"|([^${escapedDelimiter}]*))(${escapedDelimiter}|$)`, 'g');
 
     let match;
     while ((match = regex.exec(row))) {
-        let column = match[2] !== undefined ? match[2] : match[1];
+        // match[1] is the content inside quotes, match[2] is content without quotes
+        let column = match[1] !== undefined ? match[1].replace(/""/g, '"') : (match[2] || '');
         columns.push(column.trim());
-        if (match[3] === '') break;
+        if (match[3] === '') break; // Reached end of row
     }
     return columns;
 };
 
-const parseCustomDate = (dateStr: string): Date | null => {
-    if (!dateStr || !dateStr.includes('/')) return null;
-    const parts = dateStr.split(' ');
-    if (parts.length < 2) return null;
-    
-    const dateParts = parts[0].split('/');
-    const timeParts = parts[1].split(':');
-    
-    if (dateParts.length < 3 || timeParts.length < 2) return null;
-    
-    const day = parseInt(dateParts[0], 10);
-    const month = parseInt(dateParts[1], 10) - 1;
-    let year = parseInt(dateParts[2], 10);
-    if(year < 100) year += 2000;
-    
-    const hour = parseInt(timeParts[0], 10);
-    const minute = parseInt(timeParts[1], 10);
-    
-    const date = new Date(year, month, day, hour, minute);
-    return isNaN(date.getTime()) ? null : date;
+const parseCustomDate = (dateStr: string | undefined): Date | null => {
+    if (!dateStr || dateStr.trim() === '') return null;
+    const trimmedStr = dateStr.trim();
+    // Try to parse 'dd/MM/yyyy HH:mm'
+    const match = trimmedStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})\s(\d{1,2}):(\d{1,2})$/);
+    if (match) {
+        const [, day, month, year, hour, minute] = match.map(Number);
+        const fullYear = year < 100 ? year + 2000 : year; // Handle 2-digit years
+        const date = new Date(fullYear, month - 1, day, hour, minute);
+        return isNaN(date.getTime()) ? null : date;
+    }
+    // Fallback for ISO format or other standard formats if needed
+    try {
+        const date = new Date(trimmedStr);
+        return isNaN(date.getTime()) ? null : date;
+    } catch (e) {
+        return null;
+    }
 };
 
 const parseNumberFromCSV = (numStr: string | undefined): number | undefined => {
-    if (!numStr) return undefined;
-    // Replace comma decimal separator with dot, but leave dot decimal separator as is.
-    // This handles both "12,34" -> "12.34" and "12.34" -> "12.34".
-    // It also handles thousands separators by removing them if they are dots and decimal is comma.
-    // If input is "1.234,56", it becomes "1234.56".
-    // If input is "1,234.56", it remains "1,234.56" before parseFloat. This will be an issue.
-    // A more robust solution would be:
-    const cleanedStr = numStr.trim();
+    if (!numStr || numStr.trim() === '' || numStr.toLowerCase().trim() === 'n/a') return undefined;
+    
+    // Attempt to parse with comma as decimal separator first (common in Spanish locales)
+    let cleanedStr = numStr.trim();
     if (cleanedStr.includes(',') && !cleanedStr.includes('.')) {
-      // Assume comma is decimal separator if no dot is present
-      return parseFloat(cleanedStr.replace(',', '.'));
-    } else if (cleanedStr.includes('.') && cleanedStr.indexOf('.') < cleanedStr.indexOf(',')) {
-      // Assume dot is thousands separator if it appears before comma
-      // This is complex and depends on the specific locale. For simplicity, assume standard float.
-      // If we see "1.234,56", replace dots with nothing, then comma with dot.
-      return parseFloat(cleanedStr.replace(/\./g, '').replace(',', '.'));
+        cleanedStr = cleanedStr.replace(',', '.');
+    } else if (cleanedStr.includes('.') && cleanedStr.includes(',') && cleanedStr.indexOf('.') < cleanedStr.indexOf(',')) {
+        // If dot is thousands separator and comma is decimal separator (e.g., "1.234,56")
+        cleanedStr = cleanedStr.replace(/\./g, '').replace(',', '.');
     }
-    // Default to parseFloat with dot as decimal
+    
     const parsed = parseFloat(cleanedStr);
     return isNaN(parsed) ? undefined : parsed;
 };
@@ -149,42 +147,54 @@ export const useLuminaireData = () => {
 
     const processEventsCSV = (text: string): LuminaireEvent[] => {
         const lines = text.split('\n');
-        const header = lines[0] || '';
+        if (lines.length <= 1) return [];
+        const header = lines[0];
         const rows = lines.slice(1);
-        const delimiter = (header.match(/;/g) || []).length > (header.match(/,/g) || []).length ? ';' : ',';
+        const delimiter = detectDelimiter(header);
+        // console.log("Events Delimiter:", delimiter);
 
         const parsedEvents: LuminaireEvent[] = [];
-        rows.forEach((row) => {
+        rows.forEach((row, rowIndex) => {
             if (row.trim() === '') return;
             const columns = parseCsvRow(row, delimiter);
-            if (columns.length < 14) return;
+            // console.log(`Events Row ${rowIndex}:`, columns);
+            if (columns.length < 14) {
+                console.warn(`Events: Skipping row ${rowIndex} due to insufficient columns (${columns.length} < 14):`, columns);
+                return;
+            }
             const eventDate = parseCustomDate(columns[13]?.trim());
-            if (!eventDate) return;
+            if (!eventDate) {
+                console.warn(`Events: Skipping row ${rowIndex} due to invalid date '${columns[13]}'`, columns);
+                return;
+            }
             const uniqueEventId = columns[11]?.trim();
-            if (!uniqueEventId) return;
+            if (!uniqueEventId) {
+                console.warn(`Events: Skipping row ${rowIndex} due to missing uniqueEventId`, columns);
+                return;
+            }
             
             const description = columns[12]?.trim() || '';
             const situacion = columns[8]?.trim() || '';
             const situacionLower = situacion.toLowerCase();
-            let isSpecialFailure = false;
+            
             let specialFailureCategory: string | undefined = undefined;
-            if (situacionLower === 'columna caida') { specialFailureCategory = 'Columna Caída'; isSpecialFailure = true; }
-            else if (situacionLower === 'hurto') { specialFailureCategory = 'Hurto'; isSpecialFailure = true; }
-            else if (situacionLower.startsWith('vandalizado')) { specialFailureCategory = 'Vandalizado'; isSpecialFailure = true; }
+            if (situacionLower.includes('columna') && situacionLower.includes('caida')) { specialFailureCategory = 'Columna Caída'; }
+            else if (situacionLower.includes('hurto')) { specialFailureCategory = 'Hurto'; }
+            else if (situacionLower.includes('vandalizad') || situacionLower.includes('vandalism')) { specialFailureCategory = 'Vandalizado'; }
             
             const category = columns[10]?.trim();
-            const translatedCategory = FAILURE_CATEGORY_TRANSLATIONS[category];
-            const eventStatus = (category && category.length > 0) || isSpecialFailure ? 'FAILURE' : 'OPERATIONAL';
+            const translatedCategory = FAILURE_CATEGORY_TRANSLATIONS[category!];
             
-            // Prioritize technical event category over situation category
-            const finalFailureCategory = (translatedCategory ? translatedCategory : undefined) || specialFailureCategory;
-            
+            // Prioritize technical event category over situation category if both exist
+            const finalFailureCategory = (translatedCategory && translatedCategory !== 'N/A' ? translatedCategory : undefined) || specialFailureCategory;
+            const eventStatus = finalFailureCategory ? 'FAILURE' : 'OPERATIONAL'; // Status is FAILURE if any category is determined
+
             const municipio = columns[0]?.trim() || 'N/A';
             const municipioUpper = municipio.toUpperCase();
             if (municipioUpper === 'DESAFECTADOS' || municipioUpper === 'OBRA NUEVA' || municipioUpper === 'N/A') return;
             
             const zone = MUNICIPIO_TO_ZONE_MAP[municipioUpper] || 'Desconocida';
-            // Use parseNumberFromCSV for coordinates as well, after ensuring they use '.' for decimal
+            
             const lat = parseNumberFromCSV(columns[5]);
             const lon = parseNumberFromCSV(columns[6]);
             const systemMeasuredPower = parseNumberFromCSV(columns[14]);
@@ -192,63 +202,90 @@ export const useLuminaireData = () => {
             parsedEvents.push({
                 uniqueEventId, id: columns[4]?.trim(), olcId: columns[3]?.trim(), power: columns[2]?.trim(),
                 date: eventDate, municipio, zone, status: eventStatus, description, failureCategory: finalFailureCategory,
-                lat: !isNaN(lat as number) ? (lat as number) : undefined, lon: !isNaN(lon as number) ? (lon as number) : undefined,
+                lat: lat, lon: lon,
                 systemMeasuredPower,
+                situacion: situacionLower // Store lowercased for consistent filtering
             });
         });
+        // console.log("Parsed Events:", parsedEvents.length, parsedEvents);
         return parsedEvents;
     };
 
     const processChangeEventsCSV = (text: string): ChangeEvent[] => {
         const lines = text.split('\n');
-        const header = lines[0] || '';
+        if (lines.length <= 1) return [];
+        const header = lines[0];
         const rows = lines.slice(1);
-        const delimiter = (header.match(/;/g) || []).length > (header.match(/,/g) || []).length ? ';' : ',';
+        const delimiter = detectDelimiter(header);
+        // console.log("Change Events Delimiter:", delimiter);
         
         const parsedChangeEvents: ChangeEvent[] = [];
-        rows.forEach((row) => {
+        rows.forEach((row, rowIndex) => {
             if (row.trim() === '') return;
             const columns = parseCsvRow(row, delimiter);
-            if (columns.length < 12) return;
+            // console.log(`Change Events Row ${rowIndex}:`, columns);
+            if (columns.length < 12) {
+                console.warn(`Change Events: Skipping row ${rowIndex} due to insufficient columns (${columns.length} < 12):`, columns);
+                return;
+            }
             const fechaRetiro = parseCustomDate(columns[0]?.trim());
-            if (!fechaRetiro) return;
+            if (!fechaRetiro) {
+                console.warn(`Change Events: Skipping row ${rowIndex} due to invalid date '${columns[0]}'`, columns);
+                return;
+            }
             const poleIdExterno = columns[2]?.trim();
-            if (!poleIdExterno) return;
+            if (!poleIdExterno) {
+                console.warn(`Change Events: Skipping row ${rowIndex} due to missing poleIdExterno`, columns);
+                return;
+            }
             
             const municipio = columns[5]?.trim() || 'N/A';
             const municipioUpper = municipio.toUpperCase();
             if (municipioUpper === 'DESAFECTADOS' || municipioUpper === 'OBRA NUEVA' || municipioUpper === 'N/A') return;
 
             const zone = MUNICIPIO_TO_ZONE_MAP[municipioUpper] || 'Desconocida';
-            const lat = parseNumberFromCSV(columns[6]?.trim().replace(/"/g, ''));
-            const lon = parseNumberFromCSV(columns[7]?.trim().replace(/"/g, ''));
+            const lat = parseNumberFromCSV(columns[6]);
+            const lon = parseNumberFromCSV(columns[7]);
+            
+            const condicion = columns[1]?.trim().toLowerCase(); // Store lowercased for consistent filtering
 
             parsedChangeEvents.push({
                 uniqueId: `${poleIdExterno}-${fechaRetiro.toISOString()}-${columns[9]?.trim()}`, fechaRetiro,
-                condicion: columns[1]?.trim(), poleIdExterno,
+                condicion: condicion, 
+                poleIdExterno,
                 horasFuncionamiento: parseNumberFromCSV(columns[3]) ?? 0,
                 recuentoConmutacion: parseNumberFromCSV(columns[4]) ?? 0,
-                municipio, zone, lat: !isNaN(lat as number) ? (lat as number) : undefined, lon: !isNaN(lon as number) ? (lon as number) : undefined,
+                municipio, zone, lat: lat, lon: lon,
                 streetlightIdExterno: columns[8]?.trim(), componente: columns[9]?.trim(),
                 designacionTipo: columns[10]?.trim(), cabinetIdExterno: columns[11]?.trim(),
             });
         });
+        // console.log("Parsed Change Events:", parsedChangeEvents.length, parsedChangeEvents);
         return parsedChangeEvents;
     };
 
     const processInventoryCSV = (text: string): InventoryItem[] => {
         const lines = text.split('\n');
-        const header = lines[0] || '';
+        if (lines.length <= 1) return [];
+        const header = lines[0];
         const rows = lines.slice(1);
-        const delimiter = (header.match(/;/g) || []).length > (header.match(/,/g) || []).length ? ';' : ',';
+        const delimiter = detectDelimiter(header);
+        // console.log("Inventory Delimiter:", delimiter);
 
         const parsedItems: InventoryItem[] = [];
-        rows.forEach((row) => {
+        rows.forEach((row, rowIndex) => {
             if (row.trim() === '') return;
             const columns = parseCsvRow(row, delimiter);
-            if (columns.length < 24) return;
+            // console.log(`Inventory Row ${rowIndex}:`, columns);
+            if (columns.length < 24) {
+                 console.warn(`Inventory: Skipping row ${rowIndex} due to insufficient columns (${columns.length} < 24):`, columns);
+                 return;
+            }
             const streetlightIdExterno = columns[1]?.trim();
-            if (!streetlightIdExterno) return;
+            if (!streetlightIdExterno) {
+                console.warn(`Inventory: Skipping row ${rowIndex} due to missing streetlightIdExterno`, columns);
+                return;
+            }
 
             const municipio = columns[0]?.trim() || 'N/A';
             const municipioUpper = municipio.toUpperCase();
@@ -256,16 +293,18 @@ export const useLuminaireData = () => {
 
             const zone = MUNICIPIO_TO_ZONE_MAP[municipioUpper] || 'Desconocida';
             
-            const lat = parseNumberFromCSV(columns[2]?.trim().replace(/"/g, ''));
-            const lon = parseNumberFromCSV(columns[3]?.trim().replace(/"/g, ''));
-            const cabinetLat = parseNumberFromCSV(columns[20]?.trim().replace(/"/g, ''));
-            const cabinetLon = parseNumberFromCSV(columns[21]?.trim().replace(/"/g, ''));
+            const lat = parseNumberFromCSV(columns[2]);
+            const lon = parseNumberFromCSV(columns[3]);
+            const cabinetLat = parseNumberFromCSV(columns[20]);
+            const cabinetLon = parseNumberFromCSV(columns[21]);
             const olcIdExterno = parseInt(columns[15]?.trim(), 10);
             
+            const situacion = columns[5]?.trim().toLowerCase(); // Store lowercased for consistent filtering
+
             parsedItems.push({
-                streetlightIdExterno, municipio, zone, lat: !isNaN(lat as number) ? (lat as number) : undefined,
-                lon: !isNaN(lon as number) ? (lon as number) : undefined, nroCuenta: columns[4]?.trim(),
-                situacion: columns[5]?.trim(), localidad: columns[6]?.trim(),
+                streetlightIdExterno, municipio, zone, lat: lat,
+                lon: lon, nroCuenta: columns[4]?.trim(),
+                situacion: situacion, localidad: columns[6]?.trim(),
                 fechaInstalacion: parseCustomDate(columns[7]?.trim()) ?? undefined,
                 marked: columns[8]?.trim(), estado: columns[9]?.trim(),
                 fechaInauguracion: parseCustomDate(columns[10]?.trim()) ?? undefined,
@@ -276,35 +315,39 @@ export const useLuminaireData = () => {
                 horasFuncionamiento: parseNumberFromCSV(columns[17]),
                 recuentoConmutacion: parseNumberFromCSV(columns[18]),
                 cabinetIdExterno: columns[19]?.trim(),
-                cabinetLat: !isNaN(cabinetLat as number) ? (cabinetLat as number) : undefined,
-                cabinetLon: !isNaN(cabinetLon as number) ? (cabinetLon as number) : undefined,
+                cabinetLat: cabinetLat,
+                cabinetLon: cabinetLon,
                 potenciaNominal: parseNumberFromCSV(columns[22]),
                 designacionTipo: columns[23]?.trim(),
             });
         });
+        // console.log("Parsed Inventory:", parsedItems.length, parsedItems);
         return parsedItems;
     };
 
     const processServicePointsCSV = (text: string): ServicePoint[] => {
         const lines = text.split('\n');
-        const header = lines[0] || '';
+        if (lines.length <= 1) return [];
+        const header = lines[0];
         const rows = lines.slice(1);
-        const delimiter = (header.match(/;/g) || []).length > (header.match(/,/g) || []).length ? ';' : ',';
+        const delimiter = detectDelimiter(header);
+        // console.log("Service Points Delimiter:", delimiter);
         const parsedItems: ServicePoint[] = [];
 
-        rows.forEach((row) => {
+        rows.forEach((row, rowIndex) => {
             if (row.trim() === '') return;
             const columns = parseCsvRow(row, delimiter);
+            // console.log(`Service Points Row ${rowIndex}:`, columns);
             // Expected 11 columns based on the current provided data from logs:
             // Tarifa (0), PotContrat (1), Direccion (2), ALCID (3), Num_Cuenta (4), ZONA (5), Porcent_ef (6), FASES (7), TENSION (8), POINT_X (9), POINT_Y (10)
-            if (columns.length < 11) { // Adjusted minimum column check to 11
-                 console.warn(`Skipping row due to insufficient columns (${columns.length} < 11):`, columns);
+            if (columns.length < 11) { 
+                 console.warn(`Service Points: Skipping row ${rowIndex} due to insufficient columns (${columns.length} < 11):`, columns);
                  return;
             }
 
             const nroCuenta = columns[4]?.trim(); // Mapped to Num_Cuenta
             if (!nroCuenta) {
-                console.warn(`Skipping row due to missing nroCuenta:`, columns);
+                console.warn(`Service Points: Skipping row ${rowIndex} due to missing nroCuenta`, columns);
                 return;
             }
 
@@ -312,9 +355,8 @@ export const useLuminaireData = () => {
             const lon = parseNumberFromCSV(columns[9]); // Mapped to POINT_X (index 9)
             const lat = parseNumberFromCSV(columns[10]); // Mapped to POINT_Y (index 10)
             
-            if (isNaN(lat as number) || isNaN(lon as number)) {
-                // Log the full columns array for debugging when coordinates are invalid
-                console.warn(`Invalid coordinates for service point ${nroCuenta}: Lat='${columns[10]}', Lon='${columns[9]}'. Skipping. Raw columns:`, columns);
+            if (lat === undefined || lon === undefined) {
+                console.warn(`Service Points: Invalid coordinates for service point ${nroCuenta}: Lat='${columns[10]}', Lon='${columns[9]}'. Skipping. Raw columns:`, columns);
                 return;
             }
 
@@ -324,39 +366,52 @@ export const useLuminaireData = () => {
                 potenciaContratada: parseNumberFromCSV(columns[1]) ?? 0, // Mapped to PotContrat
                 tension: columns[8]?.trim(), // Mapped to TENSION
                 fases: columns[7]?.trim(), // Mapped to FASES
-                cantidadLuminarias: 0, // Not present in CSV, default to 0
+                cantidadLuminarias: 0, // Will be calculated from inventory
                 direccion: columns[2]?.trim(), // Mapped to Direccion
-                lat: lat as number,
-                lon: lon as number,
+                lat: lat,
+                lon: lon,
                 alcid: columns[3]?.trim(), // Mapped to ALCID (Municipality Code/Name)
                 porcentEf: parseNumberFromCSV(columns[6]), // Mapped to Porcent_ef
             });
         });
+        // console.log("Parsed Service Points:", parsedItems.length, parsedItems);
         return parsedItems;
     };
 
     const processZoneBasesCSV = (text: string): ZoneBase[] => {
         const lines = text.split('\n');
-        const header = lines[0] || '';
+        if (lines.length <= 1) return [];
+        const header = lines[0];
         const rows = lines.slice(1);
-        const delimiter = (header.match(/;/g) || []).length > (header.match(/,/g) || []).length ? ';' : ',';
+        const delimiter = detectDelimiter(header);
+        // console.log("Zone Bases Delimiter:", delimiter);
 
         const parsedItems: ZoneBase[] = [];
-        rows.forEach((row) => {
+        rows.forEach((row, rowIndex) => {
             if (row.trim() === '') return;
             const columns = parseCsvRow(row.trim(), delimiter);
-            if (columns.length < 3) return;
+            // console.log(`Zone Bases Row ${rowIndex}:`, columns);
+            if (columns.length < 3) {
+                console.warn(`Zone Bases: Skipping row ${rowIndex} due to insufficient columns (${columns.length} < 3):`, columns);
+                return;
+            }
 
             const zoneName = columns[0]?.trim().toUpperCase();
-            if (!zoneName) return;
+            if (!zoneName) {
+                console.warn(`Zone Bases: Skipping row ${rowIndex} due to missing zoneName`, columns);
+                return;
+            }
 
             const lat = parseNumberFromCSV(columns[1]);
             const lon = parseNumberFromCSV(columns[2]);
             
-            if (!isNaN(lat as number) && !isNaN(lon as number)) {
-                 parsedItems.push({ zoneName, lat: lat as number, lon: lon as number });
+            if (lat !== undefined && lon !== undefined) {
+                 parsedItems.push({ zoneName, lat: lat, lon: lon });
+            } else {
+                 console.warn(`Zone Bases: Invalid coordinates for zone ${zoneName}: Lat='${columns[1]}', Lon='${columns[2]}'. Skipping. Raw columns:`, columns);
             }
         });
+        // console.log("Parsed Zone Bases:", parsedItems.length, parsedItems);
         return parsedItems;
     };
 
@@ -483,16 +538,16 @@ export const useLuminaireData = () => {
 
         let urls: DataSourceURLs;
         try {
+            console.log("Attempting to fetch data source URLs from Firebase...");
             const firebaseResponse = await fetch(FIREBASE_BASE_URL + FIREBASE_URLS_PATH);
             if (!firebaseResponse.ok) {
-                throw new Error(`Error al conectar con Firebase: ${firebaseResponse.statusText}`);
+                throw new Error(`Error al conectar con Firebase: ${firebaseResponse.statusText} (${firebaseResponse.status})`);
             }
             const data = await firebaseResponse.json();
             if (!data || !data.events || !data.changes || !data.inventory || !data.servicePoints || !data.zoneBases) {
                 throw new Error("La configuración de URLs en Firebase es inválida o no se encontró.");
             }
             urls = data as DataSourceURLs;
-            // Log fetched URLs for debugging purposes
             console.log("URLs de fuentes de datos cargadas desde Firebase:", urls);
         } catch (e: any) {
             console.error("Failed to fetch URLs from Firebase", e);
@@ -504,7 +559,9 @@ export const useLuminaireData = () => {
                     db.getAll(INVENTORY_STORE),
                     db.getAll(SERVICE_POINTS_STORE),
                     db.getAll(ZONE_BASES_STORE),
-                    fetch(FIREBASE_BASE_URL + FIREBASE_HISTORY_PATH + '.json').then(res => res.json())
+                    fetch(FIREBASE_BASE_URL + FIREBASE_HISTORY_PATH + '.json')
+                        .then(res => { if (!res.ok) throw new Error(res.statusText); return res.json() as Promise<HistoricalData>; })
+                        .catch(e => { console.warn("Failed to fetch historical data from Firebase:", e); return {} as HistoricalData; })
                 ]);
                 setAllEvents(cachedEvents.sort((a,b) => b.date.getTime() - a.date.getTime()));
                 setChangeEvents(cachedChanges.sort((a,b) => b.fechaRetiro.getTime() - a.fechaRetiro.getTime()));
@@ -514,9 +571,12 @@ export const useLuminaireData = () => {
                 setHistoricalData(cachedHistory || {});
                  if (cachedEvents.length === 0 && cachedChanges.length === 0 && cachedInventory.length === 0) {
                     setError(`No se pudo obtener la configuración de Firebase: ${e.message}. No hay datos en la caché.`);
+                } else {
+                    setError(null); // Clear error if cached data was loaded successfully
+                    console.log("Loaded data from IndexedDB cache.");
                 }
             } catch (dbError) {
-                console.error("Error loading from DB/Firebase after Firebase failure:", dbError);
+                console.error("Error loading from DB/Firebase after Firebase URL failure:", dbError);
                 setError(`No se pudo obtener la configuración de Firebase y también falló la carga desde la caché.`);
             } finally {
                 setLoading(false);
@@ -525,32 +585,44 @@ export const useLuminaireData = () => {
         }
 
         try {
+            console.log("Attempting to fetch CSV files...");
             const [
-                responses,
-                historicalDataResponse
+                eventsResponse,
+                changesResponse,
+                inventoryResponse,
+                servicePointsResponse,
+                zoneBasesResponse,
             ] = await Promise.all([
-                Promise.all([
-                    fetch(urls.events).catch(e => { throw new Error(`Eventos: ${e.message}`); }),
-                    fetch(urls.changes).catch(e => { throw new Error(`Cambios: ${e.message}`); }),
-                    fetch(urls.inventory).catch(e => { throw new Error(`Inventario: ${e.message}`); }),
-                    fetch(urls.servicePoints).catch(e => { throw new Error(`Puntos de Servicio: ${e.message}`); }),
-                    fetch(urls.zoneBases).catch(e => { throw new Error(`Bases de Zona: ${e.message}`); }),
-                ]),
-                fetch(FIREBASE_BASE_URL + FIREBASE_HISTORY_PATH + '.json').catch(e => { throw new Error(`Historial: ${e.message}`); })
+                fetch(urls.events).catch(e => { throw new Error(`Eventos: ${e.message}`); }),
+                fetch(urls.changes).catch(e => { throw new Error(`Cambios: ${e.message}`); }),
+                fetch(urls.inventory).catch(e => { throw new Error(`Inventario: ${e.message}`); }),
+                fetch(urls.servicePoints).catch(e => { throw new Error(`Puntos de Servicio: ${e.message}`); }),
+                fetch(urls.zoneBases).catch(e => { throw new Error(`Bases de Zona: ${e.message}`); }),
             ]);
 
-
+            const responses = [eventsResponse, changesResponse, inventoryResponse, servicePointsResponse, zoneBasesResponse];
             for (const res of responses) {
-                if (!res.ok) throw new Error(`Error al cargar ${res.url}: ${res.statusText}`);
+                if (!res.ok) throw new Error(`Error al cargar ${res.url}: ${res.statusText} (${res.status})`);
             }
-             if (!historicalDataResponse.ok) {
-                console.warn(`Could not fetch historical data: ${historicalDataResponse.statusText}. Proceeding without it.`);
-                setHistoricalData({});
-            } else {
-                const history = await historicalDataResponse.json();
-                setHistoricalData(history || {});
+             
+            // Fetch historical data separately, allowing app to proceed even if it fails
+            let history: HistoricalData = {};
+            try {
+                console.log("Attempting to fetch historical snapshot data...");
+                const historicalDataResponse = await fetch(FIREBASE_BASE_URL + FIREBASE_HISTORY_PATH + '.json');
+                if (!historicalDataResponse.ok) {
+                    console.warn(`Could not fetch historical data: ${historicalDataResponse.statusText} (${historicalDataResponse.status}). Proceeding without it.`);
+                } else {
+                    history = await historicalDataResponse.json() as HistoricalData;
+                    console.log("Historical data loaded.");
+                }
+            } catch (histError) {
+                console.warn("Failed to fetch historical data, proceeding without it:", histError);
             }
+            setHistoricalData(history || {});
 
+
+            console.log("Converting CSV responses to text and parsing...");
             const [eventsText, changesText, inventoryText, servicePointsText, zoneBasesText] = await Promise.all(responses.map(res => res.text()));
             
             const [parsedEvents, parsedChanges, parsedInventory, parsedServicePoints, parsedZoneBases] = await Promise.all([
@@ -560,6 +632,12 @@ export const useLuminaireData = () => {
                 Promise.resolve(processServicePointsCSV(servicePointsText)),
                 Promise.resolve(processZoneBasesCSV(zoneBasesText)),
             ]);
+
+            console.log(`Parsed Events: ${parsedEvents.length}`);
+            console.log(`Parsed Changes: ${parsedChanges.length}`);
+            console.log(`Parsed Inventory: ${parsedInventory.length}`);
+            console.log(`Parsed Service Points: ${parsedServicePoints.length}`);
+            console.log(`Parsed Zone Bases: ${parsedZoneBases.length}`);
 
             const inventoryDataMap = new Map<string, { olcHardwareDir?: string; potenciaNominal?: number }>();
             parsedInventory.forEach(item => {
@@ -580,6 +658,7 @@ export const useLuminaireData = () => {
                 };
             });
             
+            console.log("Storing data in IndexedDB...");
             const tx = db.transaction([LUMINAIRE_EVENTS_STORE, CHANGE_EVENTS_STORE, INVENTORY_STORE, SERVICE_POINTS_STORE, ZONE_BASES_STORE], 'readwrite');
             await Promise.all([
                 tx.objectStore(LUMINAIRE_EVENTS_STORE).clear(),
@@ -594,6 +673,7 @@ export const useLuminaireData = () => {
                 ...parsedZoneBases.map(b => tx.objectStore(ZONE_BASES_STORE).put(b)),
             ]);
             await tx.done;
+            console.log("Data stored in IndexedDB.");
 
             setAllEvents(augmentedEvents.sort((a,b) => b.date.getTime() - a.date.getTime()));
             setChangeEvents(parsedChanges.sort((a,b) => b.fechaRetiro.getTime() - a.fechaRetiro.getTime()));
@@ -602,6 +682,7 @@ export const useLuminaireData = () => {
             setZoneBases(parsedZoneBases);
             
             // --- Save Daily Snapshot to Firebase ---
+            console.log("Calculating and saving daily historical snapshot...");
             const dailySnapshot = calculateDailySnapshot(augmentedEvents, parsedInventory);
             if(Object.keys(dailySnapshot).length > 0) {
                 const todayStr = format(new Date(), 'yyyy-MM-dd');
@@ -610,8 +691,11 @@ export const useLuminaireData = () => {
                     body: JSON.stringify(dailySnapshot),
                     headers: { 'Content-Type': 'application/json' }
                 });
+                console.log(`Daily snapshot for ${todayStr} saved to Firebase.`);
                 // Optimistically update local state for immediate feedback
                 setHistoricalData(prev => ({...prev, [todayStr]: dailySnapshot}));
+            } else {
+                console.log("No data for daily snapshot, skipping save to Firebase.");
             }
 
 
@@ -620,6 +704,7 @@ export const useLuminaireData = () => {
             setError(`Error al obtener datos: ${e.message}. Verifique las URLs en Firebase y la configuración de CORS en Google Sheets.`);
         } finally {
             setLoading(false);
+            console.log("Data fetching and processing complete.");
         }
     }, []);
 

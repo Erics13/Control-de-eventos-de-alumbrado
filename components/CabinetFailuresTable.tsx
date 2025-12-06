@@ -1,11 +1,6 @@
-import React, { useState, useMemo } from 'react';
 
-export interface CabinetFailureDetail {
-    date: Date;
-    id: string;
-    zone: string;
-    municipio: string;
-}
+import React, { useState, useMemo } from 'react';
+import type { CabinetFailureDetail } from '../types';
 
 interface CabinetFailuresTableProps {
     data: CabinetFailureDetail[];

@@ -1,4 +1,5 @@
 
+
 export const MUNICIPIO_TO_ZONE_MAP: Record<string, string> = {
     'AGUAS CORRIENTES': 'ZONA A',
     'SANTA LUCÍA': 'ZONA A',
@@ -202,3 +203,16 @@ export const ALCID_TO_MUNICIPIO_MAP: Record<string, string> = {
     '31': 'JUANICO',
     '32': 'DEL ANDALUZ'
 };
+
+export const OPERATING_HOURS_RANGES = [
+    '0-4000',
+    '4000-8000',
+    '8000-12000',
+    '12000-16000',
+    '16000-20000',
+    '20000-24000',
+    '24000-28000',
+    '28000-32000',
+    '32000-36000',
+    '>36000'
+];

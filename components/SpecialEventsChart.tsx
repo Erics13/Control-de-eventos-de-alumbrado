@@ -1,3 +1,4 @@
+
 import React, { useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, LabelList } from 'recharts';
 import type { LuminaireEvent } from '../types';
@@ -7,11 +8,17 @@ const SPECIAL_CATEGORIES = ["Columna Caída", "Hurto", "Vandalizado"];
 
 const SpecialEventsChart: React.FC<{ data: LuminaireEvent[] }> = ({ data }) => {
     const chartData = useMemo(() => {
-        const specialEvents = data.filter(e => e.failureCategory && SPECIAL_CATEGORIES.includes(e.failureCategory));
-        
-        const categoryCounts = specialEvents.reduce((acc, event) => {
-            if (event.failureCategory) {
-                acc[event.failureCategory] = (acc[event.failureCategory] || 0) + 1;
+        const categoryCounts = data.reduce((acc, event) => {
+            let category = event.failureCategory;
+            const sit = event.situacion?.toLowerCase().trim() || '';
+
+            // Check if situation matches one of the special categories, overriding technical category if needed
+            if (sit === 'columna caida') category = 'Columna Caída';
+            else if (sit === 'hurto') category = 'Hurto';
+            else if (sit.startsWith('vandalizado')) category = 'Vandalizado';
+            
+            if (category && SPECIAL_CATEGORIES.includes(category)) {
+                acc[category] = (acc[category] || 0) + 1;
             }
             return acc;
         }, {} as Record<string, number>);
