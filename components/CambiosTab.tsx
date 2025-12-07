@@ -8,6 +8,7 @@ import ChangesByMonthChart from './ChangesByMonthChart';
 import ChangesByMonthTable from './ChangesByMonthTable';
 import HistoricalChangesByConditionTable from './HistoricalChangesByConditionTable';
 import type { ChangeEvent } from '../types';
+import { meses } from '../constants'; // Import meses from constants
 
 interface CambiosTabProps {
     // Data

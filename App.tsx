@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { format } from 'date-fns/format';
 import { parse } from 'date-fns/parse';
@@ -19,7 +20,8 @@ import AdminTab from './components/AdminTab';
 import { useAuth } from './hooks/useAuth';
 import { useLuminaireData } from './hooks/useLuminaireData';
 import { exportToXlsx, exportToXlsxMultiSheet } from './utils/export';
-import { ALL_ZONES, ZONE_ORDER, ALCID_TO_MUNICIPIO_MAP, OPERATING_HOURS_RANGES } from './constants';
+import { ALL_ZONES, ZONE_ORDER, ALCID_TO_MUNICIPIO_MAP, OPERATING_HOURS_RANGES, meses } from './constants';
+import { normalizeString } from './utils/string'; // Import the new utility
 import type { 
     ActiveTab, HistoricalData, HistoricalZoneData, InventoryItem, LuminaireEvent, ChangeEvent, CabinetFailureDetail,
     PowerSummaryData, OperatingHoursSummary, CabinetSummary, ServiceSummary, MonthlyChangesSummary, HistoricalChangesByConditionSummary,
@@ -75,8 +77,9 @@ const App: React.FC = () => {
     
     const allYearsFromData = useMemo(() => {
         const years = new Set<string>();
-        Object.keys(historicalData).forEach((dateKey: unknown) => years.add(dateKey as string.split('-')[0]));
+        Object.keys(historicalData).forEach((dateKey: string) => years.add(dateKey.split('-')[0]));
         changeEvents.forEach(e => years.add(e.fechaRetiro.getFullYear().toString()));
+        // FIX: Explicitly type 'a' and 'b' as 'string' in the sort function.
         return Array.from(years).sort((a: string, b: string) => parseInt(b) - parseInt(a)); // Sort descending
     }, [historicalData, changeEvents]);
     const availableYears = allYearsFromData.length > 0 ? allYearsFromData : [new Date().getFullYear().toString()];
@@ -186,6 +189,7 @@ const App: React.FC = () => {
                         entry = { totalEvents: 0, totalInventory: 0, categoryCounts: {} };
                         counts.set(key, entry);
                     }
+                    // FIX: Changed 'totalInventario' to 'totalInventory' to match the interface.
                     entry.totalInventory++;
                 }
             });
@@ -238,6 +242,7 @@ const App: React.FC = () => {
                     if (!failingServicePoints.has(nroCuenta)) {
                         const total = servicePointLuminaires.get(nroCuenta)?.length || 0;
                         failingServicePoints.set(nroCuenta, {
+                            // FIX: Changed 'totalLuminarias' to 'totalLuminaires' to match interface property.
                             totalLuminaires: total,
                             inaccessibleLuminaires: new Set<string>(),
                             zone: invItem.zone || 'Desconocida',
@@ -293,6 +298,7 @@ const App: React.FC = () => {
                 return a.name.localeCompare(b.name);
             });
         
+        console.log("Cabinet Failure Analysis Data:", sortedResult); // Debugging
         return sortedResult;
     }, [filteredEvents, inventory, inventoryMap]);
 
@@ -429,8 +435,9 @@ const App: React.FC = () => {
     }, [finalDisplayInventory]);
 
     const columnaCaidaInventoryCount = useMemo(() => {
+        const normalizedCondition = (item: InventoryItem) => normalizeString(item.situacion || '');
         return finalDisplayInventory.filter(item => 
-            item.situacion?.toLowerCase().includes('columna') && item.situacion?.toLowerCase().includes('caida')
+            normalizedCondition(item).includes('columna') && normalizedCondition(item).includes('caida')
         ).length;
     }, [finalDisplayInventory]);
 
@@ -470,7 +477,7 @@ const App: React.FC = () => {
             }
         });
 
-        const locationColumns = selectedZone === 'all' 
+        const locationColumns: string[] = selectedZone === 'all' 
             ? Array.from(allZonesInView).sort((a,b) => {
                 const iA = ZONE_ORDER.indexOf(a);
                 const iB = ZONE_ORDER.indexOf(b);
@@ -531,11 +538,16 @@ const App: React.FC = () => {
                 const hours = item.horasFuncionamiento;
                 let matchedRange: string | null = null;
                 for (const range of ranges) {
+                    // Handle '>X' format (e.g., '>30000')
                     if (range.startsWith('>') && hours >= parseFloat(range.substring(1))) {
                         matchedRange = range;
                         break;
                     }
-                    const [min, max] = range.split('-').map(s => parseFloat(s.trim()));
+                    // Handle 'X-Y' format (e.g., '0-5000')
+                    const parts = range.split('-').map(s => parseFloat(s.trim()));
+                    const min = parts[0];
+                    const max = parts.length > 1 ? parts[1] : undefined;
+
                     if (hours >= min && (max === undefined || hours < max)) {
                         matchedRange = range;
                         break;
@@ -593,7 +605,7 @@ const App: React.FC = () => {
     }, [finalDisplayInventory, selectedOperatingHoursRange]);
 
     const handleOperatingHoursRowClick = useCallback((range: string) => {
-        setSelectedOperatingHoursRange(prevRange => (prevRange === range ? null : range));
+        setSelectedOperatingHoursRange(prevRange => (prevFilter === range ? null : range));
     }, []);
 
     const handleExportOperatingHoursSummary = useCallback(() => {
@@ -673,7 +685,7 @@ const App: React.FC = () => {
         if (!cardChangeFilter) return filteredChangeEvents;
         
         return filteredChangeEvents.filter(e => {
-            const cond = e.condicion.toLowerCase();
+            const cond = normalizeString(e.condicion); // Use normalized string
             const comp = e.componente.toLowerCase();
 
             if (cardChangeFilter === 'luminaria') return comp.includes('luminaria');
@@ -700,19 +712,25 @@ const App: React.FC = () => {
     }, [displayChangeEvents]);
 
     const garantiaChangesCount = useMemo(() => {
-        return displayChangeEvents.filter(e => e.condicion.toLowerCase().includes('garantia')).length;
+        return displayChangeEvents.filter(e => normalizeString(e.condicion).includes('garantia')).length;
     }, [displayChangeEvents]);
 
     const vandalizadoChangesCount = useMemo(() => {
-        return displayChangeEvents.filter(e => e.condicion.toLowerCase().includes('vandalizad') || e.condicion.toLowerCase().includes('vandalism')).length;
+        return displayChangeEvents.filter(e => normalizeString(e.condicion).includes('vandalizad') || normalizeString(e.condicion).includes('vandalism')).length;
     }, [displayChangeEvents]);
 
     const columnaCaidaChangesCount = useMemo(() => {
-        return displayChangeEvents.filter(e => e.condicion.toLowerCase().includes('columna') && e.condicion.toLowerCase().includes('caida')).length;
+        const count = displayChangeEvents.filter(e => {
+            const normalizedCond = normalizeString(e.condicion);
+            return normalizedCond.includes('columna') && normalizedCond.includes('caida');
+        }).length;
+        console.log("Columna Caida Changes Count:", count); // Debugging
+        console.log("Display Change Events (conditions):", displayChangeEvents.map(e => e.condicion)); // Debugging
+        return count;
     }, [displayChangeEvents]);
 
     const hurtoChangesCount = useMemo(() => {
-        return displayChangeEvents.filter(e => e.condicion.toLowerCase().includes('hurto')).length;
+        return displayChangeEvents.filter(e => normalizeString(e.condicion).includes('hurto')).length;
     }, [displayChangeEvents]);
 
     // Changes by Municipio (Cambios Tab)
@@ -765,12 +783,6 @@ const App: React.FC = () => {
         });
 
         // Generate data for all 12 months, even if no changes
-        const meses = [ // Local definition to avoid import cycle for now
-            { value: '01', label: 'Enero' }, { value: '02', label: 'Febrero' }, { value: '03', label: 'Marzo' },
-            { value: '04', label: 'Abril' }, { value: '05', label: 'Mayo' }, { value: '06', label: 'Junio' },
-            { value: '07', label: 'Julio' }, { value: '08', label: 'Agosto' }, { value: '09', label: 'Septiembre' },
-            { value: '10', label: 'Octubre' }, { value: '11', label: 'Noviembre' }, { value: '12', label: 'Diciembre' },
-        ];
         const monthlySummaries: MonthlyChangesSummary[] = meses.map(m => {
             const counts = monthCounts.get(m.value) || { LUMINARIA: 0, OLC: 0 };
             return {
@@ -805,7 +817,7 @@ const App: React.FC = () => {
                 });
             }
             const yearCounts = yearlyData.get(year)!;
-            const cond = e.condicion.toLowerCase();
+            const cond = normalizeString(e.condicion); // Use normalized string
             const comp = e.componente.toLowerCase();
 
             const isLum = comp.includes('luminaria');
@@ -843,8 +855,11 @@ const App: React.FC = () => {
             if (selectedYear && format(date, 'yyyy') !== selectedYear) return;
             if (selectedMonth && format(date, 'M') !== selectedMonth) return;
             
-            // zonesDataRaw is already correctly typed as Record<string, HistoricalZoneData> by HistoricalData interface.
-            filtered[dateStr] = zonesDataRaw; 
+            // FIX: Add type guard and assertion for 'zonesDataRaw'
+            if (!zonesDataRaw || typeof zonesDataRaw !== 'object' || Array.isArray(zonesDataRaw)) return;
+            const zonesData = zonesDataRaw as Record<string, HistoricalZoneData>;
+
+            filtered[dateStr] = zonesData; 
         });
         return filtered;
     }, [historicalData, dateRange, selectedYear, selectedMonth]);
@@ -967,7 +982,7 @@ const App: React.FC = () => {
             });
         });
     
-        const sortedZones = Array.from(presentZones).sort((a, b) => { const iA = ZONE_ORDER.indexOf(a); const iB = ZONE_ORDER.indexOf(b); if (iA !== -1 && iB !== -1) return iA - iB; if (iA !== -1) return -1; if (iB !== -1) return 1; return a.localeCompare(b); });
+        const sortedZones = Array.from(presentZones).sort((a: string, b: string) => { const iA = ZONE_ORDER.indexOf(a); const iB = ZONE_ORDER.indexOf(b); if (iA !== -1 && iB !== -1) return iA - iB; if (iA !== -1) return -1; if (iB !== -1) return 1; return a.localeCompare(b); });
     
         type MonthlySummaryChartDataItem = {
             name: string;

@@ -1,3 +1,4 @@
+
 import React, { useMemo } from 'react';
 import DashboardCard from './DashboardCard';
 import FailureByCategoryChart from './FailureByCategoryChart';
@@ -82,6 +83,7 @@ const EventosTab: React.FC<EventosTabProps> = ({
     handleExportFilteredEvents,
     handleExportCabinetFailureAnalysis,
     handleOpenMapModal,
+    // FIX: Corrected typo from 'totalUniqueInaccessibleLuminarias' to 'totalUniqueInaccessibleLuminaires'.
     totalUniqueInaccessibleLuminaires,
     inaccessibleByZoneData,
     inaccessibleByAccountData,

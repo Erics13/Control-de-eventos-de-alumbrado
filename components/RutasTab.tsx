@@ -68,7 +68,7 @@ const generateLuminariaTableHtml = (worksheet: LuminariaWorksheet): string => {
     return `
         <h4>Total de luminarias en esta hoja de ruta: ${worksheet.failures.length}</h4>
         <div style="overflow-x: auto;">
-            <table>
+            <table style="border-collapse: collapse; width: 100%; font-size: 12px;">
                 ${headerHtml}
                 <tbody>${rowsHtml}</tbody>
             </table>

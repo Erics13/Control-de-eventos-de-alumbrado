@@ -5,6 +5,7 @@ export const MUNICIPIO_TO_ZONE_MAP: Record<string, string> = {
     'SANTA LUCÍA': 'ZONA A',
     'SANTA LUCIA': 'ZONA A',
     'CERRILLOS': 'ZONA A',
+    'LOS CERRILLOS': 'ZONA A', // Added for consistency
     'JUANICO': 'ZONA A',
     'CANELONES': 'ZONA A',
     'LA PAZ': 'ZONA B',
@@ -215,4 +216,11 @@ export const OPERATING_HOURS_RANGES = [
     '28000-32000',
     '32000-36000',
     '>36000'
+];
+
+export const meses = [
+    { value: '01', label: 'Enero' }, { value: '02', label: 'Febrero' }, { value: '03', label: 'Marzo' },
+    { value: '04', label: 'Abril' }, { value: '05', label: 'Mayo' }, { value: '06', label: 'Junio' },
+    { value: '07', label: 'Julio' }, { value: '08', label: 'Agosto' }, { value: '09', label: 'Septiembre' },
+    { value: '10', label: 'Octubre' }, { value: '11', label: 'Noviembre' }, { value: '12', label: 'Diciembre' },
 ];
