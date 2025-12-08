@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo } from 'react';
 
 export interface PermanentOnResult {
@@ -36,8 +35,12 @@ const PermanentOnTable: React.FC<PermanentOnTableProps> = ({ data }) => {
                 const valB = b[sortConfig.key];
                 if (valA == null) return 1;
                 if (valB == null) return -1;
-                if (valA < valB) return sortConfig.direction === 'ascending' ? -1 : 1;
-                if (valA > valB) return sortConfig.direction === 'ascending' ? 1 : -1;
+                if (valA < valB) {
+                    return sortConfig.direction === 'ascending' ? -1 : 1;
+                }
+                if (valA > valB) {
+                    return sortConfig.direction === 'ascending' ? 1 : -1;
+                }
                 return 0;
             });
         }
@@ -110,9 +113,9 @@ const PermanentOnTable: React.FC<PermanentOnTableProps> = ({ data }) => {
                                 <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{item.olcIdExterno ?? 'N/A'}</td>
                                 <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{item.potenciaNominal?.toFixed(0) ?? 'N/A'}</td>
                                 <td className="px-4 py-4 whitespace-nowrap text-sm font-bold text-red-400">{item.avgPower.toFixed(2)}</td>
-                                <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{item.prevDate.toLocaleString()}</td>
+                                <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{item.prevDate?.toLocaleString() || 'N/A'}</td>
                                 <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{item.energiaAyer.toFixed(3)}</td>
-                                <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{item.currDate.toLocaleString()}</td>
+                                <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{item.currDate?.toLocaleString() || 'N/A'}</td>
                                 <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{item.energiaHoy.toFixed(3)}</td>
                                 <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{item.deltaHours.toFixed(2)}</td>
                                 <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{item.deltaKwh.toFixed(3)}</td>

@@ -1,12 +1,14 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, Dispatch, SetStateAction } from 'react';
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
 import type { LuminaireEvent, ChangeEvent, InventoryItem, DataSourceURLs, HistoricalData, HistoricalZoneData, ServicePoint, ZoneBase } from '../types';
 import { MUNICIPIO_TO_ZONE_MAP, FAILURE_CATEGORY_TRANSLATIONS, ZONE_ORDER } from '../constants';
 import { format } from 'date-fns/format';
+import { normalizeString } from '../utils/string';
+
 
 // --- IndexedDB Logic ---
 const DB_NAME = 'LuminaireDataDB';
-const DB_VERSION = 9; 
+const DB_VERSION = 10; // Increment version for schema changes
 const LUMINAIRE_EVENTS_STORE = 'luminaireEvents';
 const CHANGE_EVENTS_STORE = 'changeEvents';
 const INVENTORY_STORE = 'inventory'; 
@@ -49,24 +51,28 @@ let dbPromise: Promise<IDBPDatabase<LuminaireDB>> | null = null;
 const getDb = () => {
     if (!dbPromise) {
         dbPromise = openDB<LuminaireDB>(DB_NAME, DB_VERSION, {
-            upgrade(db) {
-                if (!db.objectStoreNames.contains(LUMINAIRE_EVENTS_STORE)) {
-                    const luminaireStore = db.createObjectStore(LUMINAIRE_EVENTS_STORE, { keyPath: 'uniqueEventId' });
-                    luminaireStore.createIndex('date', 'date');
+            upgrade(db, oldVersion, newVersion, transaction) {
+                console.log(`Upgrading DB from version ${oldVersion} to ${newVersion}`);
+                if (oldVersion < 10) { // Example: If previous version didn't have all stores
+                    if (!db.objectStoreNames.contains(LUMINAIRE_EVENTS_STORE)) {
+                        const luminaireStore = db.createObjectStore(LUMINAIRE_EVENTS_STORE, { keyPath: 'uniqueEventId' });
+                        luminaireStore.createIndex('date', 'date');
+                    }
+                    if (!db.objectStoreNames.contains(CHANGE_EVENTS_STORE)) {
+                        const changeStore = db.createObjectStore(CHANGE_EVENTS_STORE, { keyPath: 'uniqueId' });
+                        changeStore.createIndex('fechaRetiro', 'fechaRetiro');
+                    }
+                    if (!db.objectStoreNames.contains(INVENTORY_STORE)) {
+                        db.createObjectStore(INVENTORY_STORE, { keyPath: 'streetlightIdExterno' });
+                    }
+                    if (!db.objectStoreNames.contains(SERVICE_POINTS_STORE)) {
+                        db.createObjectStore(SERVICE_POINTS_STORE, { keyPath: 'nroCuenta' });
+                    }
+                    if (!db.objectStoreNames.contains(ZONE_BASES_STORE)) {
+                        db.createObjectStore(ZONE_BASES_STORE, { keyPath: 'zoneName' });
+                    }
                 }
-                 if (!db.objectStoreNames.contains(CHANGE_EVENTS_STORE)) {
-                    const changeStore = db.createObjectStore(CHANGE_EVENTS_STORE, { keyPath: 'uniqueId' });
-                    changeStore.createIndex('fechaRetiro', 'fechaRetiro');
-                }
-                 if (!db.objectStoreNames.contains(INVENTORY_STORE)) {
-                    db.createObjectStore(INVENTORY_STORE, { keyPath: 'streetlightIdExterno' });
-                }
-                 if (!db.objectStoreNames.contains(SERVICE_POINTS_STORE)) {
-                    db.createObjectStore(SERVICE_POINTS_STORE, { keyPath: 'nroCuenta' });
-                }
-                 if (!db.objectStoreNames.contains(ZONE_BASES_STORE)) {
-                    db.createObjectStore(ZONE_BASES_STORE, { keyPath: 'zoneName' });
-                }
+                // Add migration logic for future versions here if schema changes
             },
         });
     }
@@ -77,38 +83,256 @@ const getDb = () => {
 const detectDelimiter = (header: string): string => {
     const commaCount = (header.match(/,/g) || []).length;
     const semicolonCount = (header.match(/;/g) || []).length;
-    return semicolonCount > commaCount ? ';' : ',';
+    const tabCount = (header.match(/\t/g) || []).length;
+
+    if (tabCount > commaCount && tabCount > semicolonCount) return '\t';
+    if (semicolonCount > commaCount) return ';';
+    return ',';
 };
 
 const parseCsvRow = (row: string, delimiter: string): string[] => {
     const columns: string[] = [];
     if (!row) return columns;
     const escapedDelimiter = delimiter.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-    // Regex to handle quoted fields containing delimiters
+    // Regex to handle quoted fields containing delimiters and escaped quotes
+    // (?:...|) non-capturing group for quoted or non-quoted content
+    // "((?:[^"]|"")*)" captures content inside double quotes, handling "" as "
+    // |([^DELIMITER]*) captures content without quotes until delimiter
     const regex = new RegExp(`(?:"((?:[^"]|"")*)"|([^${escapedDelimiter}]*))(${escapedDelimiter}|$)`, 'g');
 
     let match;
     while ((match = regex.exec(row))) {
-        // match[1] is the content inside quotes, match[2] is content without quotes
+        // Use match[1] for quoted content, match[2] for non-quoted content
         let column = match[1] !== undefined ? match[1].replace(/""/g, '"') : (match[2] || '');
         columns.push(column.trim());
-        if (match[3] === '') break; // Reached end of row
+        if (match[3] === '' && match[0] !== delimiter) break; // Break if at end of row and not just an empty field
     }
     return columns;
 };
 
+// Map of common header names to a standardized internal key
+interface HeaderMap {
+    [key: string]: string;
+}
+
+const normalizeHeader = (header: string): string => {
+    // Apply initial normalization (lowercase, no accents, trim)
+    let normalized = normalizeString(header);
+
+    // --- Specific replacements for known prefixed headers (e.g., from Interact software) ---
+    // These should come first to catch exact matches for common prefixed headers
+    normalized = normalized
+        // Event related
+        .replace(/^event\/event time$/, 'fecha_reporte')
+        .replace(/^event\/failure category$/, 'categoria_falla')
+        .replace(/^event\/description$/, 'descripcion_falla')
+        .replace(/^event\/system measured power$/, 'potencia_medida') // Maps to systemMeasuredPower
+        .replace(/^event\/event monitor id$/, 'olc_id') // Maps to olcId
+        // NEW Event monitor/ headers
+        .replace(/^event monitor\/estado$/, 'status')
+        .replace(/^event monitor\/categoría$/, 'categoria_falla') // Specific: handle 'categoría' with accent
+        .replace(/^event monitor\/categoria$/, 'categoria_falla')
+        .replace(/^event monitor\/id$/, 'olc_id')
+        .replace(/^event monitor\/mensaje de error$/, 'descripcion_falla')
+        .replace(/^event monitor\/informado por primera vez el$/, 'fecha_reporte')
+        .replace(/^event monitor\/potencia medida del sistema$/, 'potencia_medida')
+        .replace(/^event monitor\/voltaje$/, 'voltaje')
+        .replace(/^event monitor\/informado por ultima vez el$/, 'ultimo_informe')
+
+
+        // Streetlight related (applies to Events & Inventory)
+        .replace(/^streetlight\/id externo$/, 'id_luminaria') // Maps to id or streetlightIdExterno
+        .replace(/^streetlight\/municipio$/, 'municipio')
+        .replace(/^streetlight\/situación$/, 'situacion') // Specific: handle 'situación' with accent
+        .replace(/^streetlight\/situacion$/, 'situacion')
+        .replace(/^streetlight\/latitud$/, 'lat') // Specific: handle 'latitud' with accent
+        .replace(/^streetlight\/longitud$/, 'lon') // Specific: handle 'longitud' with accent
+        .replace(/^streetlight\/nominal power$/, 'potencia_nominal') // Maps to power or potenciaNominal
+        .replace(/^streetlight\/olc hardware direction$/, 'olc_hardware_dir') // Maps to olcHardwareDir
+        .replace(/^streetlight\/cabinet external id$/, 'id_gabinete') // Maps to cabinetIdExterno
+        .replace(/^streetlight\/marked$/, 'marked') // Maps to marked
+        .replace(/^streetlight\/localidad$/, 'localidad') // Maps to localidad
+        .replace(/^streetlight\/estado$/, 'estado') // Maps to estado
+        .replace(/^streetlight\/fecha de instalación$/, 'fecha_instalacion') // Specific: handle 'instalación' with accent
+        .replace(/^streetlight\/fecha de instalacion$/, 'fecha_instalacion')
+        .replace(/^streetlight\/fecha inauguración$/, 'fecha_inauguracion') // Specific: handle 'inauguración' with accent
+        .replace(/^streetlight\/fecha inauguracion$/, 'fecha_inauguracion')
+        .replace(/^streetlight\/dimming calendar$/, 'dimming_calendar') // Maps to dimmingCalendar
+        .replace(/^streetlight\/hora del ultimo informe$/, 'ultimo_informe') // Specific: handle 'último' with accent
+        .replace(/^streetlight\/hora del ultimo informe$/, 'ultimo_informe')
+        .replace(/^streetlight\/olc external id$/, 'olc_id_externo') // Maps to olcIdExterno
+        .replace(/^streetlight\/luminaire external id$/, 'luminaire_id_externo') // Maps to luminaireIdExterno
+        .replace(/^streetlight\/horas de funcionamiento$/, 'horas_funcionamiento')
+        .replace(/^streetlight\/recuento de conmutación$/, 'recuento_conmutacion') // Specific: handle 'conmutación' with accent
+        .replace(/^streetlight\/recuento de conmutacion$/, 'recuento_conmutacion')
+        .replace(/^streetlight\/cabinet latitude$/, 'cabinet_lat') // Maps to cabinetLat
+        .replace(/^streetlight\/cabinet longitude$/, 'cabinet_lon') // Maps to cabinetLon
+        .replace(/^streetlight\/type designation$/, 'designacion_tipo') // Maps to designacionTipo
+        // NEW streetlight/nro_cuenta header
+        .replace(/^streetlight\/nro_cuenta$/, 'nro_cuenta')
+
+        // Change event specific (if prefixed)
+        .replace(/^change\/fecha de retiro$/, 'fecha_retiro')
+        .replace(/^change\/pole id externo$/, 'pole_id_externo')
+        .replace(/^change\/componente$/, 'componente')
+        .replace(/^change\/condición$/, 'condicion') // Specific: handle 'condición' with accent
+        .replace(/^change\/condicion$/, 'condicion')
+        // NEW Pole/ headers
+        .replace(/^pole\/fecha de retiro$/, 'fecha_retiro')
+        .replace(/^pole\/condición$/, 'condicion') // Specific: handle 'condición' with accent
+        .replace(/^pole\/condicion$/, 'condicion')
+        .replace(/^pole\/id externo$/, 'pole_id_externo')
+        .replace(/^pole\/horas de funcionamiento$/, 'horas_funcionamiento')
+        .replace(/^pole\/recuento de conmutacion$/, 'recuento_conmutacion')
+        // NEW Pole type/ headers
+        .replace(/^pole type\/componente$/, 'componente')
+        .replace(/^pole type\/designación de tipo$/, 'designacion_tipo') // Specific: handle 'designación' with accent
+        .replace(/^pole type\/designacion de tipo$/, 'designacion_tipo')
+
+        // Service Point specific (if prefixed)
+        .replace(/^servicepoint\/nro cuenta$/, 'nro_cuenta')
+        .replace(/^servicepoint\/tarifa$/, 'tarifa')
+        .replace(/^servicepoint\/potencia contratada$/, 'potencia_contratada')
+        // NEW: specific replacement for 'potcontrat' to 'potencia_contratada'
+        .replace(/^potcontrat$/, 'potencia_contratada')
+        .replace(/^servicepoint\/tension$/, 'tension')
+        .replace(/^servicepoint\/fases$/, 'fases')
+        .replace(/^servicepoint\/direccion$/, 'direccion')
+        .replace(/^servicepoint\/alcid$/, 'alcid')
+        .replace(/^servicepoint\/porcent ef$/, 'porcent_ef')
+        .replace(/^servicepoint\/point x$/, 'lon')
+        .replace(/^servicepoint\/point y$/, 'lat')
+
+        // Zone Base specific (if prefixed)
+        .replace(/^zone\/name$/, 'zone_name')
+        .replace(/^zone\/latitude$/, 'lat')
+        .replace(/^zone\/longitude$/, 'lon')
+
+        // NEW Luminaire/ specific headers (distinct from 'streetlight/')
+        .replace(/^luminaire\/id externo$/, 'luminaire_id_externo')
+        .replace(/^luminaire\/horas de funcionamiento de la lámpara$/, 'horas_funcionamiento') // Specific: handle 'lámpara' with accent
+        .replace(/^luminaire\/horas de funcionamiento de la lampara$/, 'horas_funcionamiento')
+        .replace(/^luminaire\/recuento de conmutación de la lámpara$/, 'recuento_conmutacion') // Specific: handle 'conmutación' and 'lámpara' with accents
+        .replace(/^luminaire\/recuento de conmutacion de la lampara$/, 'recuento_conmutacion')
+
+        // NEW Luminaire type/ specific headers
+        .replace(/^luminaire type\/potencia nominal$/, 'potencia_nominal')
+        .replace(/^luminaire type\/designación de tipo$/, 'designacion_tipo') // Specific: handle 'designación' with accent
+        .replace(/^luminaire type\/designacion de tipo$/, 'designacion_tipo')
+
+        // Cabinet/ specific headers
+        .replace(/^cabinet\/id externo$/, 'cabinetIdExterno') // Mapped to cabinetIdExterno (as in InventoryItem type)
+        .replace(/^cabinet\/latitud$/, 'cabinet_lat')
+        .replace(/^cabinet\/longitud$/, 'cabinet_lon')
+    ;
+
+    // --- Generic replacements (less specific, should come after specific ones) ---
+    // These catch headers that don't have prefixes or have slightly different wording
+    normalized = normalized
+        .replace(/id_externo_luminaria|id_luminaria_externo|id_de_luminaria|streetlightidexterno|event_monitor_id/g, 'id_luminaria')
+        .replace(/event_monitor_c/g, 'categoria_falla')
+        .replace(/event_monitor_d/g, 'descripcion_falla')
+        .replace(/event_monitor_s/g, 'situacion')
+        .replace(/id_gabinete_externo|id_de_gabinete|cabinetidexterno/g, 'id_gabinete') // Generic to id_gabinete, will be remapped to cabinetIdExterno by specific rule above if present
+        .replace(/numero_de_cuenta|num_cuenta/g, 'nro_cuenta')
+        .replace(/potencia_nominal_w|potencia_nominal_w_v/g, 'potencia_nominal')
+        .replace(/latitud|latitude/g, 'lat')
+        .replace(/longitud|longitude/g, 'lon')
+        .replace(/fecha_de_reporte|event_time|date/g, 'fecha_reporte')
+        .replace(/fecha_de_retiro/g, 'fecha_retiro')
+        .replace(/horas_de_funcionamiento_de_la_lampara/g, 'horas_funcionamiento')
+        .replace(/recuento_de_conmutacion/g, 'recuento_conmutacion')
+        .replace(/direccion_de_hardware_olc/g, 'olc_hardware_dir')
+        .replace(/situacion_de_la_luminaria/g, 'situacion')
+        .replace(/categoria_de_falla|category/g, 'categoria_falla')
+        .replace(/descripcion_de_falla|description/g, 'descripcion_falla')
+        .replace(/municipio/g, 'municipio')
+        .replace(/pole_id_externo/g, 'pole_id_externo')
+        .replace(/olc_id_externo/g, 'olc_id_externo')
+        .replace(/componente/g, 'componente')
+        .replace(/condicion/g, 'condicion')
+        .replace(/designacion_de_tipo/g, 'designacion_tipo')
+        .replace(/tarifa/g, 'tarifa')
+        .replace(/potencia_contratada_kw/g, 'potencia_contratada')
+        .replace(/tension/g, 'tension')
+        .replace(/fases/g, 'fases')
+        .replace(/alcid/g, 'alcid')
+        .replace(/porcent_ef/g, 'porcent_ef')
+        .replace(/point_x/g, 'lon')
+        .replace(/point_y/g, 'lat')
+        .replace(/zone/g, 'zone_name')
+        .replace(/estado/g, 'estado')
+        .replace(/systemmeasuredpower/g, 'potencia_medida')
+        .replace(/dimmingcalendar/g, 'dimming_calendar')
+        // General numeric headers that may need specific mapping
+        .replace(/nro_cuenta/g, 'nro_cuenta');
+    
+    return normalized;
+};
+
+// FIX: Defined the `getHeaderMap` function to correctly parse CSV headers into a normalized map.
+const getHeaderMap = (headers: string[]): HeaderMap => {
+    const headerMap: HeaderMap = {};
+    headers.forEach((header, index) => {
+        const normalized = normalizeHeader(header);
+        // Store the index as a string for consistent lookup.
+        headerMap[normalized] = index.toString();
+    });
+    return headerMap;
+};
+
+const getColumnValue = (columns: string[], headerMap: HeaderMap, key: string): string | undefined => {
+    const indexStr = headerMap[key];
+    if (indexStr !== undefined) {
+        const index = parseInt(indexStr, 10);
+        // Ensure index is within bounds of columns array
+        if (index >= 0 && index < columns.length) {
+            return columns[index];
+        }
+    }
+    return undefined;
+};
+
+
 const parseCustomDate = (dateStr: string | undefined): Date | null => {
     if (!dateStr || dateStr.trim() === '') return null;
     const trimmedStr = dateStr.trim();
-    // Try to parse 'dd/MM/yyyy HH:mm'
-    const match = trimmedStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})\s(\d{1,2}):(\d{1,2})$/);
+
+    // 1. Try 'DD/MM/YYYY HH:MM' or 'D/M/YYYY HH:MM' (common in Spanish CSVs)
+    let match = trimmedStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})\s(\d{1,2}):(\d{1,2})$/);
     if (match) {
         const [, day, month, year, hour, minute] = match.map(Number);
         const fullYear = year < 100 ? year + 2000 : year; // Handle 2-digit years
         const date = new Date(fullYear, month - 1, day, hour, minute);
         return isNaN(date.getTime()) ? null : date;
     }
-    // Fallback for ISO format or other standard formats if needed
+
+    // 2. Try 'DD/MM/YYYY' (date only)
+    match = trimmedStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+    if (match) {
+        const [, day, month, year] = match.map(Number);
+        const fullYear = year < 100 ? year + 2000 : year; // Handle 2-digit years
+        const date = new Date(fullYear, month - 1, day);
+        return isNaN(date.getTime()) ? null : date;
+    }
+
+    // 3. Try 'YYYY-MM-DD HH:MM:SS' or 'YYYY-MM-DD HH:MM' (common in exports)
+    match = trimmedStr.match(/^(\d{4})-(\d{1,2})-(\d{1,2})\s(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?$/);
+    if (match) {
+        const [, year, month, day, hour, minute, second] = match.map(Number);
+        const date = new Date(year, month - 1, day, hour, minute, second || 0);
+        return isNaN(date.getTime()) ? null : date;
+    }
+    
+    // 4. Try 'YYYY-MM-DD' (date only)
+    match = trimmedStr.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if (match) {
+        const [, year, month, day] = match.map(Number);
+        const date = new Date(year, month - 1, day);
+        return isNaN(date.getTime()) ? null : date;
+    }
+
+    // 5. Fallback for ISO format or other standard formats
     try {
         const date = new Date(trimmedStr);
         return isNaN(date.getTime()) ? null : date;
@@ -118,17 +342,31 @@ const parseCustomDate = (dateStr: string | undefined): Date | null => {
 };
 
 const parseNumberFromCSV = (numStr: string | undefined): number | undefined => {
-    if (!numStr || numStr.trim() === '' || numStr.toLowerCase().trim() === 'n/a') return undefined;
+    if (!numStr || numStr.trim() === '' || numStr.toLowerCase().trim() === 'n/a' || numStr.toLowerCase().trim() === '-') return undefined;
     
-    // Attempt to parse with comma as decimal separator first (common in Spanish locales)
     let cleanedStr = numStr.trim();
-    if (cleanedStr.includes(',') && !cleanedStr.includes('.')) {
-        cleanedStr = cleanedStr.replace(',', '.');
-    } else if (cleanedStr.includes('.') && cleanedStr.includes(',') && cleanedStr.indexOf('.') < cleanedStr.indexOf(',')) {
-        // If dot is thousands separator and comma is decimal separator (e.g., "1.234,56")
-        cleanedStr = cleanedStr.replace(/\./g, '').replace(',', '.');
-    }
     
+    // Remove all whitespace
+    cleanedStr = cleanedStr.replace(/\s/g, '');
+
+    // Heuristic: If both '.' and ',' are present, assume '.' is thousands separator and ',' is decimal.
+    // If only ',' is present, assume it's the decimal separator.
+    // Otherwise, assume '.' is decimal separator or no decimal.
+    if (cleanedStr.includes('.') && cleanedStr.includes(',')) {
+        // Example: "1.234,56" -> remove dots, replace comma with dot
+        if (cleanedStr.indexOf(',') > cleanedStr.indexOf('.')) { // Likely European format
+            cleanedStr = cleanedStr.replace(/\./g, '').replace(',', '.');
+        } else { // Likely American format, e.g., "1,234.56" -> remove commas
+            cleanedStr = cleanedStr.replace(/,/g, '');
+        }
+    } else if (cleanedStr.includes(',')) {
+        // Example: "1234,56" -> replace comma with dot
+        cleanedStr = cleanedStr.replace(',', '.');
+    }
+    // If only dots, or no separators, parseFloat will handle it.
+    // Example: "123.45" -> parseFloat("123.45") is fine
+    // Example: "123" -> parseFloat("123") is fine
+
     const parsed = parseFloat(cleanedStr);
     return isNaN(parsed) ? undefined : parsed;
 };
@@ -145,273 +383,438 @@ export const useLuminaireData = () => {
     const [loading, setLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
 
+    // Threshold for detailed vs. summary warnings for skipped rows
+    const SKIPPED_ROW_WARNING_THRESHOLD = 5; // Reduced threshold for more details on initial rows
+
     const processEventsCSV = (text: string): LuminaireEvent[] => {
-        const lines = text.split('\n');
+        const lines = text.split('\n').filter(line => line.trim() !== '');
         if (lines.length <= 1) return [];
-        const header = lines[0];
-        const rows = lines.slice(1);
-        const delimiter = detectDelimiter(header);
-        // console.log("Events Delimiter:", delimiter);
+        const delimiter = detectDelimiter(lines[0]);
+        const headerRow = parseCsvRow(lines[0], delimiter);
+        const headerMap = getHeaderMap(headerRow);
+        // console.log("Events Delimiter:", delimiter, "Header Map:", JSON.stringify(headerMap, null, 2)); // Depuración: Desactivado
 
         const parsedEvents: LuminaireEvent[] = [];
-        rows.forEach((row, rowIndex) => {
-            if (row.trim() === '') return;
-            const columns = parseCsvRow(row, delimiter);
-            // console.log(`Events Row ${rowIndex}:`, columns);
-            if (columns.length < 14) {
-                console.warn(`Events: Skipping row ${rowIndex} due to insufficient columns (${columns.length} < 14):`, columns);
-                return;
-            }
-            const eventDate = parseCustomDate(columns[13]?.trim());
-            if (!eventDate) {
-                console.warn(`Events: Skipping row ${rowIndex} due to invalid date '${columns[13]}'`, columns);
-                return;
-            }
-            const uniqueEventId = columns[11]?.trim();
-            if (!uniqueEventId) {
-                console.warn(`Events: Skipping row ${rowIndex} due to missing uniqueEventId`, columns);
-                return;
-            }
-            
-            const description = columns[12]?.trim() || '';
-            const situacion = columns[8]?.trim() || '';
-            const situacionLower = situacion.toLowerCase();
-            
-            let specialFailureCategory: string | undefined = undefined;
-            if (situacionLower.includes('columna') && situacionLower.includes('caida')) { specialFailureCategory = 'Columna Caída'; }
-            else if (situacionLower.includes('hurto')) { specialFailureCategory = 'Hurto'; }
-            else if (situacionLower.includes('vandalizad') || situacionLower.includes('vandalism')) { specialFailureCategory = 'Vandalizado'; }
-            
-            const category = columns[10]?.trim();
-            const translatedCategory = FAILURE_CATEGORY_TRANSLATIONS[category!];
-            
-            // Prioritize technical event category over situation category if both exist
-            const finalFailureCategory = (translatedCategory && translatedCategory !== 'N/A' ? translatedCategory : undefined) || specialFailureCategory;
-            const eventStatus = finalFailureCategory ? 'FAILURE' : 'OPERATIONAL'; // Status is FAILURE if any category is determined
+        let skippedRowsCount = 0;
+        const firstSkippedRowsDetails: { rowIndex: number; missing: string; columns: string[] }[] = [];
 
-            const municipio = columns[0]?.trim() || 'N/A';
-            const municipioUpper = municipio.toUpperCase();
-            if (municipioUpper === 'DESAFECTADOS' || municipioUpper === 'OBRA NUEVA' || municipioUpper === 'N/A') return;
+        lines.slice(1).forEach((row, rowIndex) => {
+            const columns = parseCsvRow(row, delimiter);
+
+            const getVal = (key: string) => getColumnValue(columns, headerMap, key);
             
+            const eventDateStrRaw = getVal('fecha_reporte');
+            const idRaw = getVal('id_luminaria');
+            let municipioRaw = getVal('municipio'); // Use let to allow modification
+            const situacionRaw = getVal('situacion');
+            const categoryRaw = getVal('categoria_falla');
+            const description = getVal('descripcion_falla');
+            const latRaw = getVal('lat');
+            const lonRaw = getVal('lon');
+            const statusRaw = getVal('status');
+
+            const lat = parseNumberFromCSV(latRaw);
+            const lon = parseNumberFromCSV(lonRaw);
+
+            const missingDetails: string[] = [];
+            if (!idRaw) missingDetails.push(`id_luminaria (valor: '${idRaw}')`);
+            if (!eventDateStrRaw) missingDetails.push(`fecha_reporte (valor: '${eventDateStrRaw}')`);
+            if (lat === undefined) missingDetails.push(`lat (valor: '${latRaw}')`);
+            if (lon === undefined) missingDetails.push(`lon (valor: '${lonRaw}')`);
+
+            // Gracefully handle empty municipio by assigning 'Desconocido'
+            let finalMunicipio = municipioRaw;
+            if (!municipioRaw || municipioRaw.trim() === '') {
+                finalMunicipio = 'Desconocido';
+            }
+
+            // After attempting to parse and assign default for municipio, check if critical data is still missing
+            if (missingDetails.length > 0) {
+                skippedRowsCount++;
+                if (firstSkippedRowsDetails.length < SKIPPED_ROW_WARNING_THRESHOLD) {
+                     firstSkippedRowsDetails.push({ rowIndex: rowIndex + 1, missing: missingDetails.join(', '), columns: columns });
+                }
+                return;
+            }
+            const eventDate = parseCustomDate(eventDateStrRaw);
+            if (!eventDate) {
+                 skippedRowsCount++;
+                 if (firstSkippedRowsDetails.length < SKIPPED_ROW_WARNING_THRESHOLD) {
+                    firstSkippedRowsDetails.push({ rowIndex: rowIndex + 1, missing: `fecha inválida '${eventDateStrRaw}'`, columns: columns });
+                 }
+                 return;
+            }
+
+            const municipioUpper = finalMunicipio!.toUpperCase(); // Use finalMunicipio
+            if (municipioUpper === 'DESAFECTADOS' || municipioUpper === 'OBRA NUEVA' || municipioUpper === 'N/A') {
+                skippedRowsCount++;
+                if (firstSkippedRowsDetails.length < SKIPPED_ROW_WARNING_THRESHOLD) {
+                    firstSkippedRowsDetails.push({ rowIndex: rowIndex + 1, missing: `municipio excluido '${finalMunicipio}'`, columns: columns });
+                }
+                return;
+            }
             const zone = MUNICIPIO_TO_ZONE_MAP[municipioUpper] || 'Desconocida';
             
-            const lat = parseNumberFromCSV(columns[5]);
-            const lon = parseNumberFromCSV(columns[6]);
-            const systemMeasuredPower = parseNumberFromCSV(columns[14]);
+            const situacionLower = situacionRaw ? situacionRaw.toLowerCase() : undefined;
+            let specialFailureCategory: string | undefined = undefined;
+            if (situacionLower && situacionLower.includes('columna') && situacionLower.includes('caida')) { specialFailureCategory = 'Columna Caída'; }
+            else if (situacionLower && situacionLower.includes('hurto')) { specialFailureCategory = 'Hurto'; }
+            else if (situacionLower && (situacionLower.includes('vandalizad') || situacionLower.includes('vandalism'))) { specialFailureCategory = 'Vandalizado'; }
+            
+            const translatedCategory = categoryRaw ? FAILURE_CATEGORY_TRANSLATIONS[categoryRaw!] : undefined;
+            const finalFailureCategory = (translatedCategory && translatedCategory !== 'N/A' ? translatedCategory : undefined) || specialFailureCategory;
+            const eventStatus = (finalFailureCategory || statusRaw === 'FAILURE') ? 'FAILURE' : 'OPERATIONAL';
 
-            parsedEvents.push({
-                uniqueEventId, id: columns[4]?.trim(), olcId: columns[3]?.trim(), power: columns[2]?.trim(),
-                date: eventDate, municipio, zone, status: eventStatus, description, failureCategory: finalFailureCategory,
-                lat: lat, lon: lon,
-                systemMeasuredPower,
-                situacion: situacionLower // Store lowercased for consistent filtering
-            });
+
+            const parsedEvent: LuminaireEvent = {
+                uniqueEventId: `${idRaw!}-${eventDate.getTime()}-${finalFailureCategory || 'NA'}`, // Ensure unique ID
+                id: idRaw!, 
+                olcId: getVal('olc_id'), 
+                power: getVal('potencia_nominal'), // Use the normalized header
+                date: eventDate, 
+                municipio: finalMunicipio!, // Use finalMunicipio
+                zone: zone, 
+                status: eventStatus, 
+                description: description || 'N/A', 
+                failureCategory: finalFailureCategory,
+                lat: lat, 
+                lon: lon,
+                olcHardwareDir: getVal('olc_hardware_dir'),
+                systemMeasuredPower: parseNumberFromCSV(getVal('potencia_medida')),
+                situacion: situacionLower 
+            };
+            parsedEvents.push(parsedEvent);
+            if (parsedEvents.length <= 5) { // Depuración: Log de las primeras 5 filas procesadas
+                console.log("Events: Parsed Event (first 5 rows):", parsedEvent);
+            }
         });
-        // console.log("Parsed Events:", parsedEvents.length, parsedEvents);
+
+        if (skippedRowsCount > 0) {
+            console.warn(`Eventos: Se omitieron ${skippedRowsCount} filas en total. ${firstSkippedRowsDetails.length} detalles de las primeras filas omitidas:`);
+            firstSkippedRowsDetails.forEach(detail => {
+                console.warn(`  - Fila ${detail.rowIndex}: Faltante/Inválido: ${detail.missing}. Columnas crudas:`, detail.columns, 'Header Map:', JSON.stringify(headerMap, null, 2));
+            });
+        }
         return parsedEvents;
     };
 
     const processChangeEventsCSV = (text: string): ChangeEvent[] => {
-        const lines = text.split('\n');
+        const lines = text.split('\n').filter(line => line.trim() !== '');
         if (lines.length <= 1) return [];
-        const header = lines[0];
-        const rows = lines.slice(1);
-        const delimiter = detectDelimiter(header);
-        // console.log("Change Events Delimiter:", delimiter);
+        const delimiter = detectDelimiter(lines[0]);
+        const headerRow = parseCsvRow(lines[0], delimiter);
+        const headerMap = getHeaderMap(headerRow);
+        // console.log("Change Events Delimiter:", delimiter, "Header Map:", JSON.stringify(headerMap, null, 2)); // Depuración: Desactivado
         
         const parsedChangeEvents: ChangeEvent[] = [];
-        rows.forEach((row, rowIndex) => {
-            if (row.trim() === '') return;
+        let skippedRowsCount = 0;
+        const firstSkippedRowsDetails: { rowIndex: number; missing: string; columns: string[] }[] = [];
+
+        lines.slice(1).forEach((row, rowIndex) => {
             const columns = parseCsvRow(row, delimiter);
-            // console.log(`Change Events Row ${rowIndex}:`, columns);
-            if (columns.length < 12) {
-                console.warn(`Change Events: Skipping row ${rowIndex} due to insufficient columns (${columns.length} < 12):`, columns);
+
+            const getVal = (key: string) => getColumnValue(columns, headerMap, key);
+            const fechaRetiroStrRaw = getVal('fecha_retiro');
+            const poleIdExternoRaw = getVal('pole_id_externo');
+            const municipioRaw = getVal('municipio');
+            const condicionRaw = getVal('condicion');
+            const componenteRaw = getVal('componente');
+            const streetlightIdExternoRaw = getVal('id_luminaria');
+            const latRaw = getVal('lat');
+            const lonRaw = getVal('lon');
+
+            const lat = parseNumberFromCSV(latRaw);
+            const lon = parseNumberFromCSV(lonRaw);
+
+            const missingDetails: string[] = [];
+            if (!fechaRetiroStrRaw) missingDetails.push(`fecha_retiro (valor: '${fechaRetiroStrRaw}')`);
+            if (!poleIdExternoRaw) missingDetails.push(`pole_id_externo (valor: '${poleIdExternoRaw}')`);
+            if (!municipioRaw || municipioRaw.trim() === '') missingDetails.push(`municipio (valor: '${municipioRaw}')`); // This will now be set to Desconocido later
+            if (!condicionRaw) missingDetails.push(`condicion (valor: '${condicionRaw}')`);
+            if (!componenteRaw) missingDetails.push(`componente (valor: '${componenteRaw}')`);
+            if (!streetlightIdExternoRaw) missingDetails.push(`id_luminaria (valor: '${streetlightIdExternoRaw}')`);
+
+
+            if (missingDetails.length > 0) {
+                skippedRowsCount++;
+                if (firstSkippedRowsDetails.length < SKIPPED_ROW_WARNING_THRESHOLD) {
+                    firstSkippedRowsDetails.push({ rowIndex: rowIndex + 1, missing: missingDetails.join(', '), columns: columns });
+                }
                 return;
             }
-            const fechaRetiro = parseCustomDate(columns[0]?.trim());
+            const fechaRetiro = parseCustomDate(fechaRetiroStrRaw);
             if (!fechaRetiro) {
-                console.warn(`Change Events: Skipping row ${rowIndex} due to invalid date '${columns[0]}'`, columns);
-                return;
-            }
-            const poleIdExterno = columns[2]?.trim();
-            if (!poleIdExterno) {
-                console.warn(`Change Events: Skipping row ${rowIndex} due to missing poleIdExterno`, columns);
-                return;
+                 skippedRowsCount++;
+                 if (firstSkippedRowsDetails.length < SKIPPED_ROW_WARNING_THRESHOLD) {
+                    firstSkippedRowsDetails.push({ rowIndex: rowIndex + 1, missing: `fecha inválida '${fechaRetiroStrRaw}'`, columns: columns });
+                 }
+                 return;
             }
             
-            const municipio = columns[5]?.trim() || 'N/A';
-            const municipioUpper = municipio.toUpperCase();
-            if (municipioUpper === 'DESAFECTADOS' || municipioUpper === 'OBRA NUEVA' || municipioUpper === 'N/A') return;
+            const finalMunicipio = municipioRaw && municipioRaw.trim() !== '' ? municipioRaw : 'Desconocido';
+            const municipioUpper = finalMunicipio!.toUpperCase();
+            if (municipioUpper === 'DESAFECTADOS' || municipioUpper === 'OBRA NUEVA' || municipioUpper === 'N/A') {
+                skippedRowsCount++;
+                if (firstSkippedRowsDetails.length < SKIPPED_ROW_WARNING_THRESHOLD) {
+                    firstSkippedRowsDetails.push({ rowIndex: rowIndex + 1, missing: `municipio excluido '${finalMunicipio}'`, columns: columns });
+                }
+                return;
+            }
 
             const zone = MUNICIPIO_TO_ZONE_MAP[municipioUpper] || 'Desconocida';
-            const lat = parseNumberFromCSV(columns[6]);
-            const lon = parseNumberFromCSV(columns[7]);
             
-            const condicion = columns[1]?.trim().toLowerCase(); // Store lowercased for consistent filtering
-
-            parsedChangeEvents.push({
-                uniqueId: `${poleIdExterno}-${fechaRetiro.toISOString()}-${columns[9]?.trim()}`, fechaRetiro,
-                condicion: condicion, 
-                poleIdExterno,
-                horasFuncionamiento: parseNumberFromCSV(columns[3]) ?? 0,
-                recuentoConmutacion: parseNumberFromCSV(columns[4]) ?? 0,
-                municipio, zone, lat: lat, lon: lon,
-                streetlightIdExterno: columns[8]?.trim(), componente: columns[9]?.trim(),
-                designacionTipo: columns[10]?.trim(), cabinetIdExterno: columns[11]?.trim(),
-            });
+            const parsedChangeEvent: ChangeEvent = {
+                uniqueId: `${poleIdExternoRaw!}-${fechaRetiro.getTime()}-${componenteRaw}`, // Ensure unique ID
+                fechaRetiro,
+                condicion: condicionRaw!.toLowerCase(), 
+                poleIdExterno: poleIdExternoRaw!,
+                horasFuncionamiento: parseNumberFromCSV(getVal('horas_funcionamiento')) ?? 0,
+                recuentoConmutacion: parseNumberFromCSV(getVal('recuento_conmutacion')) ?? 0,
+                municipio: finalMunicipio!, zone, lat: lat, lon: lon,
+                streetlightIdExterno: streetlightIdExternoRaw!, 
+                componente: componenteRaw!,
+                designacionTipo: getVal('designacion_tipo') || '', 
+                cabinetIdExterno: getVal('cabinetIdExterno'), // Using specific key
+            };
+            parsedChangeEvents.push(parsedChangeEvent);
+            if (parsedChangeEvents.length <= 5) { // Depuración: Log de las primeras 5 filas procesadas
+                console.log("Changes: Parsed Change Event (first 5 rows):", parsedChangeEvent);
+            }
         });
-        // console.log("Parsed Change Events:", parsedChangeEvents.length, parsedChangeEvents);
+        if (skippedRowsCount > 0) {
+            console.warn(`Cambios: Se omitieron ${skippedRowsCount} filas en total. ${firstSkippedRowsDetails.length} detalles de las primeras filas omitidas:`);
+            firstSkippedRowsDetails.forEach(detail => {
+                console.warn(`  - Fila ${detail.rowIndex}: Faltante/Inválido: ${detail.missing}. Columnas crudas:`, detail.columns, 'Header Map:', JSON.stringify(headerMap, null, 2));
+            });
+        }
         return parsedChangeEvents;
     };
 
     const processInventoryCSV = (text: string): InventoryItem[] => {
-        const lines = text.split('\n');
+        const lines = text.split('\n').filter(line => line.trim() !== '');
         if (lines.length <= 1) return [];
-        const header = lines[0];
-        const rows = lines.slice(1);
-        const delimiter = detectDelimiter(header);
-        // console.log("Inventory Delimiter:", delimiter);
+        const delimiter = detectDelimiter(lines[0]);
+        const headerRow = parseCsvRow(lines[0], delimiter);
+        const headerMap = getHeaderMap(headerRow);
+        // console.log("Inventory Delimiter:", delimiter, "Header Map:", JSON.stringify(headerMap, null, 2)); // Depuración: Desactivado
 
         const parsedItems: InventoryItem[] = [];
-        rows.forEach((row, rowIndex) => {
-            if (row.trim() === '') return;
+        let skippedRowsCount = 0;
+        const firstSkippedRowsDetails: { rowIndex: number; missing: string; columns: string[] }[] = [];
+
+        lines.slice(1).forEach((row, rowIndex) => {
             const columns = parseCsvRow(row, delimiter);
-            // console.log(`Inventory Row ${rowIndex}:`, columns);
-            if (columns.length < 24) {
-                 console.warn(`Inventory: Skipping row ${rowIndex} due to insufficient columns (${columns.length} < 24):`, columns);
+
+            const getVal = (key: string) => getColumnValue(columns, headerMap, key);
+            
+            const streetlightIdExternoRaw = getVal('id_luminaria');
+            let municipioRaw = getVal('municipio'); // Use let to allow modification
+            const latRaw = getVal('lat');
+            const lonRaw = getVal('lon');
+            const cabinetIdExternoRaw = getVal('cabinetIdExterno'); // Raw cabinet ID
+            const markedRaw = getVal('marked'); // Raw marked value
+
+            const lat = parseNumberFromCSV(latRaw);
+            const lon = parseNumberFromCSV(lonRaw);
+
+            const missingDetails: string[] = [];
+            if (!streetlightIdExternoRaw) missingDetails.push(`id_luminaria (valor: '${streetlightIdExternoRaw}')`);
+            if (lat === undefined) missingDetails.push(`lat (valor: '${latRaw}')`);
+            if (lon === undefined) missingDetails.push(`lon (valor: '${lonRaw}')`);
+            
+            // Gracefully handle empty municipio by assigning 'Desconocido'
+            let finalMunicipio = municipioRaw;
+            if (!municipioRaw || municipioRaw.trim() === '') {
+                finalMunicipio = 'Desconocido';
+            }
+
+            // After attempting to parse and assign default for municipio, check if critical data is still missing
+            if (missingDetails.length > 0) {
+                 skippedRowsCount++;
+                 if (firstSkippedRowsDetails.length < SKIPPED_ROW_WARNING_THRESHOLD) {
+                    firstSkippedRowsDetails.push({ rowIndex: rowIndex + 1, missing: missingDetails.join(', '), columns: columns });
+                 }
                  return;
             }
-            const streetlightIdExterno = columns[1]?.trim();
-            if (!streetlightIdExterno) {
-                console.warn(`Inventory: Skipping row ${rowIndex} due to missing streetlightIdExterno`, columns);
+
+            const municipioUpper = finalMunicipio!.toUpperCase();
+            if (municipioUpper === 'DESAFECTADOS' || municipioUpper === 'OBRA NUEVA' || municipioUpper === 'N/A') {
+                skippedRowsCount++;
+                if (firstSkippedRowsDetails.length < SKIPPED_ROW_WARNING_THRESHOLD) {
+                    firstSkippedRowsDetails.push({ rowIndex: rowIndex + 1, missing: `municipio excluido '${finalMunicipio}'`, columns: columns });
+                }
                 return;
             }
-
-            const municipio = columns[0]?.trim() || 'N/A';
-            const municipioUpper = municipio.toUpperCase();
-            if (municipioUpper === 'DESAFECTADOS' || municipioUpper === 'OBRA NUEVA' || municipioUpper === 'N/A') return;
-
             const zone = MUNICIPIO_TO_ZONE_MAP[municipioUpper] || 'Desconocida';
             
-            const lat = parseNumberFromCSV(columns[2]);
-            const lon = parseNumberFromCSV(columns[3]);
-            const cabinetLat = parseNumberFromCSV(columns[20]);
-            const cabinetLon = parseNumberFromCSV(columns[21]);
-            const olcIdExterno = parseInt(columns[15]?.trim(), 10);
-            
-            const situacion = columns[5]?.trim().toLowerCase(); // Store lowercased for consistent filtering
+            const situacion = getVal('situacion');
 
-            parsedItems.push({
-                streetlightIdExterno, municipio, zone, lat: lat,
-                lon: lon, nroCuenta: columns[4]?.trim(),
-                situacion: situacion, localidad: columns[6]?.trim(),
-                fechaInstalacion: parseCustomDate(columns[7]?.trim()) ?? undefined,
-                marked: columns[8]?.trim(), estado: columns[9]?.trim(),
-                fechaInauguracion: parseCustomDate(columns[10]?.trim()) ?? undefined,
-                olcHardwareDir: columns[11]?.trim(), dimmingCalendar: columns[12]?.trim(),
-                ultimoInforme: parseCustomDate(columns[13]?.trim()) ?? undefined,
-                olcIdExterno: !isNaN(olcIdExterno) ? olcIdExterno : undefined,
-                luminaireIdExterno: columns[16]?.trim(),
-                horasFuncionamiento: parseNumberFromCSV(columns[17]),
-                recuentoConmutacion: parseNumberFromCSV(columns[18]),
-                cabinetIdExterno: columns[19]?.trim(),
-                cabinetLat: cabinetLat,
-                cabinetLon: cabinetLon,
-                potenciaNominal: parseNumberFromCSV(columns[22]),
-                designacionTipo: columns[23]?.trim(),
-            });
+            const parsedItem: InventoryItem = {
+                streetlightIdExterno: streetlightIdExternoRaw!, 
+                municipio: finalMunicipio!, // Use finalMunicipio
+                zone, 
+                lat: lat,
+                lon: lon, 
+                nroCuenta: getVal('nro_cuenta'),
+                situacion: situacion ? situacion.toLowerCase() : undefined, 
+                localidad: getVal('localidad'),
+                fechaInstalacion: parseCustomDate(getVal('fecha_instalacion')),
+                marked: markedRaw, // Store raw marked value
+                estado: getVal('estado'),
+                fechaInauguracion: parseCustomDate(getVal('fecha_inauguracion')),
+                olcHardwareDir: getVal('olc_hardware_dir'), 
+                dimmingCalendar: getVal('dimming_calendar'),
+                ultimoInforme: parseCustomDate(getVal('ultimo_informe')),
+                olcIdExterno: parseNumberFromCSV(getVal('olc_id_externo')),
+                luminaireIdExterno: getVal('luminaire_id_externo'),
+                horasFuncionamiento: parseNumberFromCSV(getVal('horas_funcionamiento')),
+                recuentoConmutacion: parseNumberFromCSV(getVal('recuento_conmutacion')),
+                cabinetIdExterno: cabinetIdExternoRaw, // Use raw cabinet ID
+                cabinetLat: parseNumberFromCSV(getVal('cabinet_lat')),
+                cabinetLon: parseNumberFromCSV(getVal('cabinet_lon')),
+                potenciaNominal: parseNumberFromCSV(getVal('potencia_nominal')),
+                designacionTipo: getVal('designacion_tipo'),
+            };
+            parsedItems.push(parsedItem);
+            if (parsedItems.length <= 5) { // Depuración: Log de las primeras 5 filas procesadas
+                console.log("Inventory: Parsed Item (first 5 rows):", parsedItem);
+            }
         });
-        // console.log("Parsed Inventory:", parsedItems.length, parsedItems);
+        if (skippedRowsCount > 0) {
+            console.warn(`Inventario: Se omitieron ${skippedRowsCount} filas en total. ${firstSkippedRowsDetails.length} detalles de las primeras filas omitidas:`);
+            firstSkippedRowsDetails.forEach(detail => {
+                console.warn(`  - Fila ${detail.rowIndex}: Faltante/Inválido: ${detail.missing}. Columnas crudas:`, detail.columns, 'Header Map:', JSON.stringify(headerMap, null, 2));
+            });
+        }
         return parsedItems;
     };
 
     const processServicePointsCSV = (text: string): ServicePoint[] => {
-        const lines = text.split('\n');
+        const lines = text.split('\n').filter(line => line.trim() !== '');
         if (lines.length <= 1) return [];
-        const header = lines[0];
-        const rows = lines.slice(1);
-        const delimiter = detectDelimiter(header);
-        // console.log("Service Points Delimiter:", delimiter);
+        const delimiter = detectDelimiter(lines[0]);
+        const headerRow = parseCsvRow(lines[0], delimiter);
+        const headerMap = getHeaderMap(headerRow);
+        // console.log("Service Points Delimiter:", delimiter, "Header Map:", JSON.stringify(headerMap, null, 2)); // Depuración: Desactivado
+
         const parsedItems: ServicePoint[] = [];
+        let skippedRowsCount = 0;
+        const firstSkippedRowsDetails: { rowIndex: number; missing: string; columns: string[] }[] = [];
 
-        rows.forEach((row, rowIndex) => {
-            if (row.trim() === '') return;
+        lines.slice(1).forEach((row, rowIndex) => {
             const columns = parseCsvRow(row, delimiter);
-            // console.log(`Service Points Row ${rowIndex}:`, columns);
-            // Expected 11 columns based on the current provided data from logs:
-            // Tarifa (0), PotContrat (1), Direccion (2), ALCID (3), Num_Cuenta (4), ZONA (5), Porcent_ef (6), FASES (7), TENSION (8), POINT_X (9), POINT_Y (10)
-            if (columns.length < 11) { 
-                 console.warn(`Service Points: Skipping row ${rowIndex} due to insufficient columns (${columns.length} < 11):`, columns);
-                 return;
-            }
 
-            const nroCuenta = columns[4]?.trim(); // Mapped to Num_Cuenta
-            if (!nroCuenta) {
-                console.warn(`Service Points: Skipping row ${rowIndex} due to missing nroCuenta`, columns);
+            const getVal = (key: string) => getColumnValue(columns, headerMap, key);
+            const nroCuentaRaw = getVal('nro_cuenta');
+            const direccionRaw = getVal('direccion');
+            const tarifaRaw = getVal('tarifa');
+            const potenciaContratadaRaw = getVal('potencia_contratada');
+            const tensionRaw = getVal('tension');
+            const fasesRaw = getVal('fases');
+            const latRaw = getVal('lat');
+            const lonRaw = getVal('lon');
+
+            const potenciaContratada = parseNumberFromCSV(potenciaContratadaRaw);
+            const lat = parseNumberFromCSV(latRaw);
+            const lon = parseNumberFromCSV(lonRaw);
+
+            const missingDetails: string[] = [];
+            if (!nroCuentaRaw) missingDetails.push(`nro_cuenta (valor: '${nroCuentaRaw}')`);
+            if (!direccionRaw) missingDetails.push(`direccion (valor: '${direccionRaw}')`);
+            if (!tarifaRaw) missingDetails.push(`tarifa (valor: '${tarifaRaw}')`);
+            if (potenciaContratada === undefined) missingDetails.push(`potencia_contratada (valor: '${potenciaContratadaRaw}')`);
+            if (!tensionRaw) missingDetails.push(`tension (valor: '${tensionRaw}')`);
+            if (!fasesRaw) missingDetails.push(`fases (valor: '${fasesRaw}')`);
+            if (lat === undefined) missingDetails.push(`lat (valor: '${latRaw}')`);
+            if (lon === undefined) missingDetails.push(`lon (valor: '${lonRaw}')`);
+
+            if (missingDetails.length > 0) {
+                skippedRowsCount++;
+                if (firstSkippedRowsDetails.length < SKIPPED_ROW_WARNING_THRESHOLD) {
+                    firstSkippedRowsDetails.push({ rowIndex: rowIndex + 1, missing: missingDetails.join(', '), columns: columns });
+                }
                 return;
             }
-
-            // Corrected indices based on the 11-column schema
-            const lon = parseNumberFromCSV(columns[9]); // Mapped to POINT_X (index 9)
-            const lat = parseNumberFromCSV(columns[10]); // Mapped to POINT_Y (index 10)
             
-            if (lat === undefined || lon === undefined) {
-                console.warn(`Service Points: Invalid coordinates for service point ${nroCuenta}: Lat='${columns[10]}', Lon='${columns[9]}'. Skipping. Raw columns:`, columns);
-                return;
+            const parsedItem: ServicePoint = {
+                nroCuenta: nroCuentaRaw!,
+                tarifa: tarifaRaw!,
+                potenciaContratada: potenciaContratada!, 
+                tension: tensionRaw!,
+                fases: fasesRaw!,
+                cantidadLuminarias: 0, 
+                direccion: direccionRaw!,
+                lat: lat!,
+                lon: lon!,
+                alcid: getVal('alcid'), 
+                porcentEf: parseNumberFromCSV(getVal('porcent_ef')),
+            };
+            parsedItems.push(parsedItem);
+            if (parsedItems.length <= 5) { // Depuración: Log de las primeras 5 filas procesadas
+                console.log("Service Points: Parsed Item (first 5 rows):", parsedItem);
             }
-
-            parsedItems.push({
-                nroCuenta,
-                tarifa: columns[0]?.trim(), // Mapped to Tarifa
-                potenciaContratada: parseNumberFromCSV(columns[1]) ?? 0, // Mapped to PotContrat
-                tension: columns[8]?.trim(), // Mapped to TENSION
-                fases: columns[7]?.trim(), // Mapped to FASES
-                cantidadLuminarias: 0, // Will be calculated from inventory
-                direccion: columns[2]?.trim(), // Mapped to Direccion
-                lat: lat,
-                lon: lon,
-                alcid: columns[3]?.trim(), // Mapped to ALCID (Municipality Code/Name)
-                porcentEf: parseNumberFromCSV(columns[6]), // Mapped to Porcent_ef
-            });
         });
-        // console.log("Parsed Service Points:", parsedItems.length, parsedItems);
+        if (skippedRowsCount > 0) {
+            console.warn(`Puntos de Servicio: Se omitieron ${skippedRowsCount} filas en total. ${firstSkippedRowsDetails.length} detalles de las primeras filas omitidas:`);
+            firstSkippedRowsDetails.forEach(detail => {
+                console.warn(`  - Fila ${detail.rowIndex}: Faltante/Inválido: ${detail.missing}. Columnas crudas:`, detail.columns, 'Header Map:', JSON.stringify(headerMap, null, 2));
+            });
+        }
         return parsedItems;
     };
 
     const processZoneBasesCSV = (text: string): ZoneBase[] => {
-        const lines = text.split('\n');
+        const lines = text.split('\n').filter(line => line.trim() !== '');
         if (lines.length <= 1) return [];
-        const header = lines[0];
-        const rows = lines.slice(1);
-        const delimiter = detectDelimiter(header);
-        // console.log("Zone Bases Delimiter:", delimiter);
+        const delimiter = detectDelimiter(lines[0]);
+        const headerRow = parseCsvRow(lines[0], delimiter);
+        const headerMap = getHeaderMap(headerRow);
+        // console.log("Zone Bases Delimiter:", delimiter, "Header Map:", JSON.stringify(headerMap, null, 2)); // Depuración: Desactivado
 
         const parsedItems: ZoneBase[] = [];
-        rows.forEach((row, rowIndex) => {
-            if (row.trim() === '') return;
+        let skippedRowsCount = 0;
+        const firstSkippedRowsDetails: { rowIndex: number; missing: string; columns: string[] }[] = [];
+
+        lines.slice(1).forEach((row, rowIndex) => {
             const columns = parseCsvRow(row.trim(), delimiter);
-            // console.log(`Zone Bases Row ${rowIndex}:`, columns);
-            if (columns.length < 3) {
-                console.warn(`Zone Bases: Skipping row ${rowIndex} due to insufficient columns (${columns.length} < 3):`, columns);
-                return;
-            }
-
-            const zoneName = columns[0]?.trim().toUpperCase();
-            if (!zoneName) {
-                console.warn(`Zone Bases: Skipping row ${rowIndex} due to missing zoneName`, columns);
-                return;
-            }
-
-            const lat = parseNumberFromCSV(columns[1]);
-            const lon = parseNumberFromCSV(columns[2]);
             
-            if (lat !== undefined && lon !== undefined) {
-                 parsedItems.push({ zoneName, lat: lat, lon: lon });
-            } else {
-                 console.warn(`Zone Bases: Invalid coordinates for zone ${zoneName}: Lat='${columns[1]}', Lon='${columns[2]}'. Skipping. Raw columns:`, columns);
+            const getVal = (key: string) => getColumnValue(columns, headerMap, key);
+            const zoneNameRaw = getVal('zone_name');
+            const latRaw = getVal('lat');
+            const lonRaw = getVal('lon');
+
+            const lat = parseNumberFromCSV(latRaw);
+            const lon = parseNumberFromCSV(lonRaw);
+
+            const missingDetails: string[] = [];
+            if (!zoneNameRaw) missingDetails.push(`zone_name (valor: '${zoneNameRaw}')`);
+            if (lat === undefined) missingDetails.push(`lat (valor: '${latRaw}')`);
+            if (lon === undefined) missingDetails.push(`lon (valor: '${lonRaw}')`);
+
+            if (missingDetails.length > 0) {
+                skippedRowsCount++;
+                if (firstSkippedRowsDetails.length < SKIPPED_ROW_WARNING_THRESHOLD) {
+                    firstSkippedRowsDetails.push({ rowIndex: rowIndex + 1, missing: missingDetails.join(', '), columns: columns });
+                }
+                return;
+            }
+            
+            const parsedItem: ZoneBase = { 
+                zoneName: zoneNameRaw!.toUpperCase(), // Ensure uppercase for map matching
+                lat: lat!, 
+                lon: lon! 
+            };
+            parsedItems.push(parsedItem);
+            if (parsedItems.length <= 5) { // Depuración: Log de las primeras 5 filas procesadas
+                console.log("Zone Bases: Parsed Item (first 5 rows):", parsedItem);
             }
         });
-        // console.log("Parsed Zone Bases:", parsedItems.length, parsedItems);
+        if (skippedRowsCount > 0) {
+            console.warn(`Bases de Zona: Se omitieron ${skippedRowsCount} filas en total. ${firstSkippedRowsDetails.length} detalles de las primeras filas omitidas:`);
+            firstSkippedRowsDetails.forEach(detail => {
+                console.warn(`  - Fila ${detail.rowIndex}: Faltante/Inválido: ${detail.missing}. Columnas crudas:`, detail.columns, 'Header Map:', JSON.stringify(headerMap, null, 2));
+            });
+        }
         return parsedItems;
     };
 
@@ -499,7 +902,7 @@ export const useLuminaireData = () => {
         const snapshot: Record<string, HistoricalZoneData> = {};
         Object.keys(inventoryCountByZone).forEach(zone => {
             const zoneCounts = countsByZone[zone];
-            const totalInventario = inventoryCountByZone[zone];
+            const totalInventory = inventoryCountByZone[zone];
             
             const eventosReales = Math.max(0, zoneCounts.eventos - zoneCounts.eventosGabinete - zoneCounts.eventosVandalismo);
             
@@ -511,11 +914,11 @@ export const useLuminaireData = () => {
                 eventosGabinete: zoneCounts.eventosGabinete,
                 eventosVandalismo: zoneCounts.eventosVandalismo,
                 eventosReales,
-                totalInventario,
-                porcentaje: totalInventario > 0 ? (zoneCounts.eventos / totalInventario) * 100 : 0,
-                porcentajeGabinete: totalInventario > 0 ? (zoneCounts.eventosGabinete / totalInventario) * 100 : 0,
-                porcentajeVandalismo: totalInventario > 0 ? (zoneCounts.eventosVandalismo / totalInventario) * 100 : 0,
-                porcentajeReal: totalInventario > 0 ? (eventosReales / totalInventario) * 100 : 0,
+                totalInventario: totalInventory,
+                porcentaje: totalInventory > 0 ? (zoneCounts.eventos / totalInventory) * 100 : 0,
+                porcentajeGabinete: totalInventory > 0 ? (zoneCounts.eventosGabinete / totalInventory) * 100 : 0,
+                porcentajeVandalismo: totalInventory > 0 ? (zoneCounts.eventosVandalismo / totalInventory) * 100 : 0,
+                porcentajeReal: totalInventory > 0 ? (eventosReales / totalInventory) * 100 : 0,
                 failedLuminaireIds: failedLuminaireIds,
                 cabinetFailureLuminaireIds: cabinetFailureLuminaireIdsByZone[zone] || [],
             };
@@ -538,21 +941,22 @@ export const useLuminaireData = () => {
 
         let urls: DataSourceURLs;
         try {
-            console.log("Attempting to fetch data source URLs from Firebase...");
+            // console.log("Attempting to fetch data source URLs from Firebase..."); // Depuración: Desactivado
             const firebaseResponse = await fetch(FIREBASE_BASE_URL + FIREBASE_URLS_PATH);
             if (!firebaseResponse.ok) {
-                throw new Error(`Error al conectar con Firebase: ${firebaseResponse.statusText} (${firebaseResponse.status})`);
+                throw new Error(`Error ${firebaseResponse.status}: ${firebaseResponse.statusText}.`);
             }
             const data = await firebaseResponse.json();
             if (!data || !data.events || !data.changes || !data.inventory || !data.servicePoints || !data.zoneBases) {
-                throw new Error("La configuración de URLs en Firebase es inválida o no se encontró.");
+                throw new Error("La estructura de URLs en Firebase es inválida o incompleta. Asegúrese de que existen 'events', 'changes', 'inventory', 'servicePoints' y 'zoneBases'.");
             }
             urls = data as DataSourceURLs;
-            console.log("URLs de fuentes de datos cargadas desde Firebase:", urls);
+            // console.log("URLs de fuentes de datos cargadas desde Firebase:", urls); // Depuración: Desactivado
         } catch (e: any) {
+            const firebaseErrorMsg = `No se pudo obtener la configuración de fuentes de datos de Firebase: ${e.message}. Asegúrese de que la ruta '/dataSourceURLs.json' existe y es accesible en su Realtime Database.`;
             console.error("Failed to fetch URLs from Firebase", e);
-            setError(`No se pudo obtener la configuración de Firebase: ${e.message}. Intentando cargar desde la caché...`);
             try {
+                // console.log("Intentando cargar datos desde la caché de IndexedDB..."); // Depuración: Desactivado
                 const [cachedEvents, cachedChanges, cachedInventory, cachedServicePoints, cachedZoneBases, cachedHistory] = await Promise.all([
                     db.getAll(LUMINAIRE_EVENTS_STORE),
                     db.getAll(CHANGE_EVENTS_STORE),
@@ -561,7 +965,7 @@ export const useLuminaireData = () => {
                     db.getAll(ZONE_BASES_STORE),
                     fetch(FIREBASE_BASE_URL + FIREBASE_HISTORY_PATH + '.json')
                         .then(res => { if (!res.ok) throw new Error(res.statusText); return res.json() as Promise<HistoricalData>; })
-                        .catch(e => { console.warn("Failed to fetch historical data from Firebase:", e); return {} as HistoricalData; })
+                        .catch(e => { console.warn("Falló la carga de datos históricos desde Firebase:", e); return {} as HistoricalData; })
                 ]);
                 setAllEvents(cachedEvents.sort((a,b) => b.date.getTime() - a.date.getTime()));
                 setChangeEvents(cachedChanges.sort((a,b) => b.fechaRetiro.getTime() - a.fechaRetiro.getTime()));
@@ -570,14 +974,14 @@ export const useLuminaireData = () => {
                 setZoneBases(cachedZoneBases);
                 setHistoricalData(cachedHistory || {});
                  if (cachedEvents.length === 0 && cachedChanges.length === 0 && cachedInventory.length === 0) {
-                    setError(`No se pudo obtener la configuración de Firebase: ${e.message}. No hay datos en la caché.`);
+                    setError(`${firebaseErrorMsg} No hay datos en la caché local.`);
                 } else {
-                    setError(null); // Clear error if cached data was loaded successfully
-                    console.log("Loaded data from IndexedDB cache.");
+                    setError(`Se cargaron datos de la caché local debido al fallo en Firebase. ${firebaseErrorMsg}`);
+                    // console.log("Datos cargados desde la caché de IndexedDB."); // Depuración: Desactivado
                 }
             } catch (dbError) {
-                console.error("Error loading from DB/Firebase after Firebase URL failure:", dbError);
-                setError(`No se pudo obtener la configuración de Firebase y también falló la carga desde la caché.`);
+                console.error("Error loading from IndexedDB cache after Firebase URL failure:", dbError);
+                setError(`${firebaseErrorMsg} Y también falló la carga desde la caché local: ${dbError}.`);
             } finally {
                 setLoading(false);
             }
@@ -585,71 +989,108 @@ export const useLuminaireData = () => {
         }
 
         try {
-            console.log("Attempting to fetch CSV files...");
-            const [
-                eventsResponse,
-                changesResponse,
-                inventoryResponse,
-                servicePointsResponse,
-                zoneBasesResponse,
-            ] = await Promise.all([
-                fetch(urls.events).catch(e => { throw new Error(`Eventos: ${e.message}`); }),
-                fetch(urls.changes).catch(e => { throw new Error(`Cambios: ${e.message}`); }),
-                fetch(urls.inventory).catch(e => { throw new Error(`Inventario: ${e.message}`); }),
-                fetch(urls.servicePoints).catch(e => { throw new Error(`Puntos de Servicio: ${e.message}`); }),
-                fetch(urls.zoneBases).catch(e => { throw new Error(`Bases de Zona: ${e.message}`); }),
-            ]);
+            // console.log("Attempting to fetch CSV files from Google Sheets..."); // Depuración: Desactivado
+            
+            // FIX: Explicitly defined `store` type to resolve type inference issues.
+            interface DataConfig {
+                name: string;
+                url: string;
+                processor: (text: string) => any[];
+                setter: Dispatch<SetStateAction<any[]>>; 
+                store: 'luminaireEvents' | 'changeEvents' | 'inventory' | 'servicePoints' | 'zoneBases'; 
+            }
 
-            const responses = [eventsResponse, changesResponse, inventoryResponse, servicePointsResponse, zoneBasesResponse];
-            for (const res of responses) {
-                if (!res.ok) throw new Error(`Error al cargar ${res.url}: ${res.statusText} (${res.status})`);
+            const fetchPromises: DataConfig[] = [
+                { name: 'Eventos', url: urls.events, processor: processEventsCSV, setter: setAllEvents, store: LUMINAIRE_EVENTS_STORE },
+                { name: 'Cambios', url: urls.changes, processor: processChangeEventsCSV, setter: setChangeEvents, store: CHANGE_EVENTS_STORE },
+                { name: 'Inventario', url: urls.inventory, processor: processInventoryCSV, setter: setInventory, store: INVENTORY_STORE },
+                { name: 'Puntos de Servicio', url: urls.servicePoints, processor: processServicePointsCSV, setter: setServicePoints, store: SERVICE_POINTS_STORE },
+                { name: 'Bases de Zona', url: urls.zoneBases, processor: processZoneBasesCSV, setter: setZoneBases, store: ZONE_BASES_STORE },
+            ];
+
+            const results = await Promise.allSettled(
+                fetchPromises.map(async (dataConfig) => {
+                    const response = await fetch(dataConfig.url);
+                    if (!response.ok) {
+                        throw new Error(`Error HTTP ${response.status} para ${dataConfig.name}: ${response.statusText}`);
+                    }
+                    const text = await response.text();
+                    const parsedData = dataConfig.processor(text);
+                    if (parsedData.length === 0) {
+                        console.warn(`Advertencia: La planilla de ${dataConfig.name} se cargó correctamente, pero no se encontraron datos válidos después de procesar el CSV. Verifique el formato o los encabezados.`);
+                    }
+                    return { name: dataConfig.name, data: parsedData, setter: dataConfig.setter, store: dataConfig.store };
+                })
+            );
+
+            const accumulatedErrors: string[] = [];
+            // FIX: Explicitly defined `store` type to resolve type inference issues.
+            const successfulData: { name: string; data: any[]; setter: Dispatch<SetStateAction<any[]>>; store: 'luminaireEvents' | 'changeEvents' | 'inventory' | 'servicePoints' | 'zoneBases'; }[] = [];
+
+            for (const result of results) {
+                if (result.status === 'fulfilled') {
+                    successfulData.push(result.value);
+                } else {
+                    accumulatedErrors.push(result.reason.message || `Error desconocido al cargar una fuente de datos.`);
+                }
+            }
+
+            if (accumulatedErrors.length > 0) {
+                setError(`Errores al cargar algunas fuentes de datos: ${accumulatedErrors.join('; ')}`);
             }
              
             // Fetch historical data separately, allowing app to proceed even if it fails
             let history: HistoricalData = {};
             try {
-                console.log("Attempting to fetch historical snapshot data...");
+                // console.log("Attempting to fetch historical snapshot data..."); // Depuración: Desactivado
                 const historicalDataResponse = await fetch(FIREBASE_BASE_URL + FIREBASE_HISTORY_PATH + '.json');
                 if (!historicalDataResponse.ok) {
                     console.warn(`Could not fetch historical data: ${historicalDataResponse.statusText} (${historicalDataResponse.status}). Proceeding without it.`);
                 } else {
                     history = await historicalDataResponse.json() as HistoricalData;
-                    console.log("Historical data loaded.");
+                    // console.log("Historical data loaded."); // Depuración: Desactivado
                 }
             } catch (histError) {
                 console.warn("Failed to fetch historical data, proceeding without it:", histError);
             }
             setHistoricalData(history || {});
 
+            // console.log("Storing data in IndexedDB..."); // Depuración: Desactivado
+            const tx = db.transaction([LUMINAIRE_EVENTS_STORE, CHANGE_EVENTS_STORE, INVENTORY_STORE, SERVICE_POINTS_STORE, ZONE_BASES_STORE], 'readwrite');
+            const storePromises: Promise<any>[] = [];
 
-            console.log("Converting CSV responses to text and parsing...");
-            const [eventsText, changesText, inventoryText, servicePointsText, zoneBasesText] = await Promise.all(responses.map(res => res.text()));
+            successfulData.forEach(({ name, data, setter, store }) => {
+                // FIX: Explicitly cast `store` to a union type to satisfy TypeScript's strict type checking for objectStore.
+                storePromises.push(tx.objectStore(store as 'luminaireEvents' | 'changeEvents' | 'inventory' | 'servicePoints' | 'zoneBases').clear());
+                if (data.length > 0) {
+                    // FIX: Explicitly cast `store` to a union type to satisfy TypeScript's strict type checking for objectStore.
+                    storePromises.push(...data.map(item => tx.objectStore(store as 'luminaireEvents' | 'changeEvents' | 'inventory' | 'servicePoints' | 'zoneBases').put(item)));
+                }
+                // Update React state directly
+                if (store === LUMINAIRE_EVENTS_STORE) setAllEvents(data.sort((a,b) => b.date.getTime() - a.date.getTime()));
+                else if (store === CHANGE_EVENTS_STORE) setChangeEvents(data.sort((a,b) => b.fechaRetiro.getTime() - a.fechaRetiro.getTime()));
+                else if (store === INVENTORY_STORE) setInventory(data);
+                else if (store === SERVICE_POINTS_STORE) setServicePoints(data);
+                else if (store === ZONE_BASES_STORE) setZoneBases(data);
+            });
             
-            const [parsedEvents, parsedChanges, parsedInventory, parsedServicePoints, parsedZoneBases] = await Promise.all([
-                Promise.resolve(processEventsCSV(eventsText)),
-                Promise.resolve(processChangeEventsCSV(changesText)),
-                Promise.resolve(processInventoryCSV(inventoryText)),
-                Promise.resolve(processServicePointsCSV(servicePointsText)),
-                Promise.resolve(processZoneBasesCSV(zoneBasesText)),
-            ]);
+            await Promise.all(storePromises); // Wait for all IndexedDB operations
+            await tx.done;
+            // console.log("Data stored in IndexedDB."); // Depuración: Desactivado
 
-            console.log(`Parsed Events: ${parsedEvents.length}`);
-            console.log(`Parsed Changes: ${parsedChanges.length}`);
-            console.log(`Parsed Inventory: ${parsedInventory.length}`);
-            console.log(`Parsed Service Points: ${parsedServicePoints.length}`);
-            console.log(`Parsed Zone Bases: ${parsedZoneBases.length}`);
+            // Apply augmentation for events AFTER all inventory is loaded
+            const fullInventory = successfulData.find(d => d.store === INVENTORY_STORE)?.data || [];
+            const allEventsRaw = successfulData.find(d => d.store === LUMINAIRE_EVENTS_STORE)?.data || [];
 
-            const inventoryDataMap = new Map<string, { olcHardwareDir?: string; potenciaNominal?: number }>();
-            parsedInventory.forEach(item => {
+            // FIX: Changed inventoryDataMap to store full InventoryItem objects.
+            const inventoryDataMap = new Map<string, InventoryItem>();
+            fullInventory.forEach((item: InventoryItem) => {
                 if (item.streetlightIdExterno) {
-                    inventoryDataMap.set(item.streetlightIdExterno, {
-                        olcHardwareDir: item.olcHardwareDir,
-                        potenciaNominal: item.potenciaNominal
-                    });
+                    inventoryDataMap.set(item.streetlightIdExterno, item);
                 }
             });
 
-            const augmentedEvents = parsedEvents.map(event => {
+            const augmentedEvents = allEventsRaw.map((event: LuminaireEvent) => {
                 const inventoryData = inventoryDataMap.get(event.id);
                 return {
                     ...event,
@@ -657,33 +1098,36 @@ export const useLuminaireData = () => {
                     power: inventoryData?.potenciaNominal?.toString(), 
                 };
             });
-            
-            console.log("Storing data in IndexedDB...");
-            const tx = db.transaction([LUMINAIRE_EVENTS_STORE, CHANGE_EVENTS_STORE, INVENTORY_STORE, SERVICE_POINTS_STORE, ZONE_BASES_STORE], 'readwrite');
-            await Promise.all([
-                tx.objectStore(LUMINAIRE_EVENTS_STORE).clear(),
-                tx.objectStore(CHANGE_EVENTS_STORE).clear(),
-                tx.objectStore(INVENTORY_STORE).clear(),
-                tx.objectStore(SERVICE_POINTS_STORE).clear(),
-                tx.objectStore(ZONE_BASES_STORE).clear(),
-                ...augmentedEvents.map(e => tx.objectStore(LUMINAIRE_EVENTS_STORE).put(e)),
-                ...parsedChanges.map(c => tx.objectStore(CHANGE_EVENTS_STORE).put(c)),
-                ...parsedInventory.map(i => tx.objectStore(INVENTORY_STORE).put(i)),
-                ...parsedServicePoints.map(s => tx.objectStore(SERVICE_POINTS_STORE).put(s)),
-                ...parsedZoneBases.map(b => tx.objectStore(ZONE_BASES_STORE).put(b)),
-            ]);
-            await tx.done;
-            console.log("Data stored in IndexedDB.");
-
             setAllEvents(augmentedEvents.sort((a,b) => b.date.getTime() - a.date.getTime()));
-            setChangeEvents(parsedChanges.sort((a,b) => b.fechaRetiro.getTime() - a.fechaRetiro.getTime()));
-            setInventory(parsedInventory);
-            setServicePoints(parsedServicePoints);
-            setZoneBases(parsedZoneBases);
             
             // --- Save Daily Snapshot to Firebase ---
-            console.log("Calculating and saving daily historical snapshot...");
-            const dailySnapshot = calculateDailySnapshot(augmentedEvents, parsedInventory);
+            // console.log("Calculating and saving daily historical snapshot..."); // Depuración: Desactivado
+            // Use augmented events for snapshot calculation
+            const fullAugmentedEventsForSnapshot = allEventsRaw.map((event: LuminaireEvent) => {
+                const inventoryData = inventoryDataMap.get(event.id);
+                // Ensure event.zone and event.municipio are populated correctly even if missing from event directly
+                const fullEvent = {
+                    ...event,
+                    // FIX: Accessing zone and municipio from `inventoryData` (which is now InventoryItem).
+                    zone: event.zone || inventoryData?.zone || 'Desconocida', 
+                    municipio: event.municipio || inventoryData?.municipio || 'Desconocido' 
+                };
+                return {
+                    ...fullEvent,
+                    olcHardwareDir: inventoryData?.olcHardwareDir,
+                    power: inventoryData?.potenciaNominal?.toString(), 
+                };
+            });
+            // Also ensure fullInventory items have zone/municipio from MUNICIPIO_TO_ZONE_MAP if they only have municipio
+            const augmentedInventoryForSnapshot = fullInventory.map((item: InventoryItem) => {
+                const municipioUpper = item.municipio?.toUpperCase();
+                return {
+                    ...item,
+                    zone: item.zone || (municipioUpper && MUNICIPIO_TO_ZONE_MAP[municipioUpper]) || 'Desconocida'
+                };
+            });
+
+            const dailySnapshot = calculateDailySnapshot(fullAugmentedEventsForSnapshot, augmentedInventoryForSnapshot);
             if(Object.keys(dailySnapshot).length > 0) {
                 const todayStr = format(new Date(), 'yyyy-MM-dd');
                 await fetch(`${FIREBASE_BASE_URL}${FIREBASE_HISTORY_PATH}/${todayStr}.json`, {
@@ -691,20 +1135,20 @@ export const useLuminaireData = () => {
                     body: JSON.stringify(dailySnapshot),
                     headers: { 'Content-Type': 'application/json' }
                 });
-                console.log(`Daily snapshot for ${todayStr} saved to Firebase.`);
+                // console.log(`Daily snapshot for ${todayStr} saved to Firebase.`); // Depuración: Desactivado
                 // Optimistically update local state for immediate feedback
                 setHistoricalData(prev => ({...prev, [todayStr]: dailySnapshot}));
             } else {
-                console.log("No data for daily snapshot, skipping save to Firebase.");
+                // console.log("No data for daily snapshot, skipping save to Firebase."); // Depuración: Desactivado
             }
 
 
         } catch (e: any) {
             console.error("Failed to fetch or process data", e);
-            setError(`Error al obtener datos: ${e.message}. Verifique las URLs en Firebase y la configuración de CORS en Google Sheets.`);
+            setError(`Error al obtener datos: ${e.message}. Verifique las URLs en Firebase, los permisos de Google Sheets y la estructura de los archivos CSV.`);
         } finally {
             setLoading(false);
-            console.log("Data fetching and processing complete.");
+            // console.log("Data fetching and processing complete."); // Depuración: Desactivado
         }
     }, []);
 

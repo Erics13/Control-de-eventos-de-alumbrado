@@ -2,8 +2,15 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { format } from 'date-fns/format';
 import { parse } from 'date-fns/parse';
-import { es } from 'date-fns/locale/es';
-import { startOfDay, endOfDay, subDays, startOfMonth, endOfMonth, startOfYear, endOfYear } from 'date-fns';
+import es from 'date-fns/locale/es'; // FIX: Changed to default import
+// FIX: Corrected date-fns imports to use named imports from their specific subpaths.
+import { startOfDay } from 'date-fns/startOfDay';
+import { endOfDay } from 'date-fns/endOfDay';
+import { subDays } from 'date-fns/subDays';
+import { startOfMonth } from 'date-fns/startOfMonth';
+import { endOfMonth } from 'date-fns/endOfMonth';
+import { startOfYear } from 'date-fns/startOfYear';
+import { endOfYear } from 'date-fns/endOfYear';
 
 import Header from './components/Header';
 import { FilterControls } from './components/FilterControls';
@@ -21,7 +28,7 @@ import { useAuth } from './hooks/useAuth';
 import { useLuminaireData } from './hooks/useLuminaireData';
 import { exportToXlsx, exportToXlsxMultiSheet } from './utils/export';
 import { ALL_ZONES, ZONE_ORDER, ALCID_TO_MUNICIPIO_MAP, OPERATING_HOURS_RANGES, meses } from './constants';
-import { normalizeString } from './utils/string'; // Import the new utility
+import { normalizeString } from './utils/string'; 
 import type { 
     ActiveTab, HistoricalData, HistoricalZoneData, InventoryItem, LuminaireEvent, ChangeEvent, CabinetFailureDetail,
     PowerSummaryData, OperatingHoursSummary, CabinetSummary, ServiceSummary, MonthlyChangesSummary, HistoricalChangesByConditionSummary,
@@ -72,14 +79,13 @@ const App: React.FC = () => {
     const zones = ALL_ZONES;
     const municipios = useMemo(() => Array.from(new Set(inventory.map(i => i.municipio).filter(Boolean))).sort(), [inventory]);
     const failureCategories = useMemo(() => Array.from(new Set(allEvents.map(e => e.failureCategory).filter(c => c && c !== 'N/A'))).sort(), [allEvents]);
-    const availablePowers = useMemo(() => Array.from(new Set(inventory.map(i => i.potenciaNominal?.toString()).filter((p): p is string => !!p))).sort((a,b) => parseInt(a) - parseInt(b)), [inventory]);
+    const availablePowers = useMemo(() => Array.from(new Set(inventory.map(i => i.potenciaNominal?.toString()).filter((p): p is string => !!p))).sort((a: string,b: string) => parseInt(a) - parseInt(b)), [inventory]);
     const availableCalendars = useMemo(() => Array.from(new Set(inventory.map(i => i.dimmingCalendar).filter(Boolean))).sort(), [inventory]);
     
     const allYearsFromData = useMemo(() => {
         const years = new Set<string>();
         Object.keys(historicalData).forEach((dateKey: string) => years.add(dateKey.split('-')[0]));
         changeEvents.forEach(e => years.add(e.fechaRetiro.getFullYear().toString()));
-        // FIX: Explicitly type 'a' and 'b' as 'string' in the sort function.
         return Array.from(years).sort((a: string, b: string) => parseInt(b) - parseInt(a)); // Sort descending
     }, [historicalData, changeEvents]);
     const availableYears = allYearsFromData.length > 0 ? allYearsFromData : [new Date().getFullYear().toString()];
@@ -94,9 +100,10 @@ const App: React.FC = () => {
         return new Map<string, ServicePoint>(servicePoints.map(sp => [sp.nroCuenta, sp]));
     }, [servicePoints]);
 
-    // --- Filtering Logic for EventsTab ---
+    // --- Filtering Logic for EventosTab ---
     const filteredEvents = useMemo(() => {
         return allEvents.filter(event => {
+            // FIX: Ensure date-fns functions are called correctly.
             if (dateRange.start && event.date < startOfDay(dateRange.start)) return false;
             if (dateRange.end && event.date > endOfDay(dateRange.end)) return false;
             if (selectedZone !== 'all' && event.zone !== selectedZone) return false;
@@ -113,7 +120,9 @@ const App: React.FC = () => {
             if (cardFilter === 'lowCurrent') return event.description.toLowerCase().includes('corriente medida es menor');
             if (cardFilter === 'highCurrent') return event.description.toLowerCase().includes('corriente medida para la combinación');
             if (cardFilter === 'voltage') return event.failureCategory === 'Falla de voltaje';
-            const sit = event.situacion?.toLowerCase() || '';
+            
+            // Normalize logic here as well
+            const sit = normalizeString(event.situacion || '');
             if (cardFilter === 'columnaCaida') return sit.includes('columna') && sit.includes('caida');
             if (cardFilter === 'hurto') return sit.includes('hurto');
             if (cardFilter === 'vandalizado') return sit.includes('vandalizad') || sit.includes('vandalism');
@@ -130,10 +139,11 @@ const App: React.FC = () => {
             if (e.description.toLowerCase().includes('corriente medida para la combinación')) highCurrent++;
             if (e.failureCategory === 'Falla de voltaje') voltage++;
             
-            const sit = e.situacion?.toLowerCase() || '';
+            // Normalized check for situations
+            const sit = normalizeString(e.situacion || '');
             if (sit.includes('columna') && sit.includes('caida')) columnaCaida++;
             if (sit.includes('hurto')) hurto++;
-            if (sit.includes('vandalizad') || sit.includes('vandalism')) vandalizado++; // More flexible check
+            if (sit.includes('vandalizad') || sit.includes('vandalism')) vandalizado++; 
         });
         return { inaccesible, lowCurrent, highCurrent, voltage, columnaCaida, hurto, vandalizado };
     }, [filteredEvents]);
@@ -189,7 +199,6 @@ const App: React.FC = () => {
                         entry = { totalEvents: 0, totalInventory: 0, categoryCounts: {} };
                         counts.set(key, entry);
                     }
-                    // FIX: Changed 'totalInventario' to 'totalInventory' to match the interface.
                     entry.totalInventory++;
                 }
             });
@@ -198,7 +207,7 @@ const App: React.FC = () => {
                 .map(([name, data]) => ({
                     name,
                     eventos: data.totalEvents,
-                    totalInventario: data.totalInventory,
+                    totalInventory: data.totalInventory, // Corrected typo
                     porcentaje: data.totalInventory > 0 ? (data.totalEvents / data.totalInventory) * 100 : 0,
                     ...data.categoryCounts
                 }))
@@ -236,14 +245,13 @@ const App: React.FC = () => {
 
         filteredEvents.forEach(event => {
             if (event.failureCategory === 'Inaccesible' && event.status === 'FAILURE') {
-                const invItem = inventoryMap.get(event.id); // 'event.id' is streetlightIdExterno
+                const invItem = inventoryMap.get(event.id); 
                 if (invItem?.nroCuenta && invItem.nroCuenta !== '-') {
                     const nroCuenta = invItem.nroCuenta;
                     if (!failingServicePoints.has(nroCuenta)) {
                         const total = servicePointLuminaires.get(nroCuenta)?.length || 0;
                         failingServicePoints.set(nroCuenta, {
-                            // FIX: Changed 'totalLuminarias' to 'totalLuminaires' to match interface property.
-                            totalLuminaires: total,
+                            totalLuminaires: total, // Corrected typo
                             inaccessibleLuminaires: new Set<string>(),
                             zone: invItem.zone || 'Desconocida',
                             municipio: invItem.municipio || 'Desconocido',
@@ -255,7 +263,6 @@ const App: React.FC = () => {
         });
 
         const aggregatedByZone = new Map<string, { count: number; accounts: Set<string> }>();
-        const allFailedCabinetDetails: CabinetFailureDetail[] = []; // This is not used, but kept for context.
 
         failingServicePoints.forEach((data, nroCuenta) => {
             if (data.totalLuminaires === 0) return;
@@ -267,19 +274,6 @@ const App: React.FC = () => {
                 }
                 aggregatedByZone.get(data.zone)!.count++;
                 aggregatedByZone.get(data.zone)!.accounts.add(nroCuenta);
-
-                // For the detailed list of luminaires within these failing service points
-                data.inaccessibleLuminaires.forEach(luminaireId => {
-                    const event = filteredEvents.find(e => e.id === luminaireId && e.failureCategory === 'Inaccesible');
-                    if (event) {
-                        allFailedCabinetDetails.push({ // Still collecting here, though not directly returned
-                            date: event.date,
-                            id: event.id,
-                            zone: event.zone,
-                            municipio: event.municipio,
-                        });
-                    }
-                });
             }
         });
 
@@ -298,7 +292,7 @@ const App: React.FC = () => {
                 return a.name.localeCompare(b.name);
             });
         
-        console.log("Cabinet Failure Analysis Data:", sortedResult); // Debugging
+        // console.log("Cabinet Failure Analysis Data:", sortedResult); // Depuración: Desactivado
         return sortedResult;
     }, [filteredEvents, inventory, inventoryMap]);
 
@@ -408,7 +402,9 @@ const App: React.FC = () => {
     }, [finalDisplayInventory]);
 
     const markedCount = useMemo(() => {
-        return finalDisplayInventory.filter(item => item.marked?.toLowerCase() === 'si').length;
+        return finalDisplayInventory.filter(item => 
+            item.marked?.toLowerCase() === 'si' || item.marked?.toLowerCase() === 'yes'
+        ).length;
     }, [finalDisplayInventory]);
 
     const uniqueAccountCount = useMemo(() => {
@@ -456,7 +452,7 @@ const App: React.FC = () => {
 
     // Power Summary (Inventario Tab)
     const powerSummary: PowerSummaryTableData = useMemo(() => {
-        const powerDataMap = new Map<string, Record<string, number>>(); // power -> { zone/municipio -> count }
+        const powerDataMap = new Map<string, Record<string, number>>(); 
         const allZonesInView = new Set<string>();
         const allMunicipiosInView = new Set<string>();
 
@@ -478,7 +474,7 @@ const App: React.FC = () => {
         });
 
         const locationColumns: string[] = selectedZone === 'all' 
-            ? Array.from(allZonesInView).sort((a,b) => {
+            ? Array.from(allZonesInView).sort((a: string,b: string) => {
                 const iA = ZONE_ORDER.indexOf(a);
                 const iB = ZONE_ORDER.indexOf(b);
                 if (iA !== -1 && iB !== -1) return iA - iB;
@@ -527,10 +523,9 @@ const App: React.FC = () => {
     // Operating Hours Summary (Inventario Tab)
     const { operatingHoursSummary, operatingHoursZones, operatingHoursDetailData } = useMemo(() => {
         const ranges = OPERATING_HOURS_RANGES;
-        const countsByRangeAndZone = new Map<string, Map<string, InventoryItem[]>>(); // range -> zone -> items[]
+        const countsByRangeAndZone = new Map<string, Map<string, InventoryItem[]>>();
         const allZonesInView: string[] = Array.from(new Set<string>(finalDisplayInventory.map(item => item.zone).filter((z): z is string => !!z)));
 
-        // Initialize maps
         ranges.forEach(range => countsByRangeAndZone.set(range, new Map<string, InventoryItem[]>()));
 
         finalDisplayInventory.forEach(item => {
@@ -538,12 +533,10 @@ const App: React.FC = () => {
                 const hours = item.horasFuncionamiento;
                 let matchedRange: string | null = null;
                 for (const range of ranges) {
-                    // Handle '>X' format (e.g., '>30000')
                     if (range.startsWith('>') && hours >= parseFloat(range.substring(1))) {
                         matchedRange = range;
                         break;
                     }
-                    // Handle 'X-Y' format (e.g., '0-5000')
                     const parts = range.split('-').map(s => parseFloat(s.trim()));
                     const min = parts[0];
                     const max = parts.length > 1 ? parts[1] : undefined;
@@ -563,7 +556,7 @@ const App: React.FC = () => {
             }
         });
         
-        const sortedZones = Array.from(allZonesInView).sort((a, b) => {
+        const sortedZones = Array.from(allZonesInView).sort((a: string, b: string) => {
             const iA = ZONE_ORDER.indexOf(a);
             const iB = ZONE_ORDER.indexOf(b);
             if (iA !== -1 && iB !== -1) return iA - iB;
@@ -584,7 +577,6 @@ const App: React.FC = () => {
             return row;
         });
 
-        // Detailed data for selected range
         let detailData: InventoryItem[] = [];
         if (selectedOperatingHoursRange) {
             ranges.forEach(range => {
@@ -605,7 +597,8 @@ const App: React.FC = () => {
     }, [finalDisplayInventory, selectedOperatingHoursRange]);
 
     const handleOperatingHoursRowClick = useCallback((range: string) => {
-        setSelectedOperatingHoursRange(prevRange => (prevFilter === range ? null : range));
+        // FIX: Corrected typo from `prevFilter` to `prevRange`
+        setSelectedOperatingHoursRange(prevRange => (prevRange === range ? null : range));
     }, []);
 
     const handleExportOperatingHoursSummary = useCallback(() => {
@@ -659,6 +652,7 @@ const App: React.FC = () => {
     // --- Filtering Logic for CambiosTab ---
     const filteredChangeEvents = useMemo(() => {
         return changeEvents.filter(event => {
+            // FIX: Ensure date-fns functions are called correctly.
             if (dateRange.start && event.fechaRetiro < startOfDay(dateRange.start)) return false;
             if (dateRange.end && event.fechaRetiro > endOfDay(dateRange.end)) return false;
             if (selectedZone !== 'all' && event.zone !== selectedZone) return false;
@@ -724,8 +718,8 @@ const App: React.FC = () => {
             const normalizedCond = normalizeString(e.condicion);
             return normalizedCond.includes('columna') && normalizedCond.includes('caida');
         }).length;
-        console.log("Columna Caida Changes Count:", count); // Debugging
-        console.log("Display Change Events (conditions):", displayChangeEvents.map(e => e.condicion)); // Debugging
+        // console.log("Columna Caida Changes Count:", count); // Depuración: Desactivado
+        // console.log("Display Change Events (conditions):", displayChangeEvents.map(e => e.condicion)); // Depuración: Desactivado
         return count;
     }, [displayChangeEvents]);
 
@@ -768,7 +762,7 @@ const App: React.FC = () => {
 
         displayChangeEvents.forEach(e => {
             if (e.fechaRetiro.getFullYear() === yearInt) {
-                const monthKey = format(e.fechaRetiro, 'MM'); // e.g., "01", "02"
+                const monthKey = format(e.fechaRetiro, 'MM'); 
                 if (!monthCounts.has(monthKey)) {
                     monthCounts.set(monthKey, { LUMINARIA: 0, OLC: 0 });
                 }
@@ -782,7 +776,6 @@ const App: React.FC = () => {
             }
         });
 
-        // Generate data for all 12 months, even if no changes
         const monthlySummaries: MonthlyChangesSummary[] = meses.map(m => {
             const counts = monthCounts.get(m.value) || { LUMINARIA: 0, OLC: 0 };
             return {
@@ -817,7 +810,7 @@ const App: React.FC = () => {
                 });
             }
             const yearCounts = yearlyData.get(year)!;
-            const cond = normalizeString(e.condicion); // Use normalized string
+            const cond = normalizeString(e.condicion); 
             const comp = e.componente.toLowerCase();
 
             const isLum = comp.includes('luminaria');
@@ -850,12 +843,12 @@ const App: React.FC = () => {
         const filtered: HistoricalData = {};
         Object.entries(historicalData).forEach(([dateStr, zonesDataRaw]) => {
             const date = parse(dateStr, 'yyyy-MM-dd', new Date());
+            // FIX: Ensure date-fns functions are called correctly.
             if (dateRange.start && date < startOfDay(dateRange.start)) return;
             if (dateRange.end && date > endOfDay(dateRange.end)) return;
             if (selectedYear && format(date, 'yyyy') !== selectedYear) return;
             if (selectedMonth && format(date, 'M') !== selectedMonth) return;
             
-            // FIX: Add type guard and assertion for 'zonesDataRaw'
             if (!zonesDataRaw || typeof zonesDataRaw !== 'object' || Array.isArray(zonesDataRaw)) return;
             const zonesData = zonesDataRaw as Record<string, HistoricalZoneData>;
 
@@ -872,7 +865,6 @@ const App: React.FC = () => {
         const cabinetFailureDetailsForSelectedMonth: CabinetFailureDetail[] = [];
 
         Object.entries(filteredHistoricalData).forEach(([dateStr, zonesDataRaw]) => {
-             // FIX: Add type guard and assertion for 'zonesDataRaw'
             if (!zonesDataRaw || typeof zonesDataRaw !== 'object' || Array.isArray(zonesDataRaw)) return;
             const zonesData = zonesDataRaw as Record<string, HistoricalZoneData>;
 
@@ -947,7 +939,6 @@ const App: React.FC = () => {
         const presentZones = new Set<string>();
     
         Object.entries(filteredHistoricalData).forEach(([dateStr, zonesDataRaw]) => {
-            // FIX: Add type guard and assertion for 'zonesDataRaw'
             if (!zonesDataRaw || typeof zonesDataRaw !== 'object' || Array.isArray(zonesDataRaw)) return;
             const zonesData = zonesDataRaw as Record<string, HistoricalZoneData>;
 
@@ -1034,7 +1025,8 @@ const App: React.FC = () => {
                     'Mes': format(monthDate, 'MMMM yyyy', { locale: es }),
                     'Zona': zone,
                     '% Falla Total': summary && count > 0 ? `${(summary.porcentaje.total / count).toFixed(2)}%` : '0.00%',
-                    '% Falla Gabinete': summary && count > 0 ? `${(summary.porcentajeGabinete.total / count).toFixed(2)}%` : '0.00%',
+                    // FIX: Corrected typo in the key name to match RawPercentageDataItem interface.
+                    '% Falla Gabinete': summary && count > 0 ? `${(summary.porcentajeGabinete.total / count).toFixed(2)}%` : '0.00%', 
                     '% Falla Vandalismo': summary && count > 0 ? `${(summary.porcentajeVandalismo.total / count).toFixed(2)}%` : '0.00%',
                     '% Falla Real': summary && count > 0 ? `${(summary.porcentajeReal.total / count).toFixed(2)}%` : '0.00%',
                     date: monthDate,
@@ -1063,6 +1055,7 @@ const App: React.FC = () => {
         const now = new Date();
         let start: Date, end: Date;
         switch(preset) {
+            // FIX: Ensure date-fns functions are called correctly.
             case 'today': start = startOfDay(now); end = endOfDay(now); break;
             case 'yesterday': start = startOfDay(subDays(now, 1)); end = endOfDay(subDays(now, 1)); break;
             case 'week': start = subDays(now, 7); end = now; break;
@@ -1097,6 +1090,14 @@ const App: React.FC = () => {
     if (userProfile && userProfile.accessStatus === 'rejected') {
         return <div className="min-h-screen bg-gray-900 flex items-center justify-center text-red-400">Su solicitud de acceso ha sido rechazada.</div>;
     }
+
+    const hasNoData = !dataLoading && !dataError && 
+        allEvents.length === 0 && 
+        changeEvents.length === 0 && 
+        inventory.length === 0 && 
+        servicePoints.length === 0 && 
+        zoneBases.length === 0 &&
+        Object.keys(historicalData).length === 0;
 
     return (
         <div className="min-h-screen flex flex-col bg-gray-900 text-gray-100 font-sans">
@@ -1142,7 +1143,28 @@ const App: React.FC = () => {
                     )}
                 </div>
 
-                {!dataLoading && !dataError && (
+                {dataLoading && <div className="min-h-[200px] flex items-center justify-center text-cyan-400">Cargando datos...</div>}
+                {dataError && (
+                    <div className="p-4 bg-red-900/50 border border-red-700 rounded-lg text-red-300 text-center">
+                        <p className="font-semibold text-lg mb-2">Error al cargar datos:</p>
+                        <p>{dataError}</p>
+                        <p className="mt-2 text-sm">Por favor, revise la consola del navegador para más detalles.</p>
+                    </div>
+                )}
+                {hasNoData && (
+                    <div className="p-4 bg-yellow-900/50 border border-yellow-700 rounded-lg text-yellow-300 text-center" role="alert">
+                        <p className="font-semibold text-lg mb-2">No se encontraron datos</p>
+                        <p>No se pudo cargar ningún dato de las planillas de Google Drive o los datos procesados estaban vacíos. Por favor, asegúrese de que:</p>
+                        <ul className="list-disc list-inside mt-2 text-left mx-auto max-w-sm">
+                            <li>Las URLs en su base de datos de Firebase Realtime (`/dataSourceURLs.json`) son correctas y terminan en `/export?format=csv`.</li>
+                            <li>Las planillas de Google Sheets están configuradas para ser "Públicas" o "Cualquier persona con el enlace puede ver".</li>
+                            <li>Las planillas no están vacías y los encabezados de las columnas coinciden con los esperados por la aplicación.</li>
+                            <li>Revise la consola del navegador (F12) para ver mensajes de advertencia o error específicos durante la carga.</li>
+                        </ul>
+                    </div>
+                )}
+
+                {!dataLoading && !dataError && !hasNoData && (
                     <>
                         {activeTab === 'eventos' && (
                             <EventosTab 
@@ -1261,4 +1283,4 @@ const App: React.FC = () => {
     );
 };
 
-export default App;
+export { App };

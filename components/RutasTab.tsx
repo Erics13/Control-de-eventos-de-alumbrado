@@ -22,6 +22,7 @@ const generateLuminariaTableHtml = (worksheet: LuminariaWorksheet): string => {
     
     const rowsHtml = worksheet.failures.map(row => {
         const technicalDetails = `Pot. Medida: ${row.event.systemMeasuredPower?.toFixed(0) ?? 'N/A'}`;
+        // FIX: Access lat and lon from row.event
         const locationLink = row.event.lat && row.event.lon ? `https://www.google.com/maps?q=${row.event.lat},${row.event.lon}` : '';
         
         let whatsappLink = '';
@@ -127,7 +128,7 @@ const generateCabinetTableHtml = (worksheet: CabinetWorksheet): string => {
 
 
 const getHtmlContentForWorksheet = (worksheet: WorksheetData): string => {
-    // The title is already in the correct format "HR [Nro] [ZONE] [MUNI] [DATE]" from generation time
+    // The title is already in the correct format "HR [Nro] [ZONA] [MUNI] [DATE]" from generation time
     const title = worksheet.title;
     let tableHtml = '';
 
@@ -199,7 +200,10 @@ const getHtmlContentForWorksheet = (worksheet: WorksheetData): string => {
                         createMarker: function() { return null; },
                         lineOptions: {
                             styles: [{ color: '#2563eb', opacity: 0.8, weight: 5 }]
-                        }
+                        },
+                        // FIX: Revert to the demo OSRM service URL.
+                        // For production, a dedicated OSRM server or paid service is recommended.
+                        serviceUrl: 'https://router.project-osrm.org/route/v1' 
                     });
                     routingControl.on('routingerror', function(e) {
                         console.error('Error de ruteo (ignorado en HTML):', e.error);

@@ -1,3 +1,4 @@
+
 // This file requires the xlsx library to be loaded globally, e.g., from a CDN.
 declare var XLSX: any;
 

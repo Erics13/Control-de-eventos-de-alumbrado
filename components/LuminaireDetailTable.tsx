@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo } from 'react';
 import type { InventoryItem } from '../types';
 
@@ -63,6 +62,24 @@ const LuminaireDetailTable: React.FC<LuminaireDetailTableProps> = ({ items }) =>
         { key: 'municipio', label: 'Municipio' },
         { key: 'lat', label: 'Latitud' },
         { key: 'lon', label: 'Longitud' },
+        { key: 'nroCuenta', label: 'Nro Cuenta' },
+        { key: 'situacion', label: 'Situación' },
+        { key: 'localidad', label: 'Localidad' },
+        { key: 'fechaInstalacion', label: 'Fecha Instalación' },
+        { key: 'marked', label: 'Marcado' },
+        { key: 'estado', label: 'Estado' },
+        { key: 'fechaInauguracion', label: 'Fecha Inauguración' },
+        { key: 'dimmingCalendar', label: 'Calendario Dimming' },
+        { key: 'ultimoInforme', label: 'Último Informe' },
+        { key: 'olcIdExterno', label: 'ID OLC Externo' },
+        { key: 'luminaireIdExterno', label: 'ID Luminaria Externo' },
+        { key: 'horasFuncionamiento', label: 'Horas Funcionamiento' },
+        { key: 'recuentoConmutacion', label: 'Recuento Conm.' },
+        { key: 'cabinetIdExterno', label: 'ID Gabinete Externo' },
+        { key: 'cabinetLat', label: 'Lat. Gabinete' },
+        { key: 'cabinetLon', label: 'Lon. Gabinete' },
+        { key: 'potenciaNominal', label: 'Potencia Nominal (W)' },
+        { key: 'designacionTipo', label: 'Designación Tipo' },
     ];
 
     return (
@@ -94,6 +111,24 @@ const LuminaireDetailTable: React.FC<LuminaireDetailTableProps> = ({ items }) =>
                                     <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{item.municipio}</td>
                                     <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{item.lat ?? 'N/A'}</td>
                                     <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{item.lon ?? 'N/A'}</td>
+                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{item.nroCuenta ?? 'N/A'}</td>
+                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{item.situacion ?? 'N/A'}</td>
+                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{item.localidad ?? 'N/A'}</td>
+                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{item.fechaInstalacion?.toLocaleDateString() ?? 'N/A'}</td>
+                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{item.marked ?? 'N/A'}</td>
+                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{item.estado ?? 'N/A'}</td>
+                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{item.fechaInauguracion?.toLocaleDateString() ?? 'N/A'}</td>
+                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{item.dimmingCalendar ?? 'N/A'}</td>
+                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{item.ultimoInforme?.toLocaleDateString() ?? 'N/A'}</td>
+                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{item.olcIdExterno ?? 'N/A'}</td>
+                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{item.luminaireIdExterno ?? 'N/A'}</td>
+                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{item.horasFuncionamiento?.toLocaleString() ?? 'N/A'}</td>
+                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{item.recuentoConmutacion?.toLocaleString() ?? 'N/A'}</td>
+                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{item.cabinetIdExterno ?? 'N/A'}</td>
+                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{item.cabinetLat ?? 'N/A'}</td>
+                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{item.cabinetLon ?? 'N/A'}</td>
+                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{item.potenciaNominal ?? 'N/A'}</td>
+                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{item.designacionTipo ?? 'N/A'}</td>
                                     <td className="px-4 py-4 whitespace-nowrap text-sm text-center">
                                         {hasLocation ? (
                                             <button

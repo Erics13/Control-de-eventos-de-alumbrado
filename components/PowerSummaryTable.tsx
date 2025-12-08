@@ -1,16 +1,9 @@
 
-
 import React from 'react';
-
-interface PowerSummaryData {
-    powerData: { power: string; total: number; [key: string]: any }[];
-    locationColumns: string[];
-    columnTotals: Record<string, number>;
-    grandTotal: number;
-}
+import type { PowerSummaryTableData, PowerSummaryData } from '../types'; // Import both interfaces
 
 interface PowerSummaryTableProps {
-    summaryData: PowerSummaryData;
+    summaryData: PowerSummaryTableData;
 }
 
 const PowerSummaryTable: React.FC<PowerSummaryTableProps> = ({ summaryData }) => {
@@ -44,7 +37,7 @@ const PowerSummaryTable: React.FC<PowerSummaryTableProps> = ({ summaryData }) =>
                             <td className="sticky left-0 bg-gray-800 px-3 py-4 whitespace-nowrap font-medium text-cyan-300">{row.power}</td>
                             {locationColumns.map(loc => (
                                 <td key={loc} className="px-3 py-4 whitespace-nowrap text-center text-gray-300">
-                                    {(row as any)[loc] || 0}
+                                    {(row[loc] as number) || 0} {/* Cast to number as per PowerSummaryData */}
                                 </td>
                             ))}
                             <td className="px-3 py-4 whitespace-nowrap text-center font-bold text-gray-200">{row.total}</td>

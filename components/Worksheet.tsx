@@ -1,4 +1,3 @@
-
 import React, { useRef, useEffect } from 'react';
 import L from 'leaflet';
 import 'leaflet-routing-machine';
@@ -74,10 +73,13 @@ const ServicePointDetails: React.FC<{ servicePoint: ServicePoint }> = ({ service
                 <div className="grid grid-cols-2 gap-4 text-sm">
                     <div><span className="text-gray-400 block text-base font-medium">Municipio</span> <span className="text-gray-200 text-base font-semibold">{municipioName}</span></div>
                     <div><span className="text-gray-400 block text-base font-medium">Tarifa</span> <span className="text-gray-200 text-base">{servicePoint.tarifa}</span></div>
+                    
                     <div><span className="text-gray-400 block text-base font-medium">Pot. Contratada</span> <span className="text-gray-200 text-base">{servicePoint.potenciaContratada} kW</span></div>
-                    <div><span className="text-gray-400 block text-base font-medium">Tensión</span> <span className="text-gray-200 text-base">{servicePoint.tension}</span></div>
+                    <div><span className="text-gray-400 block text-base font-medium">Tensión</span> <span className="text-gray-200 text-base">{servicePoint.tension}</div>
+                    
                     <div><span className="text-gray-400 block text-base font-medium">Fases</span> <span className="text-gray-200 text-base">{servicePoint.fases}</span></div>
-                    <div><span className="text-gray-400 block text-base font-medium">% Eficiencia</span> <span className="text-gray-200 text-base">{servicePoint.porcentEf !== undefined ? `${servicePoint.porcentEf}%` : 'N/A'}</span></div>
+                    <div><span className="text-gray-400 block text-base font-medium">% Eficiencia</span> <span className="text-gray-200 text-base">{servicePoint.porcentEf !== undefined ? servicePoint.porcentEf + '%' : 'N/A'}</span></div>
+                    
                     <div><span className="text-gray-400 block text-base font-medium">Cant. Luminarias</span> <span className="text-gray-200 text-base">{servicePoint.cantidadLuminarias}</span></div>
                 </div>
             </div>
@@ -103,7 +105,7 @@ const LuminariaWorksheetTable: React.FC<{ worksheet: LuminariaWorksheet }> = ({ 
                 <tbody className="bg-gray-800 divide-y divide-gray-600 text-sm text-gray-300">
                     {worksheet.failures.map((row) => {
                         const technicalDetails = `Pot. Medida: ${row.event.systemMeasuredPower?.toFixed(0) ?? 'N/A'}`;
-                        const locationLink = row.event.lat && row.event.lon ? `https://www.google.com/maps?q=${row.event.lat},${row.event.lon}` : '';
+                        const locationLink = row.event.lat && row.event.lon ? `https://www.google.com/maps?q=${row.event.lat},${row.lon}` : '';
                         
                         let whatsappLink = '';
                         if (locationLink) {
@@ -126,7 +128,7 @@ const LuminariaWorksheetTable: React.FC<{ worksheet: LuminariaWorksheet }> = ({ 
                                 <td className="px-2 py-2 whitespace-pre-wrap border-r border-gray-600 align-top">{row.idLuminariaOlc}</td>
                                 <td className="px-2 py-2 border-r border-gray-600 align-top">{row.idGabinete || 'N/A'}</td>
                                 <td className="px-2 py-2 border-r border-gray-600 align-top">{row.potencia || 'N/A'}</td>
-                                <td className="px-2 py-2 whitespace-pre-wrap border-r border-gray-600 align-top">{row.fechaReporte}</td>
+                                <td className="px-2 py-2 whitespace-pre-wrap border-r border-gray-600 align-top">{row.event.date?.toLocaleString() || 'N/A'}</td>
                                 <td className="px-2 py-2 border-r border-gray-600 align-top">{row.categoria || 'N/A'}</td>
                                 <td className="px-2 py-2 border-r border-gray-600 align-top">{row.situacion || 'N/A'}</td>
                                 <td className="px-2 py-2 border-r border-gray-600 max-w-xs align-top">{row.mensajeDeError}</td>
@@ -248,7 +250,9 @@ const LuminariaWorksheetMap: React.FC<{ worksheet: LuminariaWorksheet }> = ({ wo
                     lineOptions: {
                         styles: [{ color: '#2563eb', opacity: 0.8, weight: 6 }]
                     },
-                    createMarker: () => null, // Don't create the default A/B markers
+                    // FIX: Revert to the demo OSRM service URL.
+                    // For production, a dedicated OSRM server or paid service is recommended.
+                    serviceUrl: 'https://router.project-osrm.org/route/v1' 
                 });
 
                 routingControl.on('routingerror', (e: any) => {
@@ -291,7 +295,7 @@ const Worksheet: React.FC<WorksheetProps> = ({ worksheet, onDownloadHtml }) => {
             format: 'a4'
         });
 
-        // The title in the worksheet object is already formatted as "HR [Nro] [ZONA] [MUNICIPIO] [DATE]"
+        // The title in the worksheet object is already formatted as "HR [Nro] [ZONA] [MUNI] [DATE]"
         // We use it directly for the PDF header and filename
         const title = worksheet.title;
         
@@ -315,11 +319,11 @@ const Worksheet: React.FC<WorksheetProps> = ({ worksheet, onDownloadHtml }) => {
             row.idLuminariaOlc,
             row.idGabinete || 'N/A',
             row.potencia || 'N/A',
-            row.fechaReporte,
+            row.event.date?.toLocaleString() || 'N/A', // FIX: Add optional chaining
             row.categoria || 'N/A',
             row.situacion || 'N/A',
             row.mensajeDeError,
-            `Pot. Medida: ${row.event.systemMeasuredPower?.toFixed(0) ?? 'N/A'}`,
+            `Pot. Medida: ${row.event.systemMeasuredPower?.toFixed(0) ?? 'N/A'}`, // FIX: Add optional chaining
             row.accion,
             row.posibleSolucion,
             '' // Empty column for notes

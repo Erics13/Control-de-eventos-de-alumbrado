@@ -93,7 +93,7 @@ const ChangeEventTable: React.FC<{ events: ChangeEvent[] }> = ({ events }) => {
                                     key={event.uniqueId}
                                     className="hover:bg-gray-700/50 transition-colors duration-150"
                                 >
-                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{event.fechaRetiro.toLocaleString()}</td>
+                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{event.fechaRetiro?.toLocaleString() || 'N/A'}</td>
                                     <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{event.componente}</td>
                                     <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{event.poleIdExterno}</td>
                                     <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{event.streetlightIdExterno}</td>

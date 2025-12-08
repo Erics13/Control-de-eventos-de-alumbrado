@@ -1,12 +1,6 @@
 
-
 import React, { useState, useMemo } from 'react';
-
-interface ServiceSummary {
-    nroCuenta: string;
-    luminaireCount: number;
-    totalPower: number;
-}
+import type { ServiceSummary } from '../types';
 
 interface ServiceSummaryTableProps {
     data: ServiceSummary[];

@@ -1,4 +1,3 @@
-
 import React from 'react';
 import type { LuminaireEvent } from '../types';
 
@@ -43,7 +42,7 @@ const OldestEventsByZone: React.FC<OldestEventsByZoneProps> = ({ data }) => {
                                 title={isClickable ? `Ver ubicación de ${event.id} en el mapa` : ''}
                             >
                                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-300">{event.zone}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{event.date.toLocaleString()}</td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{event.date?.toLocaleString() || 'N/A'}</td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{event.id}</td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{event.olcId || 'N/A'}</td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{event.power || 'N/A'}</td>

@@ -1,15 +1,12 @@
 
-
 import React, { useState, useMemo } from 'react';
-
-interface CabinetSummary {
-    cabinetId: string;
-    luminaireCount: number;
-}
+import type { CabinetSummary } from '../types';
 
 interface CabinetSummaryTableProps {
     data: CabinetSummary[];
 }
+
+type SortKey = keyof CabinetSummary;
 
 const CabinetSummaryTable: React.FC<CabinetSummaryTableProps> = ({ data }) => {
     const [sortConfig, setSortConfig] = useState<{ key: keyof CabinetSummary; direction: 'ascending' | 'descending' } | null>({ key: 'luminaireCount', direction: 'descending' });

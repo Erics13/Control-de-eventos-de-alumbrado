@@ -1,3 +1,5 @@
+
+
 import React, { useState, useMemo } from 'react';
 
 interface ChangeSummary {
@@ -24,6 +26,7 @@ export const ChangesByMunicipioTable: React.FC<ChangesByMunicipioTableProps> = (
             sortableItems.sort((a, b) => {
                 const valA = a[sortConfig.key];
                 const valB = b[sortConfig.key];
+                
                 if (valA < valB) {
                     return sortConfig.direction === 'ascending' ? -1 : 1;
                 }
@@ -49,7 +52,7 @@ export const ChangesByMunicipioTable: React.FC<ChangesByMunicipioTableProps> = (
             direction = 'descending';
         }
         setSortConfig({ key, direction });
-        setCurrentPage(1); // Fix: Reset to first page on sort
+        setCurrentPage(1); // Reset to first page on sort
     };
 
     const getSortIndicator = (key: SortKey) => {
@@ -57,12 +60,14 @@ export const ChangesByMunicipioTable: React.FC<ChangesByMunicipioTableProps> = (
         return sortConfig.direction === 'ascending' ? '▲' : '▼';
     };
 
-    const columns: { key: SortKey; label: string }[] = [
-        { key: 'name', label: 'Municipio' },
-        { key: 'LUMINARIA', label: 'Cambios Luminaria' },
-        { key: 'OLC', label: 'Cambios OLC' },
-        { key: 'total', label: 'Total Cambios' },
-    ];
+    const totals = useMemo(() => {
+        return data.reduce((acc, item) => {
+            acc.LUMINARIA += item.LUMINARIA;
+            acc.OLC += item.OLC;
+            acc.total += item.total;
+            return acc;
+        }, { name: 'Total General', LUMINARIA: 0, OLC: 0, total: 0 });
+    }, [data]);
 
     if (data.length === 0) {
         return <div className="flex items-center justify-center h-40 text-gray-500">No hay datos de cambios por municipio para mostrar.</div>;
@@ -74,14 +79,30 @@ export const ChangesByMunicipioTable: React.FC<ChangesByMunicipioTableProps> = (
                 <table className="min-w-full divide-y divide-gray-700">
                     <thead className="bg-gray-700/50">
                         <tr>
-                            {columns.map(({ key, label }) => (
-                                <th key={key} scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                                    <button onClick={() => requestSort(key)} className="flex items-center gap-2">
-                                        {label}
-                                        <span className="text-cyan-400">{getSortIndicator(key)}</span>
-                                    </button>
-                                </th>
-                            ))}
+                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                                <button onClick={() => requestSort('name')} className="flex items-center gap-2">
+                                    Municipio
+                                    <span className="text-cyan-400">{getSortIndicator('name')}</span>
+                                </button>
+                            </th>
+                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                                <button onClick={() => requestSort('LUMINARIA')} className="flex items-center gap-2">
+                                    Luminaria
+                                    <span className="text-cyan-400">{getSortIndicator('LUMINARIA')}</span>
+                                </button>
+                            </th>
+                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                                <button onClick={() => requestSort('OLC')} className="flex items-center gap-2">
+                                    OLC
+                                    <span className="text-cyan-400">{getSortIndicator('OLC')}</span>
+                                </button>
+                            </th>
+                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                                <button onClick={() => requestSort('total')} className="flex items-center gap-2">
+                                    Total
+                                    <span className="text-cyan-400">{getSortIndicator('total')}</span>
+                                </button>
+                            </th>
                         </tr>
                     </thead>
                     <tbody className="bg-gray-800 divide-y divide-gray-700">
@@ -94,6 +115,14 @@ export const ChangesByMunicipioTable: React.FC<ChangesByMunicipioTableProps> = (
                             </tr>
                         ))}
                     </tbody>
+                    <tfoot className="bg-gray-700 font-bold">
+                        <tr>
+                            <td className="px-6 py-3 text-left text-sm text-gray-200 uppercase">{totals.name}</td>
+                            <td className="px-6 py-3 text-left text-sm text-cyan-300">{totals.LUMINARIA.toLocaleString()}</td>
+                            <td className="px-6 py-3 text-left text-sm text-cyan-300">{totals.OLC.toLocaleString()}</td>
+                            <td className="px-6 py-3 text-left text-sm text-cyan-300">{totals.total.toLocaleString()}</td>
+                        </tr>
+                    </tfoot>
                 </table>
             </div>
             {totalPages > 1 && (
@@ -106,5 +135,3 @@ export const ChangesByMunicipioTable: React.FC<ChangesByMunicipioTableProps> = (
         </div>
     );
 };
-
-export default ChangesByMunicipioTable; // Also keeping default export for broader compatibility

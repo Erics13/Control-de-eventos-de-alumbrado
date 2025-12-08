@@ -1,5 +1,3 @@
-
-
 import React, { useState, useMemo } from 'react';
 import type { LuminaireEvent } from '../types';
 
@@ -76,7 +74,7 @@ const EventTable: React.FC<{ events: LuminaireEvent[] }> = ({ events }) => {
                     <tbody className="bg-gray-800 divide-y divide-gray-700">
                         {paginatedEvents.map((event) => (
                             <tr key={event.uniqueEventId} className="hover:bg-gray-700/50">
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{event.date.toLocaleString()}</td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{event.date?.toLocaleString() || 'N/A'}</td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{event.id}</td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{event.olcHardwareDir || 'N/A'}</td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{event.municipio}</td>

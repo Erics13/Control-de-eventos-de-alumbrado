@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo } from 'react';
 import type { CabinetFailureDetail } from '../types';
 
@@ -81,8 +80,8 @@ const CabinetFailuresTable: React.FC<CabinetFailuresTableProps> = ({ data }) => 
                     </thead>
                     <tbody className="bg-gray-800 divide-y divide-gray-700">
                         {paginatedItems.map((item) => (
-                            <tr key={`${item.id}-${item.date.toISOString()}`} className="hover:bg-gray-700/50">
-                                <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-300">{item.date.toLocaleDateString('es-ES')}</td>
+                            <tr key={`${item.id}-${item.date?.toISOString()}`} className="hover:bg-gray-700/50">
+                                <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-300">{item.date?.toLocaleDateString('es-ES') || 'N/A'}</td>
                                 <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-300">{item.id}</td>
                                 <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-300">{item.zone}</td>
                                 <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-300">{item.municipio}</td>

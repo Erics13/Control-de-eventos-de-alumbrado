@@ -1,5 +1,4 @@
 
-
 export const MUNICIPIO_TO_ZONE_MAP: Record<string, string> = {
     'AGUAS CORRIENTES': 'ZONA A',
     'SANTA LUCÍA': 'ZONA A',

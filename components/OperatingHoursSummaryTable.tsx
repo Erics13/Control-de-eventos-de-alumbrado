@@ -1,11 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
-
-interface OperatingHoursSummary {
-    range: string;
-    total: number;
-    [zone: string]: string | number;
-}
+import type { OperatingHoursSummary } from '../types'; // Import the interface
 
 interface OperatingHoursSummaryTableProps {
     data: OperatingHoursSummary[];
@@ -80,16 +75,16 @@ const OperatingHoursSummaryTable: React.FC<OperatingHoursSummaryTableProps> = ({
     }
 
     return (
-        <div>
+        <>
             <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-700">
                     <thead className="bg-gray-700/50">
                         <tr>
                             <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                                <button onClick={() => requestSort('range')} className="flex items-center gap-2">
-                                    Rango de Horas
-                                    <span className="text-cyan-400">{getSortIndicator('range')}</span>
-                                </button>
+                            <button onClick={() => requestSort('range')} className="flex items-center gap-2">
+                                Rango de Horas
+                                <span className="text-cyan-400">{getSortIndicator('range')}</span>
+                            </button>
                             </th>
                             <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
                                 <button onClick={() => requestSort('total')} className="flex items-center gap-2">
@@ -137,7 +132,7 @@ const OperatingHoursSummaryTable: React.FC<OperatingHoursSummaryTableProps> = ({
                     <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-600 text-sm font-medium rounded-md text-gray-300 bg-gray-700 hover:bg-gray-600 disabled:opacity-50">Siguiente</button>
                 </div>
             )}
-        </div>
+        </>
     );
 };
 

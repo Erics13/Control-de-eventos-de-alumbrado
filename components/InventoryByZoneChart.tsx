@@ -1,10 +1,8 @@
 
-
 import React, { useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LabelList } from 'recharts';
 import type { InventoryItem } from '../types';
-
-const ZONE_ORDER = ['ZONA A', 'ZONA B', 'ZONA B1', 'ZONA B2', 'ZONA B3', 'ZONA C', 'ZONA D'];
+import { ZONE_ORDER } from '../constants';
 
 const InventoryByZoneChart: React.FC<{ data: InventoryItem[] }> = ({ data }) => {
     const chartData = useMemo(() => {
