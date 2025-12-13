@@ -34,6 +34,47 @@
         background-color: #4a5568;
         display: none !important;
     }
+    /* Estilos para el marcador circular personalizado sin el pin predeterminado */
+    /* Aseguramos tamaño fijo y transparente */
+    .custom-numbered-marker {
+        background-image: none !important;
+        background-color: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        width: 25px !important; /* Fixed width */
+        height: 25px !important; /* Fixed height */
+        display: flex; /* Flexbox for centering content */
+        align-items: center;
+        justify-content: center;
+        /* Ensure z-index is higher if needed to avoid being hidden by map elements */
+        z-index: 600; /* Leaflet markers usually have z-index around 400-500 */
+    }
+    .custom-numbered-marker > span {
+        background-color: var(--marker-bg-color, #2563eb); /* Default blue */
+        color: white;
+        border-radius: 50%;
+        width: 25px; /* Size of the inner circle */
+        height: 25px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: bold;
+        border: 2px solid white;
+        box-shadow: 0 0 5px rgba(0,0,0,0.5);
+        font-size: 12px; /* Adjust font size if needed */
+        line-height: 1; /* Ensure text is vertically centered */
+        box-sizing: border-box; /* Include padding and border in the element's total width and height */
+    }
+
+    /* Reglas agresivas para asegurar que Leaflet no muestre su icono por defecto */
+    .leaflet-marker-icon.leaflet-zoom-animated.leaflet-interactive {
+        background-image: none !important;
+    }
+    .leaflet-marker-shadow {
+        display: none !important;
+    }
   </style>
 <script type="importmap">
 {
@@ -53,7 +94,8 @@
     "firebase/app": "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js",
     "firebase/auth": "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js",
     "firebase/database": "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js",
-    "firebase/": "https://aistudiocdn.com/firebase@^12.5.0/"
+    "firebase/": "https://aistudiocdn.com/firebase@^12.5.0/",
+    "ol/": "https://aistudiocdn.com/ol@^10.7.0/"
   }
 }
 </script>
@@ -61,6 +103,16 @@
 <body class="bg-gray-900 text-gray-100">
   <div id="root"></div>
   
+  <script type="module">
+    // FIX: Mueve la eliminación de _getIconUrl aquí para asegurar que se ejecute antes de la inicialización de Leaflet.
+    // Esto es crucial para que Leaflet no intente cargar sus iconos por defecto.
+    import L from 'leaflet';
+    if (L && L.Icon && L.Icon.Default && L.Icon.Default.prototype) {
+        delete L.Icon.Default.prototype._getIconUrl; // Removed 'as any'
+        // FIX: Elimina L.Icon.Default.mergeOptions para evitar posibles conflictos.
+        // Ahora se confía completamente en L.divIcon para los marcadores personalizados.
+    }
+  </script>
   <script type="module" src="/index.tsx"></script>
 </body>
 </html>

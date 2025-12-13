@@ -85,7 +85,7 @@ const ServiceSummaryTable: React.FC<ServiceSummaryTableProps> = ({ data }) => {
                             <tr key={nroCuenta} className="hover:bg-gray-700/50">
                                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-300">{nroCuenta}</td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{luminaireCount}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{totalPower.toLocaleString()}</td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{totalPower?.toLocaleString() ?? '0'}</td>
                             </tr>
                         ))}
                     </tbody>

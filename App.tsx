@@ -174,12 +174,28 @@ const App: React.FC = () => {
 
         const allFailureCategories = Array.from(new Set(filteredEvents.map(e => e.failureCategory).filter((c): c is string => !!c && c !== 'N/A')));
         
+        // --- CUSTOM SORTING FOR CATEGORIES ---
+        const categoryPriority = ['Inaccesible', 'Roto', 'Falla de voltaje', 'Falla de hardware', 'Error de configuración'];
+        allFailureCategories.sort((a: string, b: string) => {
+            const indexA = categoryPriority.indexOf(a);
+            const indexB = categoryPriority.indexOf(b);
+            
+            if (indexA !== -1 && indexB !== -1) return indexA - indexB;
+            if (indexA !== -1) return -1;
+            if (indexB !== -1) return 1;
+            
+            return a.localeCompare(b);
+        });
+        // -------------------------------------
+
         const calculateFailureData = (groupKey: 'zone' | 'municipio') => {
             const counts = new Map<string, { totalEvents: number; totalInventory: number; categoryCounts: Record<string, number> }>();
             
             filteredEvents.forEach(event => {
                 const key = event[groupKey];
-                if (!key) return;
+                // Ignore "Desconocida" or "Desconocido" zones/municipios
+                if (!key || key === 'Desconocida' || key === 'Desconocido') return;
+
                 let entry = counts.get(key);
                 if (!entry) {
                     entry = { totalEvents: 0, totalInventory: 0, categoryCounts: {} };
@@ -193,6 +209,9 @@ const App: React.FC = () => {
 
             inventory.forEach(item => {
                 const key = item[groupKey];
+                // Ignore "Desconocida" or "Desconocido" zones/municipios
+                if (!key || key === 'Desconocida' || key === 'Desconocido') return;
+
                 if (key) {
                     let entry = counts.get(key);
                     if (!entry) {
@@ -207,7 +226,7 @@ const App: React.FC = () => {
                 .map(([name, data]) => ({
                     name,
                     eventos: data.totalEvents,
-                    totalInventory: data.totalInventory, // Corrected typo
+                    totalInventario: data.totalInventory, // FIX: Changed from totalInventory to totalInventario to match Table component expectation
                     porcentaje: data.totalInventory > 0 ? (data.totalEvents / data.totalInventory) * 100 : 0,
                     ...data.categoryCounts
                 }))
@@ -358,6 +377,9 @@ const App: React.FC = () => {
     // --- Filtering Logic for InventarioTab ---
     const filteredInventory = useMemo(() => {
         return inventory.filter(item => {
+            // FIX: Exclude 'Desconocida' zone from inventory views as per user request
+            if (!item.zone || item.zone === 'Desconocida') return false;
+
             if (selectedZone !== 'all' && item.zone !== selectedZone) return false;
             if (selectedMunicipio !== 'all' && item.municipio !== selectedMunicipio) return false;
             if (selectedPower !== 'all' && item.potenciaNominal?.toString() !== selectedPower) return false;
@@ -657,7 +679,8 @@ const App: React.FC = () => {
             if (dateRange.end && event.fechaRetiro > endOfDay(dateRange.end)) return false;
             if (selectedZone !== 'all' && event.zone !== selectedZone) return false;
             if (selectedMunicipio !== 'all' && event.municipio !== selectedMunicipio) return false;
-            if (selectedChangesYear !== event.fechaRetiro.getFullYear().toString()) return false;
+            // REMOVED: selectedChangesYear filter. Indicators should show total across all time unless DateRange is used.
+            // if (selectedChangesYear !== event.fechaRetiro.getFullYear().toString()) return false;
             
             // Search Term filter
             if (searchTerm) {
@@ -673,7 +696,7 @@ const App: React.FC = () => {
             }
             return true;
         });
-    }, [changeEvents, dateRange, selectedZone, selectedMunicipio, selectedChangesYear, searchTerm]);
+    }, [changeEvents, dateRange, selectedZone, selectedMunicipio, searchTerm]);
 
     const displayChangeEvents = useMemo(() => {
         if (!cardChangeFilter) return filteredChangeEvents;
@@ -697,35 +720,41 @@ const App: React.FC = () => {
     }, []);
 
     // Change Metrics (Dashboard Cards)
+    // FIX: Metrics now use filteredChangeEvents (the base set for the current year/zone) instead of displayChangeEvents
+    // This ensures that clicking a card (like 'Luminaria') doesn't zero out the other counters.
     const luminariaChangesCount = useMemo(() => {
-        return displayChangeEvents.filter(e => e.componente.toLowerCase().includes('luminaria')).length;
-    }, [displayChangeEvents]);
+        return filteredChangeEvents.filter(e => e.componente.toLowerCase().includes('luminaria')).length;
+    }, [filteredChangeEvents]);
 
     const olcChangesCount = useMemo(() => {
-        return displayChangeEvents.filter(e => e.componente.toLowerCase().includes('olc')).length;
-    }, [displayChangeEvents]);
+        return filteredChangeEvents.filter(e => e.componente.toLowerCase().includes('olc')).length;
+    }, [filteredChangeEvents]);
+
+    const totalValidChanges = useMemo(() => {
+        return luminariaChangesCount + olcChangesCount;
+    }, [luminariaChangesCount, olcChangesCount]);
 
     const garantiaChangesCount = useMemo(() => {
-        return displayChangeEvents.filter(e => normalizeString(e.condicion).includes('garantia')).length;
-    }, [displayChangeEvents]);
+        return filteredChangeEvents.filter(e => normalizeString(e.condicion).includes('garantia')).length;
+    }, [filteredChangeEvents]);
 
     const vandalizadoChangesCount = useMemo(() => {
-        return displayChangeEvents.filter(e => normalizeString(e.condicion).includes('vandalizad') || normalizeString(e.condicion).includes('vandalism')).length;
-    }, [displayChangeEvents]);
+        return filteredChangeEvents.filter(e => normalizeString(e.condicion).includes('vandalizad') || normalizeString(e.condicion).includes('vandalism')).length;
+    }, [filteredChangeEvents]);
 
     const columnaCaidaChangesCount = useMemo(() => {
-        const count = displayChangeEvents.filter(e => {
+        const count = filteredChangeEvents.filter(e => {
             const normalizedCond = normalizeString(e.condicion);
             return normalizedCond.includes('columna') && normalizedCond.includes('caida');
         }).length;
         // console.log("Columna Caida Changes Count:", count); // Depuración: Desactivado
         // console.log("Display Change Events (conditions):", displayChangeEvents.map(e => e.condicion)); // Depuración: Desactivado
         return count;
-    }, [displayChangeEvents]);
+    }, [filteredChangeEvents]);
 
     const hurtoChangesCount = useMemo(() => {
-        return displayChangeEvents.filter(e => normalizeString(e.condicion).includes('hurto')).length;
-    }, [displayChangeEvents]);
+        return filteredChangeEvents.filter(e => normalizeString(e.condicion).includes('hurto')).length;
+    }, [filteredChangeEvents]);
 
     // Changes by Municipio (Cambios Tab)
     const changesByMunicipioData = useMemo(() => {
@@ -760,7 +789,8 @@ const App: React.FC = () => {
         const monthCounts = new Map<string, { LUMINARIA: number; OLC: number }>();
         const yearInt = parseInt(selectedChangesYear);
 
-        displayChangeEvents.forEach(e => {
+        // FIX: Use filteredChangeEvents instead of displayChangeEvents to keep chart stable when clicking KPI cards
+        filteredChangeEvents.forEach(e => {
             if (e.fechaRetiro.getFullYear() === yearInt) {
                 const monthKey = format(e.fechaRetiro, 'MM'); 
                 if (!monthCounts.has(monthKey)) {
@@ -787,7 +817,7 @@ const App: React.FC = () => {
         });
 
         return { data: monthlySummaries };
-    }, [displayChangeEvents, selectedChangesYear]);
+    }, [filteredChangeEvents, selectedChangesYear]);
 
 
     // Historical Changes by Condition (Cambios Tab)
@@ -799,7 +829,16 @@ const App: React.FC = () => {
             vandalizadoLuminaria: number; vandalizadoOlc: number;
         }>();
 
-        changeEvents.forEach(e => {
+        // Use filteredChangeEvents (which respects location filters) instead of changeEventsForHistory (which ignored date/year)
+        // Wait, historical table usually shows ALL years. changeEventsForHistory was correct for ignoring year.
+        // Let's bring back changeEventsForHistory logic but ensure it's used here.
+        const eventsForHistory = changeEvents.filter(event => {
+             if (selectedZone !== 'all' && event.zone !== selectedZone) return false;
+             if (selectedMunicipio !== 'all' && event.municipio !== selectedMunicipio) return false;
+             return true;
+        });
+
+        eventsForHistory.forEach(e => {
             const year = e.fechaRetiro.getFullYear().toString();
             if (!yearlyData.has(year)) {
                 yearlyData.set(year, {
@@ -834,25 +873,40 @@ const App: React.FC = () => {
         return Array.from(yearlyData.entries())
             .map(([year, counts]) => ({ year, ...counts }))
             .sort((a, b) => parseInt(b.year) - parseInt(a.year));
-    }, [changeEvents]);
+    }, [changeEvents, selectedZone, selectedMunicipio]);
 
 
     // --- Filtering Logic for HistorialTab ---
     const filteredHistoricalData = useMemo(() => {
-        if (!dateRange.start && !dateRange.end && !selectedMonth && !selectedYear) return historicalData;
         const filtered: HistoricalData = {};
+        
         Object.entries(historicalData).forEach(([dateStr, zonesDataRaw]) => {
+            // Validation
+            if (!zonesDataRaw || typeof zonesDataRaw !== 'object' || Array.isArray(zonesDataRaw)) return;
+            
+            // Date Filter Check
             const date = parse(dateStr, 'yyyy-MM-dd', new Date());
-            // FIX: Ensure date-fns functions are called correctly.
             if (dateRange.start && date < startOfDay(dateRange.start)) return;
             if (dateRange.end && date > endOfDay(dateRange.end)) return;
             if (selectedYear && format(date, 'yyyy') !== selectedYear) return;
             if (selectedMonth && format(date, 'M') !== selectedMonth) return;
-            
-            if (!zonesDataRaw || typeof zonesDataRaw !== 'object' || Array.isArray(zonesDataRaw)) return;
-            const zonesData = zonesDataRaw as Record<string, HistoricalZoneData>;
 
-            filtered[dateStr] = zonesData; 
+            // Zone Content Filtering (Exclude 'Desconocida')
+            const zonesData = zonesDataRaw as Record<string, HistoricalZoneData>;
+            const filteredZonesData: Record<string, HistoricalZoneData> = {};
+            let hasValidData = false;
+
+            Object.entries(zonesData).forEach(([zoneName, zoneData]) => {
+                // Explicitly exclude 'Desconocida' from historical view
+                if (zoneName !== 'Desconocida') {
+                    filteredZonesData[zoneName] = zoneData;
+                    hasValidData = true;
+                }
+            });
+
+            if (hasValidData) {
+                filtered[dateStr] = filteredZonesData;
+            }
         });
         return filtered;
     }, [historicalData, dateRange, selectedYear, selectedMonth]);
@@ -973,7 +1027,7 @@ const App: React.FC = () => {
             });
         });
     
-        const sortedZones = Array.from(presentZones).sort((a: string, b: string) => { const iA = ZONE_ORDER.indexOf(a); const iB = ZONE_ORDER.indexOf(b); if (iA !== -1 && iB !== -1) return iA - iB; if (iA !== -1) return -1; if (iB !== -1) return 1; return a.localeCompare(b); });
+        const sortedZones = Array.from(presentZones).sort((a, b) => { const iA = ZONE_ORDER.indexOf(a); const iB = ZONE_ORDER.indexOf(b); if (iA !== -1 && iB !== -1) return iA - iB; if (iA !== -1) return -1; if (iB !== -1) return 1; return a.localeCompare(b); });
     
         type MonthlySummaryChartDataItem = {
             name: string;
@@ -1255,13 +1309,14 @@ const App: React.FC = () => {
                          )}
                          {activeTab === 'cambios' && (
                             <CambiosTab 
-                                baseFilteredChangeEvents={changeEvents}
+                                baseFilteredChangeEvents={filteredChangeEvents} // Use the filtered base for counts
                                 displayChangeEvents={displayChangeEvents}
                                 changesByMunicipioData={changesByMunicipioData}
                                 changesByMonthData={changesByMonthData}
                                 historicalChangesByCondition={historicalChangesByCondition}
                                 luminariaChangesCount={luminariaChangesCount}
                                 olcChangesCount={olcChangesCount}
+                                totalValidChanges={totalValidChanges} // Pass the new calculated total
                                 garantiaChangesCount={garantiaChangesCount}
                                 vandalizadoChangesCount={vandalizadoChangesCount}
                                 columnaCaidaChangesCount={columnaCaidaChangesCount}

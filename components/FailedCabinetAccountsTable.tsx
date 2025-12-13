@@ -43,7 +43,7 @@ const FailedCabinetAccountsTable: React.FC<Props> = ({ servicePoints }) => {
                                 <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-300">{sp.nroCuenta}</td>
                                 <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-300">{sp.direccion}</td>
                                 <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-300">{sp.tarifa}</td>
-                                <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-300">{sp.potenciaContratada.toLocaleString('es-ES')}</td>
+                                <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-300">{sp.potenciaContratada?.toLocaleString('es-ES') ?? 'N/A'}</td>
                                 <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-300">{sp.tension}</td>
                                 <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-300">{sp.fases}</td>
                                 <td className="px-4 py-4 whitespace-nowrap text-sm text-center">

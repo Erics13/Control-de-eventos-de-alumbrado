@@ -15,9 +15,9 @@ const CustomTooltip = ({ active, payload, label }: any) => {
     return (
       <div className="bg-gray-800 border border-gray-700 p-3 rounded-md shadow-lg text-sm">
         <p className="font-bold text-cyan-400">{label}</p>
-        <p className="text-gray-300">{`Porcentaje de Fallas: ${data.porcentaje.toFixed(2)}%`}</p>
-        <p className="text-gray-400">{`Total Fallas: ${data.eventos.toLocaleString()}`}</p>
-        <p className="text-gray-400">{`Total Inventario: ${data.totalInventario.toLocaleString()}`}</p>
+        <p className="text-gray-300">{`Porcentaje de Fallas: ${data.porcentaje?.toFixed(2) ?? '0.00'}%`}</p>
+        <p className="text-gray-400">{`Total Fallas: ${(data.eventos ?? 0).toLocaleString()}`}</p>
+        <p className="text-gray-400">{`Total Inventario: ${(data.totalInventario ?? 0).toLocaleString()}`}</p>
       </div>
     );
   }

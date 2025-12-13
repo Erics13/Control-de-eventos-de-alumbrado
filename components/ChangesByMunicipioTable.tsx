@@ -1,5 +1,4 @@
 
-
 import React, { useState, useMemo } from 'react';
 
 interface ChangeSummary {
@@ -109,18 +108,18 @@ export const ChangesByMunicipioTable: React.FC<ChangesByMunicipioTableProps> = (
                         {paginatedItems.map((item) => (
                             <tr key={item.name} className="hover:bg-gray-700/50">
                                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-300">{item.name}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{item.LUMINARIA.toLocaleString()}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{item.OLC.toLocaleString()}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-200">{item.total.toLocaleString()}</td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{(item.LUMINARIA ?? 0).toLocaleString()}</td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{(item.OLC ?? 0).toLocaleString()}</td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-200">{(item.total ?? 0).toLocaleString()}</td>
                             </tr>
                         ))}
                     </tbody>
                     <tfoot className="bg-gray-700 font-bold">
                         <tr>
                             <td className="px-6 py-3 text-left text-sm text-gray-200 uppercase">{totals.name}</td>
-                            <td className="px-6 py-3 text-left text-sm text-cyan-300">{totals.LUMINARIA.toLocaleString()}</td>
-                            <td className="px-6 py-3 text-left text-sm text-cyan-300">{totals.OLC.toLocaleString()}</td>
-                            <td className="px-6 py-3 text-left text-sm text-cyan-300">{totals.total.toLocaleString()}</td>
+                            <td className="px-6 py-3 text-left text-sm text-cyan-300">{(totals.LUMINARIA ?? 0).toLocaleString()}</td>
+                            <td className="px-6 py-3 text-left text-sm text-cyan-300">{(totals.OLC ?? 0).toLocaleString()}</td>
+                            <td className="px-6 py-3 text-left text-sm text-cyan-300">{(totals.total ?? 0).toLocaleString()}</td>
                         </tr>
                     </tfoot>
                 </table>

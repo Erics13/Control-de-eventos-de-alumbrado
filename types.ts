@@ -1,4 +1,5 @@
 
+
 import L from 'leaflet';
 
 export interface LuminaireEvent {
@@ -17,12 +18,13 @@ export interface LuminaireEvent {
   olcHardwareDir?: string;
   systemMeasuredPower?: number;
   situacion?: string;
+  nroCuenta?: string; // Added to LuminaireEvent for easier grouping
 }
 
 export interface ChangeEvent {
   uniqueId: string;
   fechaRetiro: Date;
-  condicion: string;
+  condicion?: string; // Made optional
   poleIdExterno: string;
   horasFuncionamiento: number;
   recuentoConmutacion: number;
@@ -31,7 +33,7 @@ export interface ChangeEvent {
   lat?: number;
   lon?: number;
   streetlightIdExterno: string;
-  componente: string;
+  componente?: string; // Made optional
   designacionTipo: string;
   cabinetIdExterno?: string;
 }
@@ -65,16 +67,17 @@ export interface InventoryItem {
 
 export interface ServicePoint {
   nroCuenta: string;
-  tarifa: string;
+  tarifa?: string;   // Made optional
   potenciaContratada: number;
-  tension: string;
-  fases: string;
+  tension?: string; // Made optional
+  fases?: string;   // Made optional
   cantidadLuminarias: number; // This will be calculated from inventory
   direccion: string;
   lat: number;
   lon: number;
   alcid?: string; // Municipality code/name
   porcentEf?: number; // Efficiency percentage
+  municipio?: string; // Added optional municipio
 }
 
 export interface ZoneBase {
@@ -171,26 +174,41 @@ export interface WorksheetRow {
   event: LuminaireEvent;
 }
 
+export type RoutePriority = 'P1' | 'P1.5' | 'P2' | 'P3' | 'Regular';
 
 interface BaseWorksheet {
-  id: string;
+  id: string; // Unique ID for React key
   title: string;
   municipio?: string;
 }
 
-export interface LuminariaWorksheet extends BaseWorksheet {
+export interface BaseRouteWorksheet extends BaseWorksheet {
+  priority: RoutePriority;
+  color: string;
+  routePolyline?: string; // Encoded polyline from OSRM
+  routeDuration?: number; // Total duration in seconds
+  routeDistance?: number; // Total distance in meters
+  routeSummaryHtml?: string; // HTML summary from OSRM
+  startDepot?: ZoneBase;
+  endDepot?: ZoneBase;
+}
+
+
+export interface LuminariaWorksheet extends BaseRouteWorksheet {
   type: 'luminaria';
   failures: WorksheetRow[];
   totalFailuresInZone: number;
 }
 
-export interface CabinetWorksheet extends BaseWorksheet {
-  type: 'cabinet_falla_total' | 'cabinet_falla_parcial';
+export interface CabinetWorksheet extends BaseRouteWorksheet {
+  type: 'cabinet_falla_total' | 'cabinet_falla_parcial' | 'cabinet_voltaje' | 'cabinet_acumulacion';
   servicePoint: ServicePoint;
-  luminaires: InventoryItem[];
+  luminaires: InventoryItem[]; // All luminaires associated with the service point
+  accumulationFailures?: WorksheetRow[]; // Specific for cabinet_acumulacion to show chunked events
   inaccessiblePercentage?: number;
   inaccessibleCount?: number;
-  totalLuminariasInAccount?: number; // Added to reflect actual count from inventory
+  totalLuminariasInAccount?: number; 
+  originalEvents?: LuminaireEvent[]; // Store original events for board routes
 }
 
 export type WorksheetData = LuminariaWorksheet | CabinetWorksheet;

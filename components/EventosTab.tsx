@@ -112,6 +112,10 @@ const EventosTab: React.FC<EventosTabProps> = ({
                 </div>
             </div>
 
+            <CollapsibleSection title="Detalle de Eventos por Zona" onExport={handleExportFailureByZone} defaultOpen={true}>
+                <FailurePercentageTable data={failureDataByZone.data} categories={failureDataByZone.categories} locationHeader="Zona" />
+            </CollapsibleSection>
+
              <CollapsibleSection title="Análisis de Servicios con Falla por Zona" defaultOpen onExport={handleExportCabinetFailureAnalysis}>
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
                     <div className="lg:col-span-1">
@@ -134,7 +138,19 @@ const EventosTab: React.FC<EventosTabProps> = ({
                 </div>
             </CollapsibleSection>
 
-            <CollapsibleSection title="Análisis de Luminarias Inaccesibles" defaultOpen={true}>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div id="category-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-4"><h3 className="text-lg font-semibold text-cyan-400 mb-3">Eventos por Categoría</h3><FailureByCategoryChart data={baseFilteredEvents} /></div>
+                <div id="special-events-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-4"><h3 className="text-lg font-semibold text-cyan-400 mb-3">Eventos por Hurto, Vandalismo y Caídas</h3><SpecialEventsChart data={baseFilteredEvents} /></div>
+            </div>
+            <div id="zone-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-4"><h3 className="text-lg font-semibold text-cyan-400 mb-3">Porcentaje de Fallas por Zona (% del Inventario)</h3><FailureByZoneChart data={failureDataByZone.data} /></div>
+            
+            <div id="municipio-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-4"><h3 className="text-lg font-semibold text-cyan-400 mb-3">Porcentaje de Fallas por Municipio (% del Inventario)</h3><FailureByMunicipioChart data={failureDataByMunicipio.data} /></div>
+            <CollapsibleSection title="Detalle de Fallas por Municipio" onExport={handleExportFailureByMunicipio}><FailurePercentageTable data={failureDataByMunicipio.data} categories={failureDataByMunicipio.categories} locationHeader="Municipio" /></CollapsibleSection>
+            <div id="events-by-month-container" className="bg-gray-800 shadow-lg rounded-xl p-4"><h3 className="text-lg font-semibold text-cyan-400 mb-3">Volumen de Eventos por Mes (Últimos 12 Meses)</h3><EventsByMonthChart data={baseFilteredEvents} /></div>
+            <CollapsibleSection title="Listado de Eventos" onExport={handleExportFilteredEvents}><EventTable events={displayEvents} /></CollapsibleSection>
+            <CollapsibleSection title="Eventos Reportados Más Antiguos por Zona"><OldestEventsByZone data={oldestEventsByZone} /></CollapsibleSection>
+
+            <CollapsibleSection title="Análisis de Luminarias Inaccesibles" defaultOpen={false}>
                 <div className="space-y-6">
                     <div className="bg-gray-800 shadow-lg rounded-xl p-4">
                         <h3 className="text-xl font-bold text-cyan-400 mb-3">Indicador General</h3>
@@ -160,18 +176,6 @@ const EventosTab: React.FC<EventosTabProps> = ({
                     </div>
                 </div>
             </CollapsibleSection>
-
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div id="category-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-4"><h3 className="text-lg font-semibold text-cyan-400 mb-3">Eventos por Categoría</h3><FailureByCategoryChart data={baseFilteredEvents} /></div>
-                <div id="special-events-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-4"><h3 className="text-lg font-semibold text-cyan-400 mb-3">Eventos por Hurto, Vandalismo y Caídas</h3><SpecialEventsChart data={baseFilteredEvents} /></div>
-            </div>
-            <div id="zone-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-4"><h3 className="text-lg font-semibold text-cyan-400 mb-3">Porcentaje de Fallas por Zona (% del Inventario)</h3><FailureByZoneChart data={failureDataByZone.data} /></div>
-            <CollapsibleSection title="Detalle de Eventos por Zona" onExport={handleExportFailureByZone}><FailurePercentageTable data={failureDataByZone.data} categories={failureDataByZone.categories} locationHeader="Zona" /></CollapsibleSection>
-            <div id="municipio-chart-container" className="bg-gray-800 shadow-lg rounded-xl p-4"><h3 className="text-lg font-semibold text-cyan-400 mb-3">Porcentaje de Fallas por Municipio (% del Inventario)</h3><FailureByMunicipioChart data={failureDataByMunicipio.data} /></div>
-            <CollapsibleSection title="Detalle de Fallas por Municipio" onExport={handleExportFailureByMunicipio}><FailurePercentageTable data={failureDataByMunicipio.data} categories={failureDataByMunicipio.categories} locationHeader="Municipio" /></CollapsibleSection>
-            <div id="events-by-month-container" className="bg-gray-800 shadow-lg rounded-xl p-4"><h3 className="text-lg font-semibold text-cyan-400 mb-3">Volumen de Eventos por Mes (Últimos 12 Meses)</h3><EventsByMonthChart data={baseFilteredEvents} /></div>
-            <CollapsibleSection title="Listado de Eventos" onExport={handleExportFilteredEvents}><EventTable events={displayEvents} /></CollapsibleSection>
-            <CollapsibleSection title="Eventos Reportados Más Antiguos por Zona"><OldestEventsByZone data={oldestEventsByZone} /></CollapsibleSection>
         </div>
     );
 };

@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useCallback, Dispatch, SetStateAction } from 'react';
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
 import type { LuminaireEvent, ChangeEvent, InventoryItem, DataSourceURLs, HistoricalData, HistoricalZoneData, ServicePoint, ZoneBase } from '../types';
@@ -202,6 +203,7 @@ const normalizeHeader = (header: string): string => {
         .replace(/^servicepoint\/porcent ef$/, 'porcent_ef')
         .replace(/^servicepoint\/point x$/, 'lon')
         .replace(/^servicepoint\/point y$/, 'lat')
+        .replace(/^servicepoint\/zona$/, 'zone_name') // FIX: Mapping 'zona' to 'zone_name' for ServicePoints.
 
         // Zone Base specific (if prefixed)
         .replace(/^zone\/name$/, 'zone_name')
@@ -224,6 +226,11 @@ const normalizeHeader = (header: string): string => {
         .replace(/^cabinet\/id externo$/, 'cabinetIdExterno') // Mapped to cabinetIdExterno (as in InventoryItem type)
         .replace(/^cabinet\/latitud$/, 'cabinet_lat')
         .replace(/^cabinet\/longitud$/, 'cabinet_lon')
+        
+        // **NEW FIX**: Specifically target OLC Hardware Address with exact wording variations from CSV
+        .replace(/^olc\/dirección de hardware$/, 'olc_hardware_dir')
+        .replace(/^olc\/direccion de hardware$/, 'olc_hardware_dir')
+        .replace(/^olc hardware direction$/, 'olc_hardware_dir')
     ;
 
     // --- Generic replacements (less specific, should come after specific ones) ---
@@ -242,7 +249,10 @@ const normalizeHeader = (header: string): string => {
         .replace(/fecha_de_retiro/g, 'fecha_retiro')
         .replace(/horas_de_funcionamiento_de_la_lampara/g, 'horas_funcionamiento')
         .replace(/recuento_de_conmutacion/g, 'recuento_conmutacion')
+        // General match for olc hardware dir
         .replace(/direccion_de_hardware_olc/g, 'olc_hardware_dir')
+        .replace(/olc_hardware_dir/g, 'olc_hardware_dir')
+        
         .replace(/situacion_de_la_luminaria/g, 'situacion')
         .replace(/categoria_de_falla|category/g, 'categoria_falla')
         .replace(/descripcion_de_falla|description/g, 'descripcion_falla')
@@ -260,7 +270,8 @@ const normalizeHeader = (header: string): string => {
         .replace(/porcent_ef/g, 'porcent_ef')
         .replace(/point_x/g, 'lon')
         .replace(/point_y/g, 'lat')
-        .replace(/zone/g, 'zone_name')
+        .replace(/zona/g, 'zone_name') // Generic for 'zona' -> 'zone_name'
+        .replace(/^zonename$/, 'zone_name') // NEW: Map "zonename" (normalized "zoneName") to "zone_name"
         .replace(/estado/g, 'estado')
         .replace(/systemmeasuredpower/g, 'potencia_medida')
         .replace(/dimmingcalendar/g, 'dimming_calendar')
@@ -371,6 +382,24 @@ const parseNumberFromCSV = (numStr: string | undefined): number | undefined => {
     return isNaN(parsed) ? undefined : parsed;
 };
 
+// **NEW Helper**: Specialized parser for fields expected to be large integers (like operating hours)
+// which might be formatted with dots as thousand separators (e.g., 12.345 meaning 12,345).
+const parseIntegerLikeField = (numStr: string | undefined): number | undefined => {
+    if (!numStr || numStr.trim() === '' || numStr.toLowerCase().trim() === 'n/a' || numStr.toLowerCase().trim() === '-') return undefined;
+    
+    let cleaned = numStr.trim();
+    
+    // Check if it's using dots as thousand separators without commas (e.g. 12.345 meaning 12345)
+    // This is common in Spanish locale CSVs where decimals would be commas.
+    // We strictly apply this for fields that are conceptually counters/integers.
+    if (cleaned.includes('.') && !cleaned.includes(',')) {
+        cleaned = cleaned.replace(/\./g, '');
+    }
+    
+    // Use the standard parser for the rest (handling commas as decimals, etc.)
+    return parseNumberFromCSV(cleaned);
+};
+
 
 // --- React Hook ---
 export const useLuminaireData = () => {
@@ -412,6 +441,7 @@ export const useLuminaireData = () => {
             const latRaw = getVal('lat');
             const lonRaw = getVal('lon');
             const statusRaw = getVal('status');
+            const nroCuentaRaw = getVal('nro_cuenta'); // Get nroCuenta
 
             const lat = parseNumberFromCSV(latRaw);
             const lon = parseNumberFromCSV(lonRaw);
@@ -446,13 +476,14 @@ export const useLuminaireData = () => {
             }
 
             const municipioUpper = finalMunicipio!.toUpperCase(); // Use finalMunicipio
-            if (municipioUpper === 'DESAFECTADOS' || municipioUpper === 'OBRA NUEVA' || municipioUpper === 'N/A') {
-                skippedRowsCount++;
-                if (firstSkippedRowsDetails.length < SKIPPED_ROW_WARNING_THRESHOLD) {
-                    firstSkippedRowsDetails.push({ rowIndex: rowIndex + 1, missing: `municipio excluido '${finalMunicipio}'`, columns: columns });
-                }
-                return;
-            }
+            // FIX: Removed exclusion logic for specific municipalities in Events.
+            // if (municipioUpper === 'DESAFECTADOS' || municipioUpper === 'OBRA NUEVA' || municipioUpper === 'N/A') {
+            //     skippedRowsCount++;
+            //     if (firstSkippedRowsDetails.length < SKIPPED_ROW_WARNING_THRESHOLD) {
+            //         firstSkippedRowsDetails.push({ rowIndex: rowIndex + 1, missing: `municipio excluido '${finalMunicipio}'`, columns: columns });
+            //     }
+            //     return;
+            // }
             const zone = MUNICIPIO_TO_ZONE_MAP[municipioUpper] || 'Desconocida';
             
             const situacionLower = situacionRaw ? situacionRaw.toLowerCase() : undefined;
@@ -479,14 +510,15 @@ export const useLuminaireData = () => {
                 failureCategory: finalFailureCategory,
                 lat: lat, 
                 lon: lon,
-                olcHardwareDir: getVal('olc_hardware_dir'),
+                olcHardwareDir: getVal('olc_hardware_dir'), // Updated by normalizeHeader to catch "OLC/Dirección de hardware"
                 systemMeasuredPower: parseNumberFromCSV(getVal('potencia_medida')),
-                situacion: situacionLower 
+                situacion: situacionLower,
+                nroCuenta: nroCuentaRaw, // Add nroCuenta to event
             };
             parsedEvents.push(parsedEvent);
-            if (parsedEvents.length <= 5) { // Depuración: Log de las primeras 5 filas procesadas
-                console.log("Events: Parsed Event (first 5 rows):", parsedEvent);
-            }
+            // if (parsedEvents.length <= 5) { // Depuración: Log de las primeras 5 filas procesadas
+            //     console.log("Events: Parsed Event (first 5 rows):", parsedEvent);
+            // }
         });
 
         if (skippedRowsCount > 0) {
@@ -517,8 +549,8 @@ export const useLuminaireData = () => {
             const fechaRetiroStrRaw = getVal('fecha_retiro');
             const poleIdExternoRaw = getVal('pole_id_externo');
             const municipioRaw = getVal('municipio');
-            const condicionRaw = getVal('condicion');
-            const componenteRaw = getVal('componente');
+            const condicionRaw = getVal('condicion'); // Can be undefined or ''
+            const componenteRaw = getVal('componente'); // Can be undefined or ''
             const streetlightIdExternoRaw = getVal('id_luminaria');
             const latRaw = getVal('lat');
             const lonRaw = getVal('lon');
@@ -529,9 +561,8 @@ export const useLuminaireData = () => {
             const missingDetails: string[] = [];
             if (!fechaRetiroStrRaw) missingDetails.push(`fecha_retiro (valor: '${fechaRetiroStrRaw}')`);
             if (!poleIdExternoRaw) missingDetails.push(`pole_id_externo (valor: '${poleIdExternoRaw}')`);
-            if (!municipioRaw || municipioRaw.trim() === '') missingDetails.push(`municipio (valor: '${municipioRaw}')`); // This will now be set to Desconocido later
-            if (!condicionRaw) missingDetails.push(`condicion (valor: '${condicionRaw}')`);
-            if (!componenteRaw) missingDetails.push(`componente (valor: '${componenteRaw}')`);
+            // if (!municipioRaw || municipioRaw.trim() === '') missingDetails.push(`municipio (valor: '${municipioRaw}')`); // This will now be set to Desconocido later
+            // FIX: Removed condicionRaw and componenteRaw from critical missing details
             if (!streetlightIdExternoRaw) missingDetails.push(`id_luminaria (valor: '${streetlightIdExternoRaw}')`);
 
 
@@ -553,33 +584,34 @@ export const useLuminaireData = () => {
             
             const finalMunicipio = municipioRaw && municipioRaw.trim() !== '' ? municipioRaw : 'Desconocido';
             const municipioUpper = finalMunicipio!.toUpperCase();
-            if (municipioUpper === 'DESAFECTADOS' || municipioUpper === 'OBRA NUEVA' || municipioUpper === 'N/A') {
-                skippedRowsCount++;
-                if (firstSkippedRowsDetails.length < SKIPPED_ROW_WARNING_THRESHOLD) {
-                    firstSkippedRowsDetails.push({ rowIndex: rowIndex + 1, missing: `municipio excluido '${finalMunicipio}'`, columns: columns });
-                }
-                return;
-            }
+            // FIX: Removed exclusion logic for specific municipalities in ChangeEvents.
+            // if (municipioUpper === 'DESAFECTADOS' || municipioUpper === 'OBRA NUEVA' || municipioUpper === 'N/A') {
+            //     skippedRowsCount++;
+            //     if (firstSkippedRowsDetails.length < SKIPPED_ROW_WARNING_THRESHOLD) {
+            //         firstSkippedRowsDetails.push({ rowIndex: rowIndex + 1, missing: `municipio excluido '${finalMunicipio}'`, columns: columns });
+            //     }
+            //     return;
+            // }
 
             const zone = MUNICIPIO_TO_ZONE_MAP[municipioUpper] || 'Desconocida';
             
             const parsedChangeEvent: ChangeEvent = {
-                uniqueId: `${poleIdExternoRaw!}-${fechaRetiro.getTime()}-${componenteRaw}`, // Ensure unique ID
+                uniqueId: `${poleIdExternoRaw!}-${fechaRetiro.getTime()}-${componenteRaw || 'NA'}`, // Ensure unique ID, use 'NA' for component
                 fechaRetiro,
-                condicion: condicionRaw!.toLowerCase(), 
+                condicion: condicionRaw || 'N/A', // FIX: Default to 'N/A' if empty/undefined
                 poleIdExterno: poleIdExternoRaw!,
-                horasFuncionamiento: parseNumberFromCSV(getVal('horas_funcionamiento')) ?? 0,
-                recuentoConmutacion: parseNumberFromCSV(getVal('recuento_conmutacion')) ?? 0,
+                horasFuncionamiento: parseIntegerLikeField(getVal('horas_funcionamiento')) ?? 0, // USE NEW PARSER
+                recuentoConmutacion: parseIntegerLikeField(getVal('recuento_conmutacion')) ?? 0, // USE NEW PARSER
                 municipio: finalMunicipio!, zone, lat: lat, lon: lon,
                 streetlightIdExterno: streetlightIdExternoRaw!, 
-                componente: componenteRaw!,
+                componente: componenteRaw || 'N/A', // FIX: Default to 'N/A' if empty/undefined
                 designacionTipo: getVal('designacion_tipo') || '', 
                 cabinetIdExterno: getVal('cabinetIdExterno'), // Using specific key
             };
             parsedChangeEvents.push(parsedChangeEvent);
-            if (parsedChangeEvents.length <= 5) { // Depuración: Log de las primeras 5 filas procesadas
-                console.log("Changes: Parsed Change Event (first 5 rows):", parsedChangeEvent);
-            }
+            // if (parsedChangeEvents.length <= 5) { // Depuración: Log de las primeras 5 filas procesadas
+            //     console.log("Changes: Parsed Change Event (first 5 rows):", parsedChangeEvent);
+            // }
         });
         if (skippedRowsCount > 0) {
             console.warn(`Cambios: Se omitieron ${skippedRowsCount} filas en total. ${firstSkippedRowsDetails.length} detalles de las primeras filas omitidas:`);
@@ -662,13 +694,13 @@ export const useLuminaireData = () => {
                 marked: markedRaw, // Store raw marked value
                 estado: getVal('estado'),
                 fechaInauguracion: parseCustomDate(getVal('fecha_inauguracion')),
-                olcHardwareDir: getVal('olc_hardware_dir'), 
+                olcHardwareDir: getVal('olc_hardware_dir'), // Correctly mapped by normalizeHeader
                 dimmingCalendar: getVal('dimming_calendar'),
                 ultimoInforme: parseCustomDate(getVal('ultimo_informe')),
                 olcIdExterno: parseNumberFromCSV(getVal('olc_id_externo')),
                 luminaireIdExterno: getVal('luminaire_id_externo'),
-                horasFuncionamiento: parseNumberFromCSV(getVal('horas_funcionamiento')),
-                recuentoConmutacion: parseNumberFromCSV(getVal('recuento_conmutacion')),
+                horasFuncionamiento: parseIntegerLikeField(getVal('horas_funcionamiento')), // USE NEW PARSER
+                recuentoConmutacion: parseIntegerLikeField(getVal('recuento_conmutacion')), // USE NEW PARSER
                 cabinetIdExterno: cabinetIdExternoRaw, // Use raw cabinet ID
                 cabinetLat: parseNumberFromCSV(getVal('cabinet_lat')),
                 cabinetLon: parseNumberFromCSV(getVal('cabinet_lon')),
@@ -676,13 +708,14 @@ export const useLuminaireData = () => {
                 designacionTipo: getVal('designacion_tipo'),
             };
             parsedItems.push(parsedItem);
-            if (parsedItems.length <= 5) { // Depuración: Log de las primeras 5 filas procesadas
-                console.log("Inventory: Parsed Item (first 5 rows):", parsedItem);
-            }
+            // if (parsedItems.length <= 5) { // Depuración: Log de las primeras 5 filas procesadas
+            //     console.log("Inventory: Parsed Item (first 5 rows):", parsedItem);
+            // }
         });
         if (skippedRowsCount > 0) {
             console.warn(`Inventario: Se omitieron ${skippedRowsCount} filas en total. ${firstSkippedRowsDetails.length} detalles de las primeras filas omitidas:`);
             firstSkippedRowsDetails.forEach(detail => {
+                // FIX: Ensure 'columns' is passed to the console.warn call.
                 console.warn(`  - Fila ${detail.rowIndex}: Faltante/Inválido: ${detail.missing}. Columnas crudas:`, detail.columns, 'Header Map:', JSON.stringify(headerMap, null, 2));
             });
         }
@@ -707,10 +740,10 @@ export const useLuminaireData = () => {
             const getVal = (key: string) => getColumnValue(columns, headerMap, key);
             const nroCuentaRaw = getVal('nro_cuenta');
             const direccionRaw = getVal('direccion');
-            const tarifaRaw = getVal('tarifa');
+            const tarifaRaw = getVal('tarifa'); // Can be undefined or ''
             const potenciaContratadaRaw = getVal('potencia_contratada');
-            const tensionRaw = getVal('tension');
-            const fasesRaw = getVal('fases');
+            const tensionRaw = getVal('tension'); // Can be undefined or ''
+            const fasesRaw = getVal('fases');     // Can be undefined or ''
             const latRaw = getVal('lat');
             const lonRaw = getVal('lon');
 
@@ -721,10 +754,9 @@ export const useLuminaireData = () => {
             const missingDetails: string[] = [];
             if (!nroCuentaRaw) missingDetails.push(`nro_cuenta (valor: '${nroCuentaRaw}')`);
             if (!direccionRaw) missingDetails.push(`direccion (valor: '${direccionRaw}')`);
-            if (!tarifaRaw) missingDetails.push(`tarifa (valor: '${tarifaRaw}')`);
+            // FIX: Removed tarifaRaw from critical missing details
             if (potenciaContratada === undefined) missingDetails.push(`potencia_contratada (valor: '${potenciaContratadaRaw}')`);
-            if (!tensionRaw) missingDetails.push(`tension (valor: '${tensionRaw}')`);
-            if (!fasesRaw) missingDetails.push(`fases (valor: '${fasesRaw}')`);
+            // FIX: Removed tensionRaw and fasesRaw from critical missing details
             if (lat === undefined) missingDetails.push(`lat (valor: '${latRaw}')`);
             if (lon === undefined) missingDetails.push(`lon (valor: '${lonRaw}')`);
 
@@ -738,25 +770,27 @@ export const useLuminaireData = () => {
             
             const parsedItem: ServicePoint = {
                 nroCuenta: nroCuentaRaw!,
-                tarifa: tarifaRaw!,
+                tarifa: tarifaRaw || 'N/A',   // FIX: Default to 'N/A' if empty/undefined
                 potenciaContratada: potenciaContratada!, 
-                tension: tensionRaw!,
-                fases: fasesRaw!,
+                tension: tensionRaw || 'N/A', // FIX: Default to 'N/A' if empty/undefined
+                fases: fasesRaw || 'N/A',     // FIX: Default to 'N/A' if empty/undefined
                 cantidadLuminarias: 0, 
                 direccion: direccionRaw!,
                 lat: lat!,
                 lon: lon!,
                 alcid: getVal('alcid'), 
                 porcentEf: parseNumberFromCSV(getVal('porcent_ef')),
+                municipio: getVal('municipio'), // Added parsing for optional municipio
             };
             parsedItems.push(parsedItem);
-            if (parsedItems.length <= 5) { // Depuración: Log de las primeras 5 filas procesadas
-                console.log("Service Points: Parsed Item (first 5 rows):", parsedItem);
-            }
+            // if (parsedItems.length <= 5) { // Depuración: Log de las primeras 5 filas procesadas
+            //     console.log("Service Points: Parsed Item (first 5 rows):", parsedItem);
+            // }
         });
         if (skippedRowsCount > 0) {
             console.warn(`Puntos de Servicio: Se omitieron ${skippedRowsCount} filas en total. ${firstSkippedRowsDetails.length} detalles de las primeras filas omitidas:`);
             firstSkippedRowsDetails.forEach(detail => {
+                // FIX: Ensure 'columns' is passed to the console.warn call.
                 console.warn(`  - Fila ${detail.rowIndex}: Faltante/Inválido: ${detail.missing}. Columnas crudas:`, detail.columns, 'Header Map:', JSON.stringify(headerMap, null, 2));
             });
         }
@@ -787,7 +821,8 @@ export const useLuminaireData = () => {
             const lon = parseNumberFromCSV(lonRaw);
 
             const missingDetails: string[] = [];
-            if (!zoneNameRaw) missingDetails.push(`zone_name (valor: '${zoneNameRaw}')`);
+            // FIX: Added trim() === '' check for zoneNameRaw
+            if (!zoneNameRaw || zoneNameRaw.trim() === '') missingDetails.push(`zone_name (valor: '${zoneNameRaw}')`);
             if (lat === undefined) missingDetails.push(`lat (valor: '${latRaw}')`);
             if (lon === undefined) missingDetails.push(`lon (valor: '${lonRaw}')`);
 
@@ -805,13 +840,14 @@ export const useLuminaireData = () => {
                 lon: lon! 
             };
             parsedItems.push(parsedItem);
-            if (parsedItems.length <= 5) { // Depuración: Log de las primeras 5 filas procesadas
-                console.log("Zone Bases: Parsed Item (first 5 rows):", parsedItem);
-            }
+            // if (parsedItems.length <= 5) { // Depuración: Log de las primeras 5 filas procesadas
+            //     console.log("Zone Bases: Parsed Item (first 5 rows):", parsedItem);
+            // }
         });
         if (skippedRowsCount > 0) {
             console.warn(`Bases de Zona: Se omitieron ${skippedRowsCount} filas en total. ${firstSkippedRowsDetails.length} detalles de las primeras filas omitidas:`);
             firstSkippedRowsDetails.forEach(detail => {
+                // FIX: Ensure 'columns' is passed to the console.warn call.
                 console.warn(`  - Fila ${detail.rowIndex}: Faltante/Inválido: ${detail.missing}. Columnas crudas:`, detail.columns, 'Header Map:', JSON.stringify(headerMap, null, 2));
             });
         }
@@ -1109,8 +1145,9 @@ export const useLuminaireData = () => {
                 const fullEvent = {
                     ...event,
                     // FIX: Accessing zone and municipio from `inventoryData` (which is now InventoryItem).
-                    zone: event.zone || inventoryData?.zone || 'Desconocida', 
-                    municipio: event.municipio || inventoryData?.municipio || 'Desconocido' 
+                    zone: event.zone || inventoryData?.zone || (event.municipio ? (MUNICIPIO_TO_ZONE_MAP[event.municipio.toUpperCase()] || 'Desconocida') : 'Desconocida'),
+                    municipio: event.municipio || inventoryData?.municipio || 'Desconocido',
+                    nroCuenta: event.nroCuenta || inventoryData?.nroCuenta, // Also augment nroCuenta for historical snapshot
                 };
                 return {
                     ...fullEvent,

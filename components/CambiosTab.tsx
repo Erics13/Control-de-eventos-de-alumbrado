@@ -1,3 +1,4 @@
+
 import React from 'react';
 import DashboardCard from './DashboardCard';
 import ChangesByZoneChart from './ChangesByZoneChart';
@@ -21,6 +22,7 @@ interface CambiosTabProps {
     // Metrics
     luminariaChangesCount: number;
     olcChangesCount: number;
+    totalValidChanges: number; // New prop for correct total calculation
     garantiaChangesCount: number;
     vandalizadoChangesCount: number;
     columnaCaidaChangesCount: number;
@@ -45,6 +47,7 @@ const CambiosTab: React.FC<CambiosTabProps> = ({
     changesByMunicipioData,
     luminariaChangesCount,
     olcChangesCount,
+    totalValidChanges, // Use this instead of baseFilteredChangeEvents.length
     garantiaChangesCount,
     vandalizadoChangesCount,
     columnaCaidaChangesCount,
@@ -65,7 +68,7 @@ const CambiosTab: React.FC<CambiosTabProps> = ({
             <div className="bg-gray-800 shadow-lg rounded-xl p-4">
                 <h2 className="text-xl font-bold text-cyan-400 mb-3">Indicadores de Cambios</h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-4">
-                    <DashboardCard title="Total Cambios" value={baseFilteredChangeEvents.length.toLocaleString()} />
+                    <DashboardCard title="Total Cambios" value={totalValidChanges.toLocaleString()} />
                     <DashboardCard title="Cambios de Luminarias" value={luminariaChangesCount.toLocaleString()} onClick={() => handleCardChangeClick('luminaria')} isActive={cardChangeFilter === 'luminaria'}/>
                     <DashboardCard title="Cambios de OLCs" value={olcChangesCount.toLocaleString()} onClick={() => handleCardChangeClick('olc')} isActive={cardChangeFilter === 'olc'}/>
                     <DashboardCard title="Por Garantía" value={garantiaChangesCount.toLocaleString()} onClick={() => handleCardChangeClick('garantia')} isActive={cardChangeFilter === 'garantia'}/>

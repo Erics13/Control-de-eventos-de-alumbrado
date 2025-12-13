@@ -1,3 +1,4 @@
+
 import React from 'react';
 
 interface HistoricalData {
@@ -44,19 +45,19 @@ const HistoricalChangesByConditionTable: React.FC<{ data: HistoricalData[] }> = 
                 </thead>
                 <tbody className="bg-gray-800 divide-y divide-gray-700">
                     {data.map(item => {
-                        const totalLuminarias = item.garantiaLuminaria + item.columnaCaidaLuminaria + item.hurtoLuminaria + item.vandalizadoLuminaria;
-                        const totalOlcs = item.garantiaOlc + item.columnaCaidaOlc + item.hurtoOlc + item.vandalizadoOlc;
+                        const totalLuminarias = (item.garantiaLuminaria || 0) + (item.columnaCaidaLuminaria || 0) + (item.hurtoLuminaria || 0) + (item.vandalizadoLuminaria || 0);
+                        const totalOlcs = (item.garantiaOlc || 0) + (item.columnaCaidaOlc || 0) + (item.hurtoOlc || 0) + (item.vandalizadoOlc || 0);
                         return (
                             <tr key={item.year} className="hover:bg-gray-700/50">
                                 <td className="px-4 py-3 font-medium text-gray-200 border-r border-gray-600">{item.year}</td>
-                                <td className="px-4 py-3 text-center border-r border-gray-600">{item.garantiaLuminaria.toLocaleString()}</td>
-                                <td className="px-4 py-3 text-center border-r border-gray-600">{item.garantiaOlc.toLocaleString()}</td>
-                                <td className="px-4 py-3 text-center border-r border-gray-600">{item.columnaCaidaLuminaria.toLocaleString()}</td>
-                                <td className="px-4 py-3 text-center border-r border-gray-600">{item.columnaCaidaOlc.toLocaleString()}</td>
-                                <td className="px-4 py-3 text-center border-r border-gray-600">{item.hurtoLuminaria.toLocaleString()}</td>
-                                <td className="px-4 py-3 text-center border-r border-gray-600">{item.hurtoOlc.toLocaleString()}</td>
-                                <td className="px-4 py-3 text-center border-r border-gray-600">{item.vandalizadoLuminaria.toLocaleString()}</td>
-                                <td className="px-4 py-3 text-center border-r border-gray-600">{item.vandalizadoOlc.toLocaleString()}</td>
+                                <td className="px-4 py-3 text-center border-r border-gray-600">{(item.garantiaLuminaria ?? 0).toLocaleString()}</td>
+                                <td className="px-4 py-3 text-center border-r border-gray-600">{(item.garantiaOlc ?? 0).toLocaleString()}</td>
+                                <td className="px-4 py-3 text-center border-r border-gray-600">{(item.columnaCaidaLuminaria ?? 0).toLocaleString()}</td>
+                                <td className="px-4 py-3 text-center border-r border-gray-600">{(item.columnaCaidaOlc ?? 0).toLocaleString()}</td>
+                                <td className="px-4 py-3 text-center border-r border-gray-600">{(item.hurtoLuminaria ?? 0).toLocaleString()}</td>
+                                <td className="px-4 py-3 text-center border-r border-gray-600">{(item.hurtoOlc ?? 0).toLocaleString()}</td>
+                                <td className="px-4 py-3 text-center border-r border-gray-600">{(item.vandalizadoLuminaria ?? 0).toLocaleString()}</td>
+                                <td className="px-4 py-3 text-center border-r border-gray-600">{(item.vandalizadoOlc ?? 0).toLocaleString()}</td>
                                 <td className="px-4 py-3 text-center font-bold text-cyan-300 border-r border-gray-600">{totalLuminarias.toLocaleString()}</td>
                                 <td className="px-4 py-3 text-center font-bold text-cyan-300">{totalOlcs.toLocaleString()}</td>
                             </tr>

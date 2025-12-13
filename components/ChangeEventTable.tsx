@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo } from 'react';
 import type { ChangeEvent } from '../types';
 
@@ -100,8 +101,8 @@ const ChangeEventTable: React.FC<{ events: ChangeEvent[] }> = ({ events }) => {
                                     <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{event.municipio}</td>
                                     <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{event.zone}</td>
                                     <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{event.condicion}</td>
-                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{event.horasFuncionamiento.toLocaleString()}</td>
-                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{event.recuentoConmutacion.toLocaleString()}</td>
+                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{event.horasFuncionamiento?.toLocaleString() ?? '0'}</td>
+                                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-300">{event.recuentoConmutacion?.toLocaleString() ?? '0'}</td>
                                     <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-400 truncate max-w-xs">{event.designacionTipo}</td>
                                     <td className="px-4 py-4 whitespace-nowrap text-sm text-center">
                                         {hasLocation ? (

@@ -8,6 +8,10 @@ const ChangesByZoneChart: React.FC<{ data: ChangeEvent[] }> = ({ data }) => {
     const chartData = useMemo(() => {
         const countsByZone = data.reduce((acc, event) => {
             const zone = event.zone;
+            
+            // Filter out invalid or unknown zones
+            if (!zone || zone === 'Desconocida') return acc;
+
             if (!acc[zone]) {
                 acc[zone] = { LUMINARIA: 0, OLC: 0 };
             }

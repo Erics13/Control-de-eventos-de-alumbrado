@@ -4,12 +4,9 @@ import L from 'leaflet';
 import type { ServicePoint } from '../types';
 
 // Fix for default marker icon issue with webpack
-delete (L.Icon.Default.prototype as any)._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-});
+// FIX: Removed L.Icon.Default.mergeOptions as it can reintroduce default marker image paths.
+// We rely on explicit icon options or L.divIcon for custom markers.
+// FIX: Removed delete (L.Icon.Default.prototype as any)._getIconUrl; as it is now handled in index.html
 
 
 interface MapModalProps {
@@ -20,6 +17,7 @@ interface MapModalProps {
 }
 
 const MapModal: React.FC<MapModalProps> = ({ isOpen, onClose, title, servicePoints }) => {
+    // FIX: Corrected typo from 'HTMLDivLlement' to 'HTMLDivElement'
     const mapContainerRef = useRef<HTMLDivElement>(null);
     const mapRef = useRef<L.Map | null>(null);
     const markersRef = useRef<L.Marker[]>([]);
@@ -48,7 +46,17 @@ const MapModal: React.FC<MapModalProps> = ({ isOpen, onClose, title, servicePoin
                 if (servicePoints.length > 0) {
                     const bounds = L.latLngBounds([]);
                     servicePoints.forEach(sp => {
-                        const marker = L.marker([sp.lat, sp.lon]).addTo(map);
+                        // FIX: Use a completely transparent, zero-size icon for all markers in MapModal
+                        // to ensure no default pin image appears.
+                        const invisibleIcon = L.icon({
+                            iconUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
+                            iconSize: [0, 0],
+                            iconAnchor: [0, 0],
+                            popupAnchor: [0, 0],
+                            tooltipAnchor: [0, 0]
+                        });
+                        
+                        const marker = L.marker([sp.lat, sp.lon], { icon: invisibleIcon }).addTo(map);
                         marker.bindPopup(`
                             <div class="text-sm">
                                 <p class="font-bold">${sp.direccion}</p>

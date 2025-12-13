@@ -223,3 +223,40 @@ export const meses = [
     { value: '07', label: 'Julio' }, { value: '08', label: 'Agosto' }, { value: '09', label: 'Septiembre' },
     { value: '10', label: 'Octubre' }, { value: '11', label: 'Noviembre' }, { value: '12', label: 'Diciembre' },
 ];
+
+// --- Constants for Route Generation ---
+import type { RoutePriority } from './types';
+
+// Updated: Increased to 15 to satisfy user request for larger routes.
+export const MAX_EVENTS_PER_ROUTE = 15;
+export const MAX_EVENTS_FOR_PRIORITY3_CHUNK = 20;
+// Proximity threshold for Priority 1.5 (e.g., 40 meters)
+export const CABINET_PROXIMITY_THRESHOLD_METERS = 40; 
+
+export const PRIORITY_COLORS: Record<RoutePriority, string> = {
+    'P1': '#ef4444',     // red-500 (Máxima Prioridad)
+    'P1.5': '#f59e0b',   // amber-500 (POSIBLE FALLA DE RAMAL/FASE)
+    'P2': '#f59e0b',     // amber-500 (Evento de Voltaje)
+    'P3': '#f59e0b',     // amber-500 (Acumulación de fallas en un circuito)
+    'Regular': '#3b82f6', // blue-500 (Eventos Individuales)
+};
+
+export const VOLTAGE_MESSAGE_SUBSTRINGS = [
+    'voltaje muy bajo', 
+    'voltaje muy alto', 
+    'tensión', 
+    'tension',
+    'voltaje', // Broader match for any voltage issue
+];
+
+// Situation/Category strings for Regular Routes Grouping (normalized)
+export const REGULAR_ROUTE_SITUATIONS = [
+    'vandalizado',
+    'hurto',
+    'columna caida',
+    'falta poda',
+    'falta linea',
+    'sin energia',
+    'sin olc',
+    'retirada',
+];
