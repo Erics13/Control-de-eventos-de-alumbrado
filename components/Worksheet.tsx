@@ -566,6 +566,59 @@ const Worksheet: React.FC<WorksheetProps> = ({ worksheet, onDownloadHtml }) => {
                     margin: { top: 25 }
                 });
                 finalY = (doc as any).lastAutoTable.finalY + 10;
+
+                // --- ADD SUMMARY TABLE FOR P3 CABINET ---
+                if (finalY > doc.internal.pageSize.height - 40) {
+                    doc.addPage();
+                    finalY = 25;
+                }
+
+                const powerCounts: Record<string, number> = {};
+                cabWS.accumulationFailures.forEach(row => {
+                    const power = row.potencia || 'Desconocida';
+                    powerCounts[power] = (powerCounts[power] || 0) + 1;
+                });
+
+                const summaryBody = Object.entries(powerCounts)
+                    .map(([power, count]) => ({ power, count, val: parseInt(power) || 0 }))
+                    .sort((a, b) => a.val - b.val)
+                    .map(x => [x.power, x.count]);
+
+                if (summaryBody.length > 0) {
+                    doc.setFontSize(12);
+                    doc.setTextColor(0);
+                    doc.text('Materiales Necesarios (Resumen por Potencia)', 14, finalY);
+                    finalY += 5;
+                    (doc as any).autoTable({
+                        head: [['Potencia', 'Cantidad']],
+                        body: summaryBody,
+                        startY: finalY,
+                        theme: 'grid',
+                        headStyles: { 
+                            fillColor: [50, 50, 50],
+                            textColor: 255, 
+                            fontSize: 10,
+                            fontStyle: 'bold',
+                            lineColor: [0, 0, 0],
+                            lineWidth: 0.1
+                        },
+                        styles: { 
+                            fontSize: 10, 
+                            cellPadding: 2,
+                            lineColor: [0, 0, 0],
+                            lineWidth: 0.1,
+                            textColor: [0, 0, 0]
+                        },
+                        columnStyles: {
+                            0: { cellWidth: 40 },
+                            1: { cellWidth: 30 }
+                        },
+                        margin: { left: 14 }
+                    });
+                    finalY = (doc as any).lastAutoTable.finalY + 10;
+                }
+                // ------------------------------------------
+
             } 
             // If NOT P1 (Total Failure), print associated luminaires list
             else if (cabWS.type !== 'cabinet_falla_total' && cabWS.luminaires.length > 0) {
@@ -652,7 +705,7 @@ const Worksheet: React.FC<WorksheetProps> = ({ worksheet, onDownloadHtml }) => {
                 margin: { top: 25 }
             });
 
-            // Summary Table logic for Luminaria worksheets remains same
+            // Summary Table logic for Luminaria worksheets
             finalY = (doc as any).lastAutoTable.finalY + 15;
             if (finalY > doc.internal.pageSize.height - 40) {
                 doc.addPage();
