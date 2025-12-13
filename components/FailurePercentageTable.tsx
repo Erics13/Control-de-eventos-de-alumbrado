@@ -106,6 +106,12 @@ const FailurePercentageTable: React.FC<FailurePercentageTableProps> = ({ data, c
         return calculatedTotals;
     }, [data, categories]);
 
+    // Helper function for conditional styling
+    const getPercentageColorClass = (percentage: number) => {
+        if (percentage > 5) return 'text-red-400 font-bold';
+        if (percentage > 3) return 'text-yellow-400 font-bold';
+        return 'text-gray-400';
+    };
 
     if (data.length === 0) {
         return <div className="flex items-center justify-center h-40 text-gray-500">No hay datos de fallas para mostrar con los filtros actuales.</div>;
@@ -130,27 +136,53 @@ const FailurePercentageTable: React.FC<FailurePercentageTableProps> = ({ data, c
                     <tbody className="bg-gray-800 divide-y divide-gray-700">
                         {paginatedItems.map((item) => (
                              <tr key={item.name} className="hover:bg-gray-700/50">
-                                {columns.map(({ key }) => (
-                                    <td key={key} className={`px-4 py-4 whitespace-nowrap text-sm ${key === 'name' ? 'font-medium text-gray-300' : 'text-gray-400'}`}>
-                                        {key === 'porcentaje' ? `${item.porcentaje.toFixed(2)}%` : (item[key] ?? 0).toLocaleString()}
-                                    </td>
-                                ))}
+                                {columns.map(({ key }) => {
+                                    let cellClass = "px-4 py-4 whitespace-nowrap text-sm ";
+                                    if (key === 'name') {
+                                        cellClass += "font-medium text-gray-300";
+                                    } else if (key === 'porcentaje') {
+                                        cellClass += getPercentageColorClass(item.porcentaje);
+                                    } else {
+                                        cellClass += "text-gray-400";
+                                    }
+
+                                    return (
+                                        <td key={key} className={cellClass}>
+                                            {key === 'porcentaje' ? `${item.porcentaje.toFixed(2)}%` : (item[key] ?? 0).toLocaleString()}
+                                        </td>
+                                    );
+                                })}
                             </tr>
                         ))}
                     </tbody>
                      {totals && (
                         <tfoot className="bg-gray-700/50 font-bold">
                             <tr>
-                                {columns.map(({ key }) => (
-                                    <td key={`total-${key}`} className={`px-4 py-3 whitespace-nowrap text-sm border-t-2 border-gray-600 ${key === 'name' ? 'text-gray-200' : 'text-cyan-300'}`}>
-                                        {key === 'name' 
-                                            ? totals.name 
-                                            : key === 'porcentaje' 
-                                                ? `${totals.porcentaje.toFixed(2)}%` 
-                                                : (totals[key] ?? 0).toLocaleString()
-                                        }
-                                    </td>
-                                ))}
+                                {columns.map(({ key }) => {
+                                    let footerClass = "px-4 py-3 whitespace-nowrap text-sm border-t-2 border-gray-600 ";
+                                    if (key === 'name') {
+                                        footerClass += "text-gray-200";
+                                    } else if (key === 'porcentaje') {
+                                        // Apply same logic to footer
+                                        const pct = totals.porcentaje || 0;
+                                        if (pct > 5) footerClass += "text-red-400 font-bold";
+                                        else if (pct > 3) footerClass += "text-yellow-400 font-bold";
+                                        else footerClass += "text-cyan-300";
+                                    } else {
+                                        footerClass += "text-cyan-300";
+                                    }
+
+                                    return (
+                                        <td key={`total-${key}`} className={footerClass}>
+                                            {key === 'name' 
+                                                ? totals.name 
+                                                : key === 'porcentaje' 
+                                                    ? `${totals.porcentaje.toFixed(2)}%` 
+                                                    : (totals[key] ?? 0).toLocaleString()
+                                            }
+                                        </td>
+                                    );
+                                })}
                             </tr>
                         </tfoot>
                     )}

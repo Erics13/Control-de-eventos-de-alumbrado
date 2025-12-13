@@ -159,6 +159,7 @@ const normalizeHeader = (header: string): string => {
         .replace(/^streetlight\/fecha inauguración$/, 'fecha_inauguracion') // Specific: handle 'inauguración' with accent
         .replace(/^streetlight\/fecha inauguracion$/, 'fecha_inauguracion')
         .replace(/^streetlight\/dimming calendar$/, 'dimming_calendar') // Maps to dimmingCalendar
+        .replace(/^olc\/dimming calendar name$/, 'dimming_calendar') // NEW: Maps OLC/Dimming calendar name to dimmingCalendar
         .replace(/^streetlight\/hora del ultimo informe$/, 'ultimo_informe') // Specific: handle 'último' with accent
         .replace(/^streetlight\/hora del ultimo informe$/, 'ultimo_informe')
         .replace(/^streetlight\/olc external id$/, 'olc_id_externo') // Maps to olcIdExterno
